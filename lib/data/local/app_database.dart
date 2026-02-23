@@ -55,10 +55,6 @@ class Clients extends Table {
 
   TextColumn get address => text().nullable()();
 
-  TextColumn get contactName => text().nullable()();
-
-  TextColumn get contactPhone => text().nullable()();
-
   BoolColumn get isActive => boolean().withDefault(const Constant(true))();
 
   @override
@@ -71,6 +67,10 @@ class Plants extends Table {
   TextColumn get clientId => text().references(Clients, #id)();
 
   TextColumn get name => text()();
+
+  TextColumn get contactName => text().nullable()();
+
+  TextColumn get phone => text().nullable()();
 
   @override
   Set<Column> get primaryKey => {id};
@@ -355,7 +355,7 @@ class AppDatabase extends _$AppDatabase {
   AppDatabase([QueryExecutor? executor]) : super(executor ?? _openConnection());
 
   @override
-  int get schemaVersion => 2;
+  int get schemaVersion => 3;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -366,6 +366,10 @@ class AppDatabase extends _$AppDatabase {
           if (from < 2) {
             await migrator.addColumn(reports, reports.darknessLevel);
           }
+          if (from < 3) {
+            await migrator.addColumn(plants, plants.contactName);
+            await migrator.addColumn(plants, plants.phone);
+          }
         },
         beforeOpen: (OpeningDetails details) async {
           await customStatement('PRAGMA foreign_keys = ON;');
@@ -374,7 +378,13 @@ class AppDatabase extends _$AppDatabase {
 }
 
 QueryExecutor _openConnection() {
-  return driftDatabase(name: 'industrial_service_reports.sqlite');
+  return driftDatabase(
+    name: 'industrial_service_reports.sqlite',
+    web: DriftWebOptions(
+      sqlite3Wasm: Uri.parse('sqlite3.wasm'),
+      driftWorker: Uri.parse('drift_worker.js'),
+    ),
+  );
 }
 
 

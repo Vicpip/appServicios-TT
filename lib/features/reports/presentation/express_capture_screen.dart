@@ -5,7 +5,12 @@ import 'package:industrial_service_reports/core/theme/app_palette.dart';
 import 'package:industrial_service_reports/features/reports/presentation/report_summary_screen.dart';
 
 class ExpressCaptureScreen extends StatefulWidget {
-  const ExpressCaptureScreen({super.key});
+  const ExpressCaptureScreen({
+    super.key,
+    this.printerId,
+  });
+
+  final String? printerId;
 
   @override
   State<ExpressCaptureScreen> createState() => _ExpressCaptureScreenState();

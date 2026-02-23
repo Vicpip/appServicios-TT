@@ -1,9 +1,17 @@
 import 'package:flutter/material.dart';
+import 'package:drift/drift.dart' as drift;
 import 'package:industrial_service_reports/core/theme/app_palette.dart';
+import 'package:industrial_service_reports/data/local/app_database.dart';
 import 'package:industrial_service_reports/features/reports/presentation/express_capture_screen.dart';
+import 'package:uuid/uuid.dart';
 
 class QuickAddPrinterScreen extends StatefulWidget {
-  const QuickAddPrinterScreen({super.key});
+  const QuickAddPrinterScreen({
+    super.key,
+    required this.database,
+  });
+
+  final AppDatabase database;
 
   @override
   State<QuickAddPrinterScreen> createState() => _QuickAddPrinterScreenState();
@@ -16,6 +24,20 @@ class _QuickAddPrinterScreenState extends State<QuickAddPrinterScreen> {
     'ZD421 - 203dpi',
     '105SL Plus',
   ];
+  static const Map<String, String> _mockClientIds = <String, String>{
+    'Beautyge Mexico': '10000000-0000-0000-0000-000000000001',
+    'Generic Client': '10000000-0000-0000-0000-000000000002',
+  };
+  static const Map<String, String> _mockPlantIds = <String, String>{
+    'Nave 1': '20000000-0000-0000-0000-000000000001',
+    'Nave 2': '20000000-0000-0000-0000-000000000002',
+    'Principal': '20000000-0000-0000-0000-000000000003',
+  };
+  static const Map<String, String> _mockAreaIds = <String, String>{
+    'Linea de Empaque': '30000000-0000-0000-0000-000000000001',
+    'Almacen': '30000000-0000-0000-0000-000000000002',
+    'Recibo': '30000000-0000-0000-0000-000000000003',
+  };
 
   static const List<String> _clientOptions = <String>[
     'Beautyge Mexico',
@@ -35,15 +57,21 @@ class _QuickAddPrinterScreenState extends State<QuickAddPrinterScreen> {
   ];
 
   final GlobalKey<FormState> _formKey = GlobalKey<FormState>();
+  final Uuid _uuid = const Uuid();
   final TextEditingController _serialController = TextEditingController();
+  final TextEditingController _modelController = TextEditingController();
+  final FocusNode _modelFocusNode = FocusNode();
 
   String? _selectedClient;
   String? _selectedPlant;
   String? _selectedArea;
+  bool _isSaving = false;
 
   @override
   void dispose() {
     _serialController.dispose();
+    _modelController.dispose();
+    _modelFocusNode.dispose();
     super.dispose();
   }
 
@@ -153,11 +181,17 @@ class _QuickAddPrinterScreenState extends State<QuickAddPrinterScreen> {
           child: SizedBox(
             height: 52,
             child: FilledButton.icon(
-              onPressed: _onSaveAndCreateReport,
-              icon: const Icon(Icons.save_rounded),
-              label: const Text(
-                'Guardar y Crear Reporte',
-                style: TextStyle(fontSize: 17, fontWeight: FontWeight.w800),
+              onPressed: _isSaving ? null : _onSaveAndCreateReport,
+              icon: _isSaving
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.save_rounded),
+              label: Text(
+                _isSaving ? 'Guardando...' : 'Guardar y Crear Reporte',
+                style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w800),
               ),
             ),
           ),
@@ -192,7 +226,9 @@ class _QuickAddPrinterScreenState extends State<QuickAddPrinterScreen> {
   }
 
   Widget _buildModelAutocompleteField() {
-    return Autocomplete<String>(
+    return RawAutocomplete<String>(
+      textEditingController: _modelController,
+      focusNode: _modelFocusNode,
       optionsBuilder: (TextEditingValue textEditingValue) {
         final String query = textEditingValue.text.trim().toLowerCase();
         if (query.isEmpty) {
@@ -202,6 +238,9 @@ class _QuickAddPrinterScreenState extends State<QuickAddPrinterScreen> {
         return _modelOptions.where(
           (String option) => option.toLowerCase().contains(query),
         );
+      },
+      onSelected: (String selectedOption) {
+        _modelController.text = selectedOption;
       },
       fieldViewBuilder: (
         BuildContext context,
@@ -277,32 +316,169 @@ class _QuickAddPrinterScreenState extends State<QuickAddPrinterScreen> {
     );
   }
 
-  void _onSaveAndCreateReport() {
+  Future<void> _onSaveAndCreateReport() async {
     final bool isValid = _formKey.currentState?.validate() ?? false;
     if (!isValid) {
-      ScaffoldMessenger.of(context).hideCurrentSnackBar();
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          backgroundColor: Theme.of(context).colorScheme.error,
-          content: const Text('Complete los campos obligatorios'),
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
+      _showErrorSnackBar('Complete los campos obligatorios');
       return;
     }
 
+    final String serialNumber = _serialController.text.trim();
+    final String modelInput = _modelController.text.trim();
+    final String clientName = _selectedClient!.trim();
+    final String plantName = _selectedPlant!.trim();
+    final String areaName = _selectedArea!.trim();
+
+    setState(() {
+      _isSaving = true;
+    });
+
+    try {
+      final String printerId = _uuid.v4();
+      final String qrUuid = _uuid.v4();
+
+      final String clientId = _mockClientIds[clientName]!;
+      final String plantId = _mockPlantIds[plantName]!;
+      final String areaId = _mockAreaIds[areaName]!;
+
+      await widget.database.transaction(() async {
+        await widget.database.into(widget.database.clients).insertOnConflictUpdate(
+              ClientsCompanion(
+                id: drift.Value(clientId),
+                name: drift.Value(clientName),
+                isActive: const drift.Value(true),
+              ),
+            );
+
+        await widget.database.into(widget.database.plants).insertOnConflictUpdate(
+              PlantsCompanion(
+                id: drift.Value(plantId),
+                clientId: drift.Value(clientId),
+                name: drift.Value(plantName),
+              ),
+            );
+
+        await widget.database.into(widget.database.areas).insertOnConflictUpdate(
+              AreasCompanion(
+                id: drift.Value(areaId),
+                plantId: drift.Value(plantId),
+                name: drift.Value(areaName),
+              ),
+            );
+
+        final String modelId = await _resolveModelId(modelInput);
+
+        await widget.database.into(widget.database.printers).insert(
+              PrintersCompanion.insert(
+                id: printerId,
+                qrUuid: qrUuid,
+                serialNumber: serialNumber,
+                clientId: clientId,
+                plantId: plantId,
+                areaId: areaId,
+                modelId: modelId,
+                isActive: const drift.Value(true),
+              ),
+            );
+      });
+
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).hideCurrentSnackBar();
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          backgroundColor: AppPalette.success,
+          content: Text('Impresora guardada localmente'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+
+      Navigator.of(context).pushReplacement(
+        MaterialPageRoute<void>(
+          builder: (_) => ExpressCaptureScreen(printerId: printerId),
+        ),
+      );
+    } catch (error) {
+      if (!mounted) return;
+
+      final String errorText = error.toString().toLowerCase();
+      if (errorText.contains('unique constraint failed: printers.serial_number')) {
+        _showErrorSnackBar('El numero de serie ya existe en la base local');
+      } else {
+        _showErrorSnackBar('No se pudo guardar la impresora localmente');
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isSaving = false;
+        });
+      }
+    }
+  }
+
+  Future<String> _resolveModelId(String modelInput) async {
+    final ({String modelName, int dpi}) parsedModel =
+        _parseModelAndDpi(modelInput);
+
+    final existingModel = await (widget.database.select(widget.database.catalogModels)
+          ..where(
+            (tbl) =>
+                tbl.brand.equals('ZEBRA') &
+                tbl.modelName.equals(parsedModel.modelName) &
+                tbl.dpi.equals(parsedModel.dpi),
+          ))
+        .getSingleOrNull();
+
+    if (existingModel != null) {
+      return existingModel.id;
+    }
+
+    final String modelId = _uuid.v4();
+    await widget.database.into(widget.database.catalogModels).insert(
+          CatalogModelsCompanion.insert(
+            id: modelId,
+            brand: 'ZEBRA',
+            modelName: parsedModel.modelName,
+            dpi: parsedModel.dpi,
+            isActive: const drift.Value(true),
+          ),
+        );
+    return modelId;
+  }
+
+  ({String modelName, int dpi}) _parseModelAndDpi(String rawInput) {
+    final String trimmed = rawInput.trim();
+    final RegExp dpiRegex = RegExp(r'(\d{2,4})\s*dpi', caseSensitive: false);
+    final RegExpMatch? dpiMatch = dpiRegex.firstMatch(trimmed);
+
+    final int dpi = int.tryParse(dpiMatch?.group(1) ?? '') ?? 203;
+    String modelName = trimmed;
+
+    if (dpiMatch != null) {
+      modelName = trimmed
+          .replaceFirst(dpiMatch.group(0)!, '')
+          .replaceAll(RegExp(r'[-–]+'), ' ')
+          .trim();
+    }
+
+    if (modelName.isEmpty) {
+      modelName = trimmed;
+    }
+
+    return (modelName: modelName, dpi: dpi);
+  }
+
+  void _showErrorSnackBar(String message) {
+    final ThemeData theme = Theme.of(context);
     ScaffoldMessenger.of(context).hideCurrentSnackBar();
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        backgroundColor: AppPalette.success,
-        content: Text('Impresora registrada localmente'),
+      SnackBar(
+        backgroundColor: theme.colorScheme.error,
+        content: Text(
+          message,
+          style: TextStyle(color: theme.colorScheme.onError),
+        ),
         behavior: SnackBarBehavior.floating,
-      ),
-    );
-
-    Navigator.of(context).pushReplacement(
-      MaterialPageRoute<void>(
-        builder: (_) => const ExpressCaptureScreen(),
       ),
     );
   }

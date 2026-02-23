@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:industrial_service_reports/core/theme/app_palette.dart';
+import 'package:industrial_service_reports/data/local/local_database.dart';
+import 'package:industrial_service_reports/features/clients/presentation/client_list_screen.dart';
+import 'package:industrial_service_reports/features/printers/presentation/printer_inventory_screen.dart';
 import 'package:industrial_service_reports/features/qr_scanner/presentation/qr_scanner_screen.dart';
 
 class MainDashboardScreen extends StatelessWidget {
@@ -125,7 +128,9 @@ class MainDashboardScreen extends StatelessWidget {
                         onTap: () {
                           Navigator.of(context).push(
                             MaterialPageRoute<void>(
-                              builder: (_) => const QrScannerScreen(),
+                              builder: (_) => QrScannerScreen(
+                                database: localDatabase,
+                              ),
                             ),
                           );
                         },
@@ -145,8 +150,15 @@ class MainDashboardScreen extends StatelessWidget {
                       DashboardButton(
                         title: 'Clientes',
                         icon: Icons.business_rounded,
-                        onTap: () =>
-                            _showNavigationSnackBar(context, 'Clientes'),
+                        onTap: () {
+                          Navigator.of(context).push(
+                            MaterialPageRoute<void>(
+                              builder: (_) => ClientListScreen(
+                                database: localDatabase,
+                              ),
+                            ),
+                          );
+                        },
                       ),
                       DashboardButton(
                         title: 'Polizas',
@@ -157,8 +169,15 @@ class MainDashboardScreen extends StatelessWidget {
                       DashboardButton(
                         title: 'Impresoras',
                         icon: Icons.print_rounded,
-                        onTap: () =>
-                            _showNavigationSnackBar(context, 'Impresoras'),
+                        onTap: () {
+                          Navigator.of(context).push(
+                            MaterialPageRoute<void>(
+                              builder: (_) => PrinterInventoryScreen(
+                                database: localDatabase,
+                              ),
+                            ),
+                          );
+                        },
                       ),
                     ],
                   ),

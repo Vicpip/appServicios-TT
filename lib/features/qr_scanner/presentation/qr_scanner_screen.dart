@@ -1,10 +1,16 @@
 import 'package:flutter/material.dart';
 import 'package:industrial_service_reports/core/theme/app_palette.dart';
+import 'package:industrial_service_reports/data/local/app_database.dart';
 import 'package:industrial_service_reports/features/printers/presentation/printer_confirmation_screen.dart';
 import 'package:industrial_service_reports/features/printers/presentation/quick_add_printer_screen.dart';
 
 class QrScannerScreen extends StatefulWidget {
-  const QrScannerScreen({super.key});
+  const QrScannerScreen({
+    super.key,
+    required this.database,
+  });
+
+  final AppDatabase database;
 
   @override
   State<QrScannerScreen> createState() => _QrScannerScreenState();
@@ -219,7 +225,7 @@ class _QrScannerScreenState extends State<QrScannerScreen> {
   void _openQuickAddPrinter() {
     Navigator.of(context).push(
       MaterialPageRoute<void>(
-        builder: (_) => const QuickAddPrinterScreen(),
+        builder: (_) => QuickAddPrinterScreen(database: widget.database),
       ),
     );
   }
