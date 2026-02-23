@@ -1,0 +1,12 @@
+# Flutter and Dart
+.dart_tool/
+.idea/
+.packages
+.flutter-plugins
+.flutter-plugins-dependencies
+.metadata
+build/
+coverage/
+
+# Generated files
+lib/data/local/app_database.g.dart
