@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:industrial_service_reports/core/theme/app_palette.dart';
+import 'package:industrial_service_reports/features/printers/presentation/printer_detail_screen.dart';
 import 'package:industrial_service_reports/features/reports/presentation/express_capture_screen.dart';
 
 @immutable
@@ -113,11 +114,15 @@ class _ConfirmationCard extends StatelessWidget {
               compact: compact,
               onCancel: () => Navigator.of(context).pop(),
               onDetail: () {
-                ScaffoldMessenger.of(context).hideCurrentSnackBar();
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text('Abrira el detalle completo del equipo'),
-                    behavior: SnackBarBehavior.floating,
+                final String model =
+                    printer.modelWithDpi.split(' - ').first.trim();
+                Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) => PrinterDetailScreen(
+                      serialNumber: printer.serialNumber,
+                      model: model,
+                      client: printer.clientName,
+                    ),
                   ),
                 );
               },
@@ -451,16 +456,17 @@ class _DetailButton extends StatelessWidget {
     return SizedBox(
       width: fullWidth ? double.infinity : null,
       height: 50,
-      child: FilledButton.tonal(
+      child: FilledButton.tonalIcon(
         onPressed: onPressed,
+        icon: const Icon(Icons.visibility_outlined, size: 18),
         style: FilledButton.styleFrom(
           backgroundColor: AppPalette.surfaceDarkHighlight,
           foregroundColor: AppPalette.backgroundLight,
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
         ),
-        child: const Text(
-          'Ver Detalle',
-          style: TextStyle(fontWeight: FontWeight.w700, fontSize: 17),
+        label: const Text(
+          'Ver detalle',
+          style: TextStyle(fontWeight: FontWeight.w700, fontSize: 16),
         ),
       ),
     );
@@ -483,10 +489,10 @@ class _CreateButton extends StatelessWidget {
       height: 50,
       child: FilledButton.icon(
         onPressed: onPressed,
-        icon: const Icon(Icons.play_circle_fill_rounded, size: 20),
+        icon: const Icon(Icons.note_alt_rounded, size: 20),
         label: const Text(
-          'Crear Reporte',
-          style: TextStyle(fontWeight: FontWeight.w800, fontSize: 17),
+          'Crear reporte',
+          style: TextStyle(fontWeight: FontWeight.w800, fontSize: 16),
         ),
         style: FilledButton.styleFrom(
           backgroundColor: AppPalette.primary,

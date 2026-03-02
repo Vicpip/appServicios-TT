@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:industrial_service_reports/core/theme/app_palette.dart';
 import 'package:industrial_service_reports/features/reports/presentation/express_capture_screen.dart';
+import 'package:industrial_service_reports/features/printers/presentation/service_history_screen.dart';
 
 class PrinterDetailScreen extends StatelessWidget {
   const PrinterDetailScreen({
@@ -28,6 +29,9 @@ class PrinterDetailScreen extends StatelessWidget {
     final bool isHealthy = serialNumber.hashCode.isEven;
     final String displayModel =
         model.toLowerCase().contains('zebra') ? model : 'Zebra $model';
+    const String lastServiceType = 'Preventivo';
+    final _ServiceTypeVisual lastServiceVisual =
+        _serviceTypeVisual(lastServiceType);
 
     return Scaffold(
       backgroundColor: screenBg,
@@ -279,20 +283,30 @@ class PrinterDetailScreen extends StatelessWidget {
                     Row(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: <Widget>[
-                        const Expanded(
+                        Expanded(
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: <Widget>[
-                              Text(
-                                'Mantenimiento Preventivo',
-                                style: TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.w800,
-                                ),
+                              Row(
+                                children: <Widget>[
+                                  Icon(
+                                    lastServiceVisual.icon,
+                                    size: 18,
+                                    color: lastServiceVisual.color,
+                                  ),
+                                  const SizedBox(width: 6),
+                                  Text(
+                                    'Mantenimiento $lastServiceType',
+                                    style: const TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 16,
+                                      fontWeight: FontWeight.w800,
+                                    ),
+                                  ),
+                                ],
                               ),
-                              SizedBox(height: 4),
-                              Text(
+                              const SizedBox(height: 4),
+                              const Text(
                                 '05 de Noviembre, 2023',
                                 style: TextStyle(
                                   color: Color(0xFF8FA3BE),
@@ -448,7 +462,17 @@ class PrinterDetailScreen extends StatelessWidget {
                       child: SizedBox(
                         height: 44,
                         child: FilledButton.tonalIcon(
-                          onPressed: () => _showMockSnack(context, 'Abriendo historial...'),
+                          onPressed: () {
+                            Navigator.of(context).push(
+                              MaterialPageRoute<void>(
+                                builder: (_) => ServiceHistoryScreen(
+                                  printerId: 'PRN-$serialNumber',
+                                  model: model,
+                                  serialNumber: serialNumber,
+                                ),
+                              ),
+                            );
+                          },
                           icon: const Icon(Icons.history_rounded, size: 18),
                           style: FilledButton.styleFrom(
                             backgroundColor: const Color(0xFF242E3D),
@@ -477,6 +501,36 @@ class PrinterDetailScreen extends StatelessWidget {
       ),
     );
   }
+
+  _ServiceTypeVisual _serviceTypeVisual(String serviceType) {
+    switch (serviceType) {
+      case 'Preventivo':
+        return const _ServiceTypeVisual(
+          icon: Icons.check_circle_rounded,
+          color: AppPalette.success,
+        );
+      case 'Correctivo':
+        return const _ServiceTypeVisual(
+          icon: Icons.build_rounded,
+          color: Color(0xFFE57373),
+        );
+      case 'Diagnostico':
+        return const _ServiceTypeVisual(
+          icon: Icons.troubleshoot_rounded,
+          color: AppPalette.warning,
+        );
+      case 'Instalacion':
+        return const _ServiceTypeVisual(
+          icon: Icons.settings_input_component_rounded,
+          color: Color(0xFF8EC5FF),
+        );
+      default:
+        return const _ServiceTypeVisual(
+          icon: Icons.miscellaneous_services_rounded,
+          color: Colors.white70,
+        );
+    }
+  }
 }
 
 class _DetailCard extends StatelessWidget {
@@ -503,4 +557,14 @@ class _DetailCard extends StatelessWidget {
       child: child,
     );
   }
+}
+
+class _ServiceTypeVisual {
+  const _ServiceTypeVisual({
+    required this.icon,
+    required this.color,
+  });
+
+  final IconData icon;
+  final Color color;
 }

@@ -1,4 +1,4 @@
-import 'package:fl_chart/fl_chart.dart';
+﻿import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
 import 'package:industrial_service_reports/core/theme/app_palette.dart';
 import 'package:industrial_service_reports/features/signature/presentation/signature_screen.dart';
@@ -13,11 +13,13 @@ class ReportSummaryScreen extends StatelessWidget {
   static const String _counterPrevious = '100,000';
   static const String _darkness = '18.5';
   static const String _labelType = 'Papel TT';
+  static const String _previousServiceDate = '12 Feb 2025';
+  static const String _currentServiceDate = '12 Ago 2025';
 
   static const List<String> _selectedDiagnostics = <String>[
     'Mantenimiento general',
     'Pruebas',
-    'Cabezal danado',
+    'Cabezal dañado',
     'Otros',
   ];
 
@@ -48,13 +50,15 @@ class ReportSummaryScreen extends StatelessWidget {
                 const _UsageChartCard(
                   previousCounter: _counterPrevious,
                   currentCounter: _counterCurrent,
+                  previousDate: _previousServiceDate,
+                  currentDate: _currentServiceDate,
                 ),
                 const SizedBox(height: 12),
                 const _DiagnosticCard(
                   diagnostics: _selectedDiagnostics,
                   notes:
-                      'Se realizo mantenimiento preventivo completo y pruebas de impresion. '
-                      'Se detecto desgaste en cabezal, recomendado reemplazo en siguiente visita.',
+                      'Se realizó mantenimiento preventivo completo y pruebas de impresión. '
+                      'Se detectó desgaste en cabezal, recomendado reemplazo en siguiente visita.',
                 ),
                 const SizedBox(height: 12),
                 const _EvidenceCard(),
@@ -175,10 +179,40 @@ class _GeneralSummaryCard extends StatelessWidget {
   final String darkness;
   final String labelType;
 
+  _ServiceTypeVisual _serviceTypeVisual() {
+    switch (serviceType) {
+      case 'Preventivo':
+        return const _ServiceTypeVisual(
+          icon: Icons.check_circle_rounded,
+          color: AppPalette.success,
+        );
+      case 'Correctivo':
+        return const _ServiceTypeVisual(
+          icon: Icons.build_rounded,
+          color: Color(0xFFE57373),
+        );
+      case 'Diagnóstico':
+        return const _ServiceTypeVisual(
+          icon: Icons.troubleshoot_rounded,
+          color: AppPalette.warning,
+        );
+      case 'Instalación':
+        return const _ServiceTypeVisual(
+          icon: Icons.settings_input_component_rounded,
+          color: Color(0xFF8EC5FF),
+        );
+      default:
+        return const _ServiceTypeVisual(
+          icon: Icons.miscellaneous_services_rounded,
+          color: Colors.white70,
+        );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return _PremiumCard(
-      title: '1. Informacion del Equipo',
+      title: '1. Información del Equipo',
       child: Container(
         width: double.infinity,
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
@@ -187,41 +221,66 @@ class _GeneralSummaryCard extends StatelessWidget {
           borderRadius: BorderRadius.circular(10),
           border: Border.all(color: const Color(0xFF27364D)),
         ),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: <Widget>[
-            Expanded(
-              child: Column(
+        child: LayoutBuilder(
+          builder: (BuildContext context, BoxConstraints constraints) {
+            final bool compact = constraints.maxWidth < 760;
+
+            final Widget leftColumn = Column(
+              children: <Widget>[
+                _InfoLineCompact(label: 'Serial', value: serial),
+                const SizedBox(height: 10),
+                _InfoLineCompact(label: 'Modelo', value: '$model - 600dpi'),
+                const SizedBox(height: 10),
+                _ServiceTypeLine(
+                  serviceType: serviceType,
+                  visual: _serviceTypeVisual(),
+                ),
+              ],
+            );
+
+            final Widget rightColumn = Column(
+              children: <Widget>[
+                _InfoLineCompact(
+                  label: 'Contador Actual',
+                  value: '$counter in',
+                ),
+                const SizedBox(height: 10),
+                _InfoLineCompact(label: 'Nivel de Darkness', value: darkness),
+                const SizedBox(height: 10),
+                _InfoLineCompact(label: 'Etiqueta', value: labelType),
+              ],
+            );
+
+            if (compact) {
+              return Column(
                 children: <Widget>[
-                  _InfoLineCompact(label: 'Serial', value: serial),
-                  const SizedBox(height: 10),
-                  _InfoLineCompact(label: 'Modelo', value: '$model - 600dpi'),
-                  const SizedBox(height: 10),
-                  _InfoLineCompact(label: 'Tipo de Servicio', value: serviceType),
-                ],
-              ),
-            ),
-            Container(
-              width: 1,
-              height: 84,
-              margin: const EdgeInsets.symmetric(horizontal: 14),
-              color: AppPalette.surfaceDark,
-            ),
-            Expanded(
-              child: Column(
-                children: <Widget>[
-                  _InfoLineCompact(
-                    label: 'Contador Actual',
-                    value: '$counter in',
+                  leftColumn,
+                  const SizedBox(height: 12),
+                  const Divider(
+                    color: AppPalette.surfaceDark,
+                    height: 1,
+                    thickness: 1,
                   ),
-                  const SizedBox(height: 10),
-                  _InfoLineCompact(label: 'Nivel de Darkness', value: darkness),
-                  const SizedBox(height: 10),
-                  _InfoLineCompact(label: 'Etiqueta', value: labelType),
+                  const SizedBox(height: 12),
+                  rightColumn,
                 ],
-              ),
-            ),
-          ],
+              );
+            }
+
+            return Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                Expanded(child: leftColumn),
+                Container(
+                  width: 1,
+                  height: 84,
+                  margin: const EdgeInsets.symmetric(horizontal: 14),
+                  color: AppPalette.surfaceDark,
+                ),
+                Expanded(child: rightColumn),
+              ],
+            );
+          },
         ),
       ),
     );
@@ -232,25 +291,70 @@ class _UsageChartCard extends StatelessWidget {
   const _UsageChartCard({
     required this.previousCounter,
     required this.currentCounter,
+    required this.previousDate,
+    required this.currentDate,
   });
 
   final String previousCounter;
   final String currentCounter;
+  final String previousDate;
+  final String currentDate;
+
+  int _parseCounter(String value) => int.tryParse(value.replaceAll(',', '')) ?? 0;
+
+  String _formatCounter(int value) {
+    final String raw = value.toString();
+    final bool negative = raw.startsWith('-');
+    final String digits = negative ? raw.substring(1) : raw;
+    final StringBuffer buffer = StringBuffer();
+
+    for (int i = 0; i < digits.length; i++) {
+      if (i > 0 && (digits.length - i) % 3 == 0) {
+        buffer.write(',');
+      }
+      buffer.write(digits[i]);
+    }
+
+    return negative ? '-${buffer.toString()}' : buffer.toString();
+  }
 
   @override
   Widget build(BuildContext context) {
+    final int previousValue = _parseCounter(previousCounter);
+    final int currentValue = _parseCounter(currentCounter);
+    final int currentIncrease = currentValue - previousValue;
+
+    final List<_CounterBarPoint> points = <_CounterBarPoint>[
+      _CounterBarPoint(
+        x: 0,
+        label: 'Anterior',
+        date: previousDate,
+        counter: previousValue,
+        increase: 0,
+        color: AppPalette.primaryHover,
+      ),
+      _CounterBarPoint(
+        x: 1,
+        label: 'Actual',
+        date: currentDate,
+        counter: currentValue,
+        increase: currentIncrease,
+        color: AppPalette.primary,
+      ),
+    ];
+
     return _PremiumCard(
-      title: 'Evolucion de Impresion (Contador)',
+      title: 'Evolución de Impresion (Contador)',
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
-          const SizedBox(
+          SizedBox(
             height: 170,
-            child: _UsageBarChart(),
+            child: _UsageBarChart(points: points),
           ),
           const SizedBox(height: 8),
           Text(
-            'Servicio Anterior: $previousCounter   |   Actual: $currentCounter',
+            'Servicio Anterior: ${_formatCounter(previousValue)} in   |   Actual: ${_formatCounter(currentValue)} in',
             style: const TextStyle(
               color: Colors.white70,
               fontSize: 13,
@@ -264,13 +368,38 @@ class _UsageChartCard extends StatelessWidget {
 }
 
 class _UsageBarChart extends StatelessWidget {
-  const _UsageBarChart();
+  const _UsageBarChart({
+    required this.points,
+  });
+
+  final List<_CounterBarPoint> points;
+
+  String _formatCounter(int value) {
+    final String raw = value.toString();
+    final StringBuffer buffer = StringBuffer();
+    for (int i = 0; i < raw.length; i++) {
+      if (i > 0 && (raw.length - i) % 3 == 0) {
+        buffer.write(',');
+      }
+      buffer.write(raw[i]);
+    }
+    return buffer.toString();
+  }
 
   @override
   Widget build(BuildContext context) {
+    double maxCounter = 0;
+    for (final _CounterBarPoint item in points) {
+      final double normalized = item.counter / 1000;
+      if (normalized > maxCounter) {
+        maxCounter = normalized;
+      }
+    }
+    final double maxY = maxCounter <= 0 ? 130 : (maxCounter * 1.1);
+
     return BarChart(
       BarChartData(
-        maxY: 130,
+        maxY: maxY,
         gridData: FlGridData(
           show: true,
           drawVerticalLine: false,
@@ -281,7 +410,37 @@ class _UsageBarChart extends StatelessWidget {
           ),
         ),
         borderData: FlBorderData(show: false),
-        barTouchData: BarTouchData(enabled: false),
+        barTouchData: BarTouchData(
+          enabled: true,
+          touchTooltipData: BarTouchTooltipData(
+            tooltipBorder: const BorderSide(color: AppPalette.surfaceDarkHighlight),
+            getTooltipColor: (_) => const Color(0xFF0E1522),
+            getTooltipItem: (
+              BarChartGroupData group,
+              int groupIndex,
+              BarChartRodData rod,
+              int rodIndex,
+            ) {
+              final int x = group.x;
+              if (x < 0 || x >= points.length) {
+                return null;
+              }
+
+              final _CounterBarPoint point = points[x];
+              final String sign = point.increase >= 0 ? '+' : '-';
+              final int magnitude = point.increase.abs();
+
+              return BarTooltipItem(
+                '${point.date}\nIncremento: $sign${_formatCounter(magnitude)} in',
+                const TextStyle(
+                  color: AppPalette.backgroundLight,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                ),
+              );
+            },
+          ),
+        ),
         titlesData: FlTitlesData(
           topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
           rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
@@ -300,46 +459,37 @@ class _UsageBarChart extends StatelessWidget {
             sideTitles: SideTitles(
               showTitles: true,
               getTitlesWidget: (double value, _) {
+                final int x = value.toInt();
+                if (x < 0 || x >= points.length) {
+                  return const SizedBox.shrink();
+                }
                 const TextStyle style = TextStyle(
                   color: AppPalette.backgroundLight,
                   fontSize: 12,
                   fontWeight: FontWeight.w700,
                 );
-                switch (value.toInt()) {
-                  case 0:
-                    return const Text('Anterior', style: style);
-                  case 1:
-                    return const Text('Actual', style: style);
-                }
-                return const SizedBox.shrink();
+                return Text(points[x].label, style: style);
               },
             ),
           ),
         ),
-        barGroups: <BarChartGroupData>[
-          BarChartGroupData(
-            x: 0,
-            barRods: <BarChartRodData>[
-              BarChartRodData(
-                toY: 100,
-                color: AppPalette.primaryHover,
-                width: 26,
-                borderRadius: BorderRadius.circular(6),
-              ),
-            ],
-          ),
-          BarChartGroupData(
-            x: 1,
-            barRods: <BarChartRodData>[
-              BarChartRodData(
-                toY: 125,
-                color: AppPalette.primary,
-                width: 26,
-                borderRadius: BorderRadius.circular(6),
-              ),
-            ],
-          ),
-        ],
+        barGroups: List<BarChartGroupData>.generate(
+          points.length,
+          (int index) {
+            final _CounterBarPoint point = points[index];
+            return BarChartGroupData(
+              x: point.x,
+              barRods: <BarChartRodData>[
+                BarChartRodData(
+                  toY: point.counter / 1000,
+                  color: point.color,
+                  width: 26,
+                  borderRadius: BorderRadius.circular(6),
+                ),
+              ],
+            );
+          },
+        ),
       ),
     );
   }
@@ -357,7 +507,7 @@ class _DiagnosticCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return _PremiumCard(
-      title: 'Diagnostico Tecnico',
+      title: 'Diagnóstico Técnico',
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
@@ -396,7 +546,7 @@ class _DiagnosticCard extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: <Widget>[
                 const Text(
-                  'Observaciones del Tecnico',
+                  'Observaciones del Técnico',
                   style: TextStyle(
                     color: AppPalette.backgroundLight,
                     fontSize: 14,
@@ -423,17 +573,17 @@ class _DiagnosticCard extends StatelessWidget {
   _DiagnosticStyle _styleFor(String item) {
     const Set<String> greenItems = <String>{
       'Mantenimiento general',
-      'Calibracion sensores',
+      'Calibración sensores',
       'Pruebas',
     };
     const Set<String> yellowItems = <String>{
       'Otros',
     };
     const Set<String> redItems = <String>{
-      'Rodillo danado',
-      'Cabezal danado',
-      'Sensor ribbon danado',
-      'Sensor papel danado',
+      'Rodillo dañado',
+      'Cabezal dañado',
+      'Sensor ribbon dañado',
+      'Sensor papel dañado',
     };
 
     if (greenItems.contains(item)) {
@@ -467,8 +617,8 @@ class _EvidenceCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     const List<String> labels = <String>[
-      'Prueba de impresion',
-      'Cabezal danado',
+      'Prueba de impresión',
+      'Cabezal dañado',
       'Rodillo',
     ];
 
@@ -581,6 +731,8 @@ class _InfoLineCompact extends StatelessWidget {
         Expanded(
           child: Text(
             label,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
             style: const TextStyle(
               color: Colors.white60,
               fontWeight: FontWeight.w500,
@@ -588,10 +740,13 @@ class _InfoLineCompact extends StatelessWidget {
             ),
           ),
         ),
+        const SizedBox(width: 8),
         Expanded(
           child: Text(
             value,
             textAlign: TextAlign.right,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
             style: const TextStyle(
               color: AppPalette.backgroundLight,
               fontWeight: FontWeight.w800,
@@ -604,6 +759,107 @@ class _InfoLineCompact extends StatelessWidget {
   }
 }
 
+class _ServiceTypeLine extends StatelessWidget {
+  const _ServiceTypeLine({
+    required this.serviceType,
+    required this.visual,
+  });
+
+  final String serviceType;
+  final _ServiceTypeVisual visual;
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (BuildContext context, BoxConstraints constraints) {
+        final bool compact = constraints.maxWidth < 340;
+
+        final Widget badge = Container(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+          decoration: BoxDecoration(
+            color: AppPalette.surfaceDark,
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: visual.color.withValues(alpha: 0.55)),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: <Widget>[
+              Icon(visual.icon, size: 14, color: visual.color),
+              const SizedBox(width: 6),
+              Text(
+                serviceType,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  color: AppPalette.backgroundLight,
+                  fontWeight: FontWeight.w700,
+                  fontSize: 13,
+                ),
+              ),
+            ],
+          ),
+        );
+
+        if (compact) {
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[
+              const Text(
+                'Tipo de Servicio',
+                style: TextStyle(
+                  color: Colors.white60,
+                  fontWeight: FontWeight.w500,
+                  fontSize: 13,
+                ),
+              ),
+              const SizedBox(height: 6),
+              badge,
+            ],
+          );
+        }
+
+        return Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: <Widget>[
+            const Expanded(
+              child: Text(
+                'Tipo de Servicio',
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: Colors.white60,
+                  fontWeight: FontWeight.w500,
+                  fontSize: 13,
+                ),
+              ),
+            ),
+            const SizedBox(width: 8),
+            Flexible(
+              child: Align(
+                alignment: Alignment.centerRight,
+                child: FittedBox(
+                  fit: BoxFit.scaleDown,
+                  child: badge,
+                ),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+}
+
+class _ServiceTypeVisual {
+  const _ServiceTypeVisual({
+    required this.icon,
+    required this.color,
+  });
+
+  final IconData icon;
+  final Color color;
+}
+
 class _DiagnosticStyle {
   const _DiagnosticStyle({
     required this.icon,
@@ -613,3 +869,23 @@ class _DiagnosticStyle {
   final IconData icon;
   final Color color;
 }
+
+@immutable
+class _CounterBarPoint {
+  const _CounterBarPoint({
+    required this.x,
+    required this.label,
+    required this.date,
+    required this.counter,
+    required this.increase,
+    required this.color,
+  });
+
+  final int x;
+  final String label;
+  final String date;
+  final int counter;
+  final int increase;
+  final Color color;
+}
+

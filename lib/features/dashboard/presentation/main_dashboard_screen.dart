@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:industrial_service_reports/app.dart';
 import 'package:industrial_service_reports/core/theme/app_palette.dart';
 import 'package:industrial_service_reports/data/local/local_database.dart';
 import 'package:industrial_service_reports/features/clients/presentation/client_list_screen.dart';
+import 'package:industrial_service_reports/features/policies/presentation/policy_dashboard_screen.dart';
 import 'package:industrial_service_reports/features/printers/presentation/printer_inventory_screen.dart';
 import 'package:industrial_service_reports/features/qr_scanner/presentation/qr_scanner_screen.dart';
 
@@ -29,34 +31,50 @@ class MainDashboardScreen extends StatelessWidget {
           children: <Widget>[
             Row(
               children: <Widget>[
-                const CircleAvatar(
-                  radius: 22,
-                  backgroundColor: AppPalette.surfaceDarkHighlight,
-                  child: Icon(
-                    Icons.person,
-                    color: AppPalette.backgroundLight,
-                    size: 24,
+                InkWell(
+                  borderRadius: BorderRadius.circular(34),
+                  onTap: () {
+                    Navigator.of(context).pushNamed(
+                      ServiceReportsApp.profileRoute,
+                    );
+                  },
+                  child: const CircleAvatar(
+                    radius: 22,
+                    backgroundColor: AppPalette.surfaceDarkHighlight,
+                    child: Icon(
+                      Icons.person,
+                      color: AppPalette.backgroundLight,
+                      size: 24,
+                    ),
                   ),
                 ),
                 const SizedBox(width: 12),
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: <Widget>[
-                    Text(
-                      _mockUserName,
-                      style: theme.textTheme.titleMedium?.copyWith(
-                        fontSize: 20,
-                        fontWeight: FontWeight.w700,
+                InkWell(
+                  borderRadius: BorderRadius.circular(12),
+                  onTap: () {
+                    Navigator.of(context).pushNamed(
+                      ServiceReportsApp.profileRoute,
+                    );
+                  },
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: <Widget>[
+                      Text(
+                        _mockUserName,
+                        style: theme.textTheme.titleMedium?.copyWith(
+                          fontSize: 20,
+                          fontWeight: FontWeight.w700,
+                        ),
                       ),
-                    ),
-                    Text(
-                      'Tech ID: $_mockTechId',
-                      style: theme.textTheme.bodyMedium?.copyWith(
-                        fontSize: 13,
-                        color: Colors.white70,
+                      Text(
+                        'Tech ID: $_mockTechId',
+                        style: theme.textTheme.bodyMedium?.copyWith(
+                          fontSize: 13,
+                          color: Colors.white70,
+                        ),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
               ],
             ),
@@ -163,8 +181,13 @@ class MainDashboardScreen extends StatelessWidget {
                       DashboardButton(
                         title: 'Polizas',
                         icon: Icons.assignment_rounded,
-                        onTap: () =>
-                            _showNavigationSnackBar(context, 'Polizas'),
+                        onTap: () {
+                          Navigator.of(context).push(
+                            MaterialPageRoute<void>(
+                              builder: (_) => const PolicyDashboardScreen(),
+                            ),
+                          );
+                        },
                       ),
                       DashboardButton(
                         title: 'Impresoras',

@@ -1,4 +1,4 @@
-import 'dart:math' as math;
+﻿import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:industrial_service_reports/core/theme/app_palette.dart';
@@ -20,23 +20,23 @@ class _ExpressCaptureScreenState extends State<ExpressCaptureScreen> {
   static const List<String> _serviceTypes = <String>[
     'Preventivo',
     'Correctivo',
-    'Diagnostico',
-    'Instalacion',
+    'Diagnóstico',
+    'Instalación',
   ];
 
   static const List<String> _labelTypes = <String>[
     'Papel TT',
     'Papel TD',
-    'Plastica (BOPP/Poliester)',
+    'Plástica (BOPP/Poliéster)',
   ];
 
   static const List<String> _checklistItems = <String>[
     'Mantenimiento general',
-    'Calibracion sensores',
-    'Rodillo danado',
-    'Cabezal danado',
-    'Sensor ribbon danado',
-    'Sensor papel danado',
+    'Calibración sensores',
+    'Rodillo dañado',
+    'Cabezal dañado',
+    'Sensor ribbon dañado',
+    'Sensor papel dañado',
     'Pruebas',
     'Otros',
   ];
@@ -49,6 +49,36 @@ class _ExpressCaptureScreenState extends State<ExpressCaptureScreen> {
 
   String _selectedServiceType = _serviceTypes.first;
   String _selectedLabelType = _labelTypes.first;
+
+  _ServiceTypeVisual _serviceTypeVisual(String type) {
+    switch (type) {
+      case 'Preventivo':
+        return const _ServiceTypeVisual(
+          icon: Icons.check_circle_rounded,
+          color: AppPalette.success,
+        );
+      case 'Correctivo':
+        return const _ServiceTypeVisual(
+          icon: Icons.build_rounded,
+          color: Color(0xFFE57373),
+        );
+      case 'Diagnóstico':
+        return const _ServiceTypeVisual(
+          icon: Icons.troubleshoot_rounded,
+          color: AppPalette.warning,
+        );
+      case 'Instalación':
+        return const _ServiceTypeVisual(
+          icon: Icons.settings_input_component_rounded,
+          color: Color(0xFF8EC5FF),
+        );
+      default:
+        return const _ServiceTypeVisual(
+          icon: Icons.miscellaneous_services_rounded,
+          color: Colors.white70,
+        );
+    }
+  }
 
   @override
   void initState() {
@@ -107,7 +137,7 @@ class _ExpressCaptureScreenState extends State<ExpressCaptureScreen> {
               child: Column(
                 children: <Widget>[
                 _SectionCard(
-                  title: 'Informacion Basica',
+                  title: 'Información Básica',
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: <Widget>[
@@ -123,6 +153,10 @@ class _ExpressCaptureScreenState extends State<ExpressCaptureScreen> {
                               .map(
                                 (String type) => ButtonSegment<String>(
                                   value: type,
+                                  icon: Icon(
+                                    _serviceTypeVisual(type).icon,
+                                    size: 18,
+                                  ),
                                   label: Text(type),
                                 ),
                               )
@@ -134,6 +168,11 @@ class _ExpressCaptureScreenState extends State<ExpressCaptureScreen> {
                             });
                           },
                         ),
+                      ),
+                      const SizedBox(height: 10),
+                      _SelectedServiceTypeBadge(
+                        type: _selectedServiceType,
+                        visual: _serviceTypeVisual(_selectedServiceType),
                       ),
                       const SizedBox(height: 18),
                       Text(
@@ -271,7 +310,7 @@ class _ExpressCaptureScreenState extends State<ExpressCaptureScreen> {
                           ),
                           child: const Center(
                             child: Text(
-                              'Minimo 1 foto de prueba de impresion requerida',
+                              'Mínimo 1 foto de prueba de impresión requerida',
                               textAlign: TextAlign.center,
                               style: TextStyle(
                                 color: Colors.white70,
@@ -293,7 +332,7 @@ class _ExpressCaptureScreenState extends State<ExpressCaptureScreen> {
                               onPressed: _showMockUploadSnackBar,
                               icon: const Icon(Icons.photo_camera_rounded),
                               label: const Text(
-                                'Tomar Foto (Camara)',
+                                'Tomar Foto (Cámara)',
                                 style: TextStyle(
                                   fontSize: 15,
                                   fontWeight: FontWeight.w700,
@@ -307,7 +346,7 @@ class _ExpressCaptureScreenState extends State<ExpressCaptureScreen> {
                               onPressed: _showMockUploadSnackBar,
                               icon: const Icon(Icons.photo_library_rounded),
                               label: const Text(
-                                'Subir de Galeria',
+                                'Subir de Galería',
                                 style: TextStyle(
                                   fontSize: 15,
                                   fontWeight: FontWeight.w700,
@@ -327,7 +366,7 @@ class _ExpressCaptureScreenState extends State<ExpressCaptureScreen> {
                       controller: _notesController,
                       maxLines: 3,
                       decoration: const InputDecoration(
-                        hintText: 'Notas adicionales del tecnico',
+                        hintText: 'Notas adicionales del técnico',
                       ),
                     ),
                   ),
@@ -368,7 +407,7 @@ class _ExpressCaptureScreenState extends State<ExpressCaptureScreen> {
     ScaffoldMessenger.of(context).hideCurrentSnackBar();
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
-        content: Text('Funcion de evidencia en modo mock'),
+        content: Text('Función de evidencia en modo mock'),
         behavior: SnackBarBehavior.floating,
       ),
     );
@@ -413,7 +452,7 @@ class _ExpressCaptureScreenState extends State<ExpressCaptureScreen> {
       return 'Campo obligatorio';
     }
     if (int.tryParse(trimmed) == null) {
-      return 'Ingrese un numero valido';
+      return 'Ingrese un número válido';
     }
     return null;
   }
@@ -426,7 +465,7 @@ class _ExpressCaptureScreenState extends State<ExpressCaptureScreen> {
 
     final String normalized = trimmed.replaceAll(',', '.');
     if (double.tryParse(normalized) == null) {
-      return 'Ingrese un numero valido';
+      return 'Ingrese un número válido';
     }
     return null;
   }
@@ -442,7 +481,7 @@ class _ExpressCaptureScreenState extends State<ExpressCaptureScreen> {
       (bool value) => value,
     );
     if (!hasTechnicalSelection) {
-      _showValidationSnackBar('Debe seleccionar al menos una opcion tecnica');
+      _showValidationSnackBar('Debe seleccionar al menos una opción tecnica');
       return;
     }
 
@@ -475,7 +514,7 @@ class _ExpressCaptureScreenState extends State<ExpressCaptureScreen> {
         return AlertDialog(
           title: const Text('Cancelar Reporte'),
           content: const Text(
-            'Se perderan los cambios no guardados. Desea cancelar este reporte?',
+            'Se perderán los cambios no guardados. Desea cancelar este reporte?',
           ),
           actions: <Widget>[
             TextButton(
@@ -488,7 +527,7 @@ class _ExpressCaptureScreenState extends State<ExpressCaptureScreen> {
                 foregroundColor: Theme.of(context).colorScheme.onError,
               ),
               onPressed: () => Navigator.of(dialogContext).pop(true),
-              child: const Text('Si, cancelar'),
+              child: const Text('Sí, cancelar'),
             ),
           ],
         );
@@ -499,6 +538,52 @@ class _ExpressCaptureScreenState extends State<ExpressCaptureScreen> {
       Navigator.of(context).pop();
     }
   }
+}
+
+class _SelectedServiceTypeBadge extends StatelessWidget {
+  const _SelectedServiceTypeBadge({
+    required this.type,
+    required this.visual,
+  });
+
+  final String type;
+  final _ServiceTypeVisual visual;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+      decoration: BoxDecoration(
+        color: AppPalette.surfaceDarkHighlight,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: visual.color.withValues(alpha: 0.55)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: <Widget>[
+          Icon(visual.icon, size: 16, color: visual.color),
+          const SizedBox(width: 6),
+          Text(
+            type,
+            style: const TextStyle(
+              color: AppPalette.backgroundLight,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ServiceTypeVisual {
+  const _ServiceTypeVisual({
+    required this.icon,
+    required this.color,
+  });
+
+  final IconData icon;
+  final Color color;
 }
 
 class _SectionCard extends StatelessWidget {
@@ -589,3 +674,4 @@ class _DashedRectPainter extends CustomPainter {
   bool shouldRepaint(covariant _DashedRectPainter oldDelegate) =>
       oldDelegate.color != color;
 }
+
