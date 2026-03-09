@@ -1,6 +1,8 @@
+import 'package:drift/drift.dart' show Value;
 import 'package:flutter/material.dart';
 import 'package:industrial_service_reports/core/theme/app_palette.dart';
 import 'package:industrial_service_reports/data/local/app_database.dart';
+import 'package:uuid/uuid.dart';
 
 class AddClientScreen extends StatefulWidget {
   const AddClientScreen({
@@ -222,6 +224,7 @@ class _AddClientScreenState extends State<AddClientScreen> {
       for (final Plant plant in plants) {
         _plantDrafts.add(
           _PlantDraft(
+            id: plant.id,
             plantName: plant.name,
             contactName: plant.contactName ?? '',
             phone: plant.phone ?? '',
@@ -317,19 +320,119 @@ class _AddClientScreenState extends State<AddClientScreen> {
       return;
     }
 
-    setState(() {
-      _isSubmitting = true;
-    });
+    setState(() => _isSubmitting = true);
 
-    await Future<void>.delayed(const Duration(milliseconds: 250));
+    try {
+      final String name = _companyNameController.text.trim();
+      final String? rfc =
+          _rfcController.text.trim().isEmpty ? null : _rfcController.text.trim();
+      final String? address = _addressController.text.trim().isEmpty
+          ? null
+          : _addressController.text.trim();
 
-    if (!mounted) return;
-    _showSuccessSnackBar(
-      widget.isEditMode
-          ? 'Datos del cliente actualizados'
-          : 'Cliente registrado correctamente',
-    );
-    Navigator.of(context).pop(true);
+      if (widget.isEditMode) {
+        final String clientId = widget.client!.id;
+        await widget.database.transaction(() async {
+          await (widget.database.update(widget.database.clients)
+                ..where((c) => c.id.equals(clientId)))
+              .write(ClientsCompanion(
+            name: Value(name),
+            rfc: Value(rfc),
+            address: Value(address),
+          ));
+
+          for (final _PlantDraft draft in _plantDrafts) {
+            final String plantName = draft.plantNameController.text.trim();
+            final String? contact = draft.contactController.text.trim().isEmpty
+                ? null
+                : draft.contactController.text.trim();
+            final String? phone = draft.phoneController.text.trim().isEmpty
+                ? null
+                : draft.phoneController.text.trim();
+
+            if (draft.id != null) {
+              await (widget.database.update(widget.database.plants)
+                    ..where((p) => p.id.equals(draft.id!)))
+                  .write(PlantsCompanion(
+                name: Value(plantName),
+                contactName: Value(contact),
+                phone: Value(phone),
+              ));
+            } else {
+              final String plantId = const Uuid().v4();
+              await widget.database.into(widget.database.plants).insert(
+                    PlantsCompanion.insert(
+                      id: plantId,
+                      clientId: clientId,
+                      name: plantName,
+                      contactName: Value(contact),
+                      phone: Value(phone),
+                    ),
+                  );
+              await widget.database.into(widget.database.areas).insert(
+                    AreasCompanion.insert(
+                      id: const Uuid().v4(),
+                      plantId: plantId,
+                      name: 'General',
+                    ),
+                  );
+            }
+          }
+        });
+      } else {
+        final String clientId = const Uuid().v4();
+        await widget.database.transaction(() async {
+          await widget.database.into(widget.database.clients).insert(
+                ClientsCompanion.insert(
+                  id: clientId,
+                  name: name,
+                  rfc: Value(rfc),
+                  address: Value(address),
+                ),
+              );
+
+          for (final _PlantDraft draft in _plantDrafts) {
+            final String plantId = const Uuid().v4();
+            final String? contact = draft.contactController.text.trim().isEmpty
+                ? null
+                : draft.contactController.text.trim();
+            final String? phone = draft.phoneController.text.trim().isEmpty
+                ? null
+                : draft.phoneController.text.trim();
+
+            await widget.database.into(widget.database.plants).insert(
+                  PlantsCompanion.insert(
+                    id: plantId,
+                    clientId: clientId,
+                    name: draft.plantNameController.text.trim(),
+                    contactName: Value(contact),
+                    phone: Value(phone),
+                  ),
+                );
+            await widget.database.into(widget.database.areas).insert(
+                  AreasCompanion.insert(
+                    id: const Uuid().v4(),
+                    plantId: plantId,
+                    name: 'General',
+                  ),
+                );
+          }
+        });
+      }
+
+      if (!mounted) return;
+      _showSuccessSnackBar(
+        widget.isEditMode
+            ? 'Datos del cliente actualizados'
+            : 'Cliente registrado correctamente',
+      );
+      Navigator.of(context).pop(true);
+    } catch (e) {
+      if (!mounted) return;
+      _showErrorSnackBar('Error al guardar: $e');
+    } finally {
+      if (mounted) setState(() => _isSubmitting = false);
+    }
   }
 
   Future<void> _confirmDeleteClient() async {
@@ -361,8 +464,18 @@ class _AddClientScreenState extends State<AddClientScreen> {
 
     if (confirmed != true || !mounted) return;
 
-    _showSuccessSnackBar('Cliente eliminado correctamente');
-    Navigator.of(context).pop(true);
+    try {
+      await (widget.database.update(widget.database.clients)
+            ..where((c) => c.id.equals(widget.client!.id)))
+          .write(const ClientsCompanion(isActive: Value(false)));
+
+      if (!mounted) return;
+      _showSuccessSnackBar('Cliente eliminado correctamente');
+      Navigator.of(context).pop(true);
+    } catch (e) {
+      if (!mounted) return;
+      _showErrorSnackBar('Error al eliminar: $e');
+    }
   }
 
   void _showErrorSnackBar(String message) {
@@ -499,6 +612,7 @@ class _PlantCard extends StatelessWidget {
 
 class _PlantDraft {
   _PlantDraft({
+    this.id,
     String plantName = '',
     String contactName = '',
     String phone = '',
@@ -508,10 +622,12 @@ class _PlantDraft {
 
   _PlantDraft.withDefaults({
     required String defaultPlantName,
-  })  : plantNameController = TextEditingController(text: defaultPlantName),
+  })  : id = null,
+        plantNameController = TextEditingController(text: defaultPlantName),
         contactController = TextEditingController(),
         phoneController = TextEditingController();
 
+  final String? id;
   final TextEditingController plantNameController;
   final TextEditingController contactController;
   final TextEditingController phoneController;

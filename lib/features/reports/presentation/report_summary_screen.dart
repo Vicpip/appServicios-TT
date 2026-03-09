@@ -1,24 +1,107 @@
+import 'package:drift/drift.dart' show OrderingTerm, innerJoin;
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:industrial_service_reports/core/router/app_routes.dart';
 import 'package:industrial_service_reports/core/theme/app_palette.dart';
+import 'package:industrial_service_reports/data/local/app_database.dart';
+import 'package:industrial_service_reports/data/local/local_database.dart';
 import 'package:industrial_service_reports/features/reports/providers/capture_provider.dart';
+
+// ---------------------------------------------------------------------------
+// Modelos de datos locales
+// ---------------------------------------------------------------------------
+
+class _PrinterInfo {
+  const _PrinterInfo({
+    required this.serialNumber,
+    required this.modelWithDpi,
+    required this.clientName,
+  });
+  final String serialNumber;
+  final String modelWithDpi;
+  final String clientName;
+}
+
+// ---------------------------------------------------------------------------
+// Providers
+// ---------------------------------------------------------------------------
+
+final _printerInfoProvider =
+    FutureProvider.family<_PrinterInfo?, String>((ref, printerId) async {
+  if (printerId.isEmpty) return null;
+
+  final result = await (localDatabase.select(localDatabase.printers)
+        ..where((p) => p.id.equals(printerId)))
+      .join([
+        innerJoin(
+          localDatabase.catalogModels,
+          localDatabase.catalogModels.id
+              .equalsExp(localDatabase.printers.modelId),
+        ),
+        innerJoin(
+          localDatabase.clients,
+          localDatabase.clients.id
+              .equalsExp(localDatabase.printers.clientId),
+        ),
+      ])
+      .getSingleOrNull();
+
+  if (result == null) return null;
+
+  final Printer printer = result.readTable(localDatabase.printers);
+  final CatalogModel model = result.readTable(localDatabase.catalogModels);
+  final Client client = result.readTable(localDatabase.clients);
+
+  return _PrinterInfo(
+    serialNumber: printer.serialNumber,
+    modelWithDpi: '${model.modelName} - ${model.dpi}dpi',
+    clientName: client.name,
+  );
+});
+
+final _lastReportProvider =
+    FutureProvider.family<Report?, String>((ref, printerId) async {
+  if (printerId.isEmpty) return null;
+
+  return (localDatabase.select(localDatabase.reports)
+        ..where((r) => r.printerId.equals(printerId))
+        ..orderBy([(r) => OrderingTerm.desc(r.createdAt)])
+        ..limit(1))
+      .getSingleOrNull();
+});
+
+// ---------------------------------------------------------------------------
+// Pantalla
+// ---------------------------------------------------------------------------
 
 class ReportSummaryScreen extends ConsumerWidget {
   const ReportSummaryScreen({super.key});
 
-  // Datos de impresora: permanecen mock hasta conectar con BD
-  static const String _serial = '99J882';
-  static const String _model = 'ZT610';
-  static const String _counterPrevious = '100,000';
-  static const String _previousServiceDate = '12 Feb 2025';
-  static const String _currentServiceDate = '12 Ago 2025';
-
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final CaptureState capture = ref.watch(captureProvider);
+    final String printerId = capture.printerId ?? '';
+
+    final AsyncValue<_PrinterInfo?> printerAsync =
+        ref.watch(_printerInfoProvider(printerId));
+    final AsyncValue<Report?> lastReportAsync =
+        ref.watch(_lastReportProvider(printerId));
+
+    final _PrinterInfo? printerInfo = printerAsync.valueOrNull;
+    final Report? lastReport = lastReportAsync.valueOrNull;
+
+    final String serial = printerInfo?.serialNumber ?? '-';
+    final String model = printerInfo?.modelWithDpi ?? '-';
+
+    final String previousCounter = lastReport != null
+        ? lastReport.linearInchesCounter.toString()
+        : '0';
+    final String previousDate = lastReport != null
+        ? _formatDate(lastReport.createdAt)
+        : '-';
+    final String currentDate = _formatDate(DateTime.now());
 
     return Scaffold(
       appBar: AppBar(
@@ -34,8 +117,8 @@ class ReportSummaryScreen extends ConsumerWidget {
                 const _StatusBanner(),
                 const SizedBox(height: 12),
                 _GeneralSummaryCard(
-                  serial: _serial,
-                  model: _model,
+                  serial: serial,
+                  model: model,
                   serviceType: capture.selectedServiceType,
                   counter: capture.counterValue,
                   darkness: capture.darknessValue,
@@ -43,10 +126,10 @@ class ReportSummaryScreen extends ConsumerWidget {
                 ),
                 const SizedBox(height: 12),
                 _UsageChartCard(
-                  previousCounter: _counterPrevious,
+                  previousCounter: previousCounter,
                   currentCounter: capture.counterValue,
-                  previousDate: _previousServiceDate,
-                  currentDate: _currentServiceDate,
+                  previousDate: previousDate,
+                  currentDate: currentDate,
                 ),
                 const SizedBox(height: 12),
                 _DiagnosticCard(
@@ -89,6 +172,14 @@ class ReportSummaryScreen extends ConsumerWidget {
         ),
       ),
     );
+  }
+
+  static String _formatDate(DateTime date) {
+    const List<String> months = <String>[
+      'Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun',
+      'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic',
+    ];
+    return '${date.day} ${months[date.month - 1]} ${date.year}';
   }
 }
 
@@ -219,7 +310,7 @@ class _GeneralSummaryCard extends StatelessWidget {
               children: <Widget>[
                 _InfoLineCompact(label: 'Serial', value: serial),
                 const SizedBox(height: 10),
-                _InfoLineCompact(label: 'Modelo', value: '$model - 600dpi'),
+                _InfoLineCompact(label: 'Modelo', value: model),
                 const SizedBox(height: 10),
                 _ServiceTypeLine(
                   serviceType: serviceType,

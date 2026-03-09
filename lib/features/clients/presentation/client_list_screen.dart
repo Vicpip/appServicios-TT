@@ -21,70 +21,85 @@ class ClientListScreen extends ConsumerStatefulWidget {
 
 class _ClientListScreenState extends ConsumerState<ClientListScreen> {
   final TextEditingController _searchController = TextEditingController();
+  List<_ClientItem> _clients = <_ClientItem>[];
+  bool _loading = true;
 
-  static const List<_ClientItem> _mockClients = <_ClientItem>[
-    _ClientItem(
-      displayId: 4029,
-      client: Client(
-        id: '4029-client-mock',
-        name: 'Logistica Global S.A.',
-        rfc: 'LGS901010ABC',
-        address: 'Parque Industrial Norte, Nave 4',
-        isActive: true,
-      ),
-      contact: 'Juan Perez',
-      zebraUnits: 12,
-      policies: 2,
-      status: _ClientStatus.risk,
-    ),
-    _ClientItem(
-      displayId: 3184,
-      client: Client(
-        id: '3184-client-mock',
-        name: 'Beautyge Mexico',
-        rfc: 'BMX920412T90',
-        address: 'Corredor Industrial CDMX, Bodega 12',
-        isActive: true,
-      ),
-      contact: 'Daniela Rios',
-      zebraUnits: 8,
-      policies: 1,
-      status: _ClientStatus.stable,
-    ),
-    _ClientItem(
-      displayId: 2770,
-      client: Client(
-        id: '2770-client-mock',
-        name: 'Empaques del Centro',
-        rfc: 'EDC840905DD1',
-        address: 'Zona Logistica Poniente, Anden 6',
-        isActive: true,
-      ),
-      contact: 'Luis Torres',
-      zebraUnits: 5,
-      policies: 0,
-      status: _ClientStatus.noPolicy,
-    ),
-    _ClientItem(
-      displayId: 5112,
-      client: Client(
-        id: '5112-client-mock',
-        name: 'Norte Industrial Group',
-        rfc: 'NIG001122KQ7',
-        address: 'Nave 2, Parque Monterrey Norte',
-        isActive: true,
-      ),
-      contact: 'Mariana Soto',
-      zebraUnits: 14,
-      policies: 3,
-      status: _ClientStatus.stable,
-    ),
-  ];
+  @override
+  void initState() {
+    super.initState();
+    _loadClients();
+  }
 
   @override
   void dispose() {
     _searchController.dispose();
     super.dispose();
+  }
+
+  Future<void> _loadClients() async {
+    try {
+      final List<_ClientItem> items = await _buildClientItems();
+      if (mounted) setState(() { _clients = items; _loading = false; });
+    } catch (_) {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  Future<List<_ClientItem>> _buildClientItems() async {
+    final AppDatabase db = widget.database;
+    final DateTime now = DateTime.now();
+
+    final List<Client> allClients = await db.select(db.clients).get();
+    final List<Client> clients =
+        allClients.where((c) => c.isActive).toList()
+          ..sort((a, b) => a.name.compareTo(b.name));
+
+    final List<_ClientItem> items = <_ClientItem>[];
+    for (final Client client in clients) {
+      // Contar impresoras activas
+      final List<Printer> printers = await (db.select(db.printers)
+            ..where((p) => p.clientId.equals(client.id)))
+          .get();
+      final int zebraUnits = printers.where((p) => p.isActive).length;
+
+      // Contacto de la primera planta
+      final Plant? firstPlant = await (db.select(db.plants)
+            ..where((p) => p.clientId.equals(client.id))
+            ..limit(1))
+          .getSingleOrNull();
+      final String contact = firstPlant?.contactName ?? 'Sin contacto';
+
+      // Pólizas activas del cliente
+      final List<Policy> allPolicies = await (db.select(db.policies)
+            ..where((p) => p.clientId.equals(client.id)))
+          .get();
+      final List<Policy> activePolicies =
+          allPolicies.where((p) => !p.endDate.isBefore(now)).toList();
+
+      final _ClientStatus status;
+      if (activePolicies.isEmpty) {
+        status = _ClientStatus.noPolicy;
+      } else {
+        final bool soonExpiring =
+            activePolicies.any((p) => p.endDate.difference(now).inDays < 30);
+        status = soonExpiring ? _ClientStatus.risk : _ClientStatus.stable;
+      }
+
+      items.add(_ClientItem(
+        displayId: _deriveDisplayId(client.id),
+        client: client,
+        contact: contact,
+        zebraUnits: zebraUnits,
+        policies: activePolicies.length,
+        status: status,
+      ));
+    }
+    return items;
+  }
+
+  int _deriveDisplayId(String uuid) {
+    final String hex = uuid.replaceAll('-', '');
+    return int.parse(hex.substring(0, 4), radix: 16) % 9000 + 1000;
   }
 
   @override
@@ -187,7 +202,9 @@ class _ClientListScreenState extends ConsumerState<ClientListScreen> {
               ),
               const SizedBox(height: 12),
               Expanded(
-                child: filteredClients.isEmpty
+                child: _loading
+                    ? const Center(child: CircularProgressIndicator())
+                    : filteredClients.isEmpty
                     ? const Center(
                         child: Text(
                           'No hay clientes para el filtro actual',
@@ -223,7 +240,7 @@ class _ClientListScreenState extends ConsumerState<ClientListScreen> {
   List<_ClientItem> _filteredClients(ClientListState listState) {
     final String query = listState.searchQuery.trim().toLowerCase();
 
-    return _mockClients.where((_ClientItem client) {
+    return _clients.where((_ClientItem client) {
       final bool matchesFilter = switch (listState.selectedFilter) {
         ClientFilter.activePolicy => client.policies > 0,
         ClientFilter.noPolicy => client.status == _ClientStatus.noPolicy,
@@ -244,15 +261,17 @@ class _ClientListScreenState extends ConsumerState<ClientListScreen> {
     }).toList();
   }
 
-  void _openAddClientScreen() {
-    context.pushNamed(AppRoutes.addClient);
+  Future<void> _openAddClientScreen() async {
+    await context.pushNamed(AppRoutes.addClient);
+    _loadClients();
   }
 
-  void _openClientDetail(Client client) {
-    context.pushNamed(
+  Future<void> _openClientDetail(Client client) async {
+    await context.pushNamed(
       AppRoutes.clientDetail,
       extra: ClientDetailArgs(client: client),
     );
+    _loadClients();
   }
 }
 

@@ -111,7 +111,10 @@ class _ConfirmationCard extends StatelessWidget {
                   ),
                 );
               },
-              onCreateReport: () => context.pushNamed(AppRoutes.capture),
+              onCreateReport: () => context.pushNamed(
+                AppRoutes.capture,
+                extra: CaptureArgs(printerId: printer.printerId),
+              ),
             ),
           ],
         ),

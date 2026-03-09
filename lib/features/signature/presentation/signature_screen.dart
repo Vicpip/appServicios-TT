@@ -1,18 +1,26 @@
+import 'package:drift/drift.dart' show Value;
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:industrial_service_reports/core/theme/app_palette.dart';
+import 'package:industrial_service_reports/data/local/app_database.dart';
+import 'package:industrial_service_reports/data/local/local_database.dart';
+import 'package:industrial_service_reports/features/auth/providers/session_provider.dart';
+import 'package:industrial_service_reports/features/reports/providers/capture_provider.dart';
+import 'package:uuid/uuid.dart';
 
-class SignatureScreen extends StatefulWidget {
+class SignatureScreen extends ConsumerStatefulWidget {
   const SignatureScreen({super.key});
 
   @override
-  State<SignatureScreen> createState() => _SignatureScreenState();
+  ConsumerState<SignatureScreen> createState() => _SignatureScreenState();
 }
 
-class _SignatureScreenState extends State<SignatureScreen> {
+class _SignatureScreenState extends ConsumerState<SignatureScreen> {
   final GlobalKey<FormState> _formKey = GlobalKey<FormState>();
   final TextEditingController _signerNameController = TextEditingController();
   final TextEditingController _signerRoleController = TextEditingController();
+  bool _isSaving = false;
 
   @override
   void dispose() {
@@ -122,15 +130,24 @@ class _SignatureScreenState extends State<SignatureScreen> {
           child: SizedBox(
             height: 52,
             child: FilledButton(
-              onPressed: _onFinishPressed,
+              onPressed: _isSaving ? null : _onFinishPressed,
               style: FilledButton.styleFrom(
                 backgroundColor: AppPalette.success,
                 foregroundColor: AppPalette.backgroundLight,
               ),
-              child: const Text(
-                'Finalizar y Guardar Reporte',
-                style: TextStyle(fontSize: 17, fontWeight: FontWeight.w800),
-              ),
+              child: _isSaving
+                  ? const SizedBox(
+                      height: 22,
+                      width: 22,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2.5,
+                        color: AppPalette.backgroundLight,
+                      ),
+                    )
+                  : const Text(
+                      'Finalizar y Guardar Reporte',
+                      style: TextStyle(fontSize: 17, fontWeight: FontWeight.w800),
+                    ),
             ),
           ),
         ),
@@ -156,40 +173,124 @@ class _SignatureScreenState extends State<SignatureScreen> {
       return;
     }
 
-    await showDialog<void>(
-      context: context,
-      barrierDismissible: false,
-      builder: (BuildContext context) {
-        return AlertDialog(
-          title: const Text('Reporte Guardado'),
-          content: const Text(
-            'El reporte se guardo correctamente en la base local.',
-          ),
-          actions: <Widget>[
-            TextButton(
-              onPressed: () {
-                Navigator.of(context).pop();
-                ScaffoldMessenger.of(this.context).hideCurrentSnackBar();
-                ScaffoldMessenger.of(this.context).showSnackBar(
-                  const SnackBar(
-                    content: Text('Generando PDF...'),
-                    behavior: SnackBarBehavior.floating,
-                  ),
-                );
-              },
-              child: const Text('Compartir PDF'),
+    setState(() => _isSaving = true);
+
+    try {
+      final CaptureState captureState = ref.read(captureProvider);
+      final SessionState sessionState = ref.read(sessionProvider);
+
+      final String? printerId = captureState.printerId;
+      if (printerId == null || printerId.isEmpty) {
+        throw Exception('No hay impresora asociada al reporte.');
+      }
+
+      // Obtener techId real; si no hay sesión activa, crear usuario por defecto
+      String techId = sessionState.userId;
+      if (techId.isEmpty) {
+        const String defaultTechId = '00000000-0000-0000-0000-000000000001';
+        final User? existingUser = await (localDatabase.select(localDatabase.users)
+              ..where((u) => u.id.equals(defaultTechId)))
+            .getSingleOrNull();
+        if (existingUser == null) {
+          await localDatabase.into(localDatabase.users).insert(
+                UsersCompanion.insert(
+                  id: defaultTechId,
+                  name: sessionState.userName.isEmpty ? 'Técnico' : sessionState.userName,
+                  email: sessionState.email.isEmpty
+                      ? 'tecnico@empresa.com'
+                      : sessionState.email,
+                  role: 'technician',
+                ),
+              );
+        }
+        techId = defaultTechId;
+      }
+
+      // Buscar labelTypeId en catálogo
+      final CatalogLabelType? labelTypeRow = await (localDatabase
+              .select(localDatabase.catalogLabelTypes)
+            ..where((t) => t.name.equals(captureState.selectedLabelType)))
+          .getSingleOrNull();
+
+      // Parsear valores numéricos
+      final int counterValue =
+          int.tryParse(captureState.counterValue.replaceAll(',', '')) ?? 0;
+      final int? darknessValue = captureState.darknessValue.isNotEmpty
+          ? int.tryParse(captureState.darknessValue)
+          : null;
+
+      // Insertar reporte en DB
+      final String reportId = const Uuid().v4();
+      await localDatabase.into(localDatabase.reports).insert(
+            ReportsCompanion.insert(
+              id: reportId,
+              printerId: printerId,
+              techId: techId,
+              serviceType: captureState.selectedServiceType,
+              status: 'pendiente_sync',
+              serviceDate: DateTime.now(),
+              linearInchesCounter: counterValue,
+              technicalCheckboxes: captureState.checkValues,
+              darknessLevel: Value(darknessValue),
+              labelTypeId: Value(labelTypeRow?.id),
+              notes: Value(captureState.notes.isEmpty ? null : captureState.notes),
+              signatureName: Value(_signerNameController.text.trim()),
+              signatureRole: Value(_signerRoleController.text.trim()),
             ),
-            FilledButton(
-              onPressed: () {
-                Navigator.of(context).pop();
-                this.context.go('/dashboard');
-              },
-              child: const Text('Ir al Inicio'),
+          );
+
+      // Resetear estado de captura
+      ref.read(captureProvider.notifier).resetCapture();
+
+      if (!mounted) return;
+      setState(() => _isSaving = false);
+
+      await showDialog<void>(
+        context: context,
+        barrierDismissible: false,
+        builder: (BuildContext dialogContext) {
+          return AlertDialog(
+            title: const Text('Reporte Guardado'),
+            content: const Text(
+              'El reporte se guardó correctamente en la base local.',
             ),
-          ],
-        );
-      },
-    );
+            actions: <Widget>[
+              TextButton(
+                onPressed: () {
+                  Navigator.of(dialogContext).pop();
+                  ScaffoldMessenger.of(context).hideCurrentSnackBar();
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Generando PDF...'),
+                      behavior: SnackBarBehavior.floating,
+                    ),
+                  );
+                },
+                child: const Text('Compartir PDF'),
+              ),
+              FilledButton(
+                onPressed: () {
+                  Navigator.of(dialogContext).pop();
+                  context.go('/dashboard');
+                },
+                child: const Text('Ir al Inicio'),
+              ),
+            ],
+          );
+        },
+      );
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _isSaving = false);
+      ScaffoldMessenger.of(context).hideCurrentSnackBar();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          backgroundColor: Theme.of(context).colorScheme.error,
+          content: Text('Error al guardar: $e'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
   }
 
   String? _requiredValidator(String? value) {

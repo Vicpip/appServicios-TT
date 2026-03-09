@@ -373,8 +373,38 @@ class AppDatabase extends _$AppDatabase {
         },
         beforeOpen: (OpeningDetails details) async {
           await customStatement('PRAGMA foreign_keys = ON;');
+          await _seedCatalogs();
         },
       );
+
+  Future<void> _seedCatalogs() async {
+    const List<(String, String)> labelTypes = <(String, String)>[
+      ('a0000000-0000-0000-0000-000000000001', 'Papel TT'),
+      ('a0000000-0000-0000-0000-000000000002', 'Papel TD'),
+      ('a0000000-0000-0000-0000-000000000003', 'Plástica (BOPP/Poliéster)'),
+    ];
+    for (final (id, name) in labelTypes) {
+      await into(catalogLabelTypes).insertOnConflictUpdate(
+        CatalogLabelTypesCompanion.insert(id: id, name: name),
+      );
+    }
+
+    const List<(String, String)> failures = <(String, String)>[
+      ('b0000000-0000-0000-0000-000000000001', 'Mantenimiento general'),
+      ('b0000000-0000-0000-0000-000000000002', 'Calibración sensores'),
+      ('b0000000-0000-0000-0000-000000000003', 'Rodillo dañado'),
+      ('b0000000-0000-0000-0000-000000000004', 'Cabezal dañado'),
+      ('b0000000-0000-0000-0000-000000000005', 'Sensor ribbon dañado'),
+      ('b0000000-0000-0000-0000-000000000006', 'Sensor papel dañado'),
+      ('b0000000-0000-0000-0000-000000000007', 'Pruebas'),
+      ('b0000000-0000-0000-0000-000000000008', 'Otros'),
+    ];
+    for (final (id, name) in failures) {
+      await into(catalogFailures).insertOnConflictUpdate(
+        CatalogFailuresCompanion.insert(id: id, name: name),
+      );
+    }
+  }
 }
 
 QueryExecutor _openConnection() {

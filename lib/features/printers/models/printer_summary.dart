@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 @immutable
 class PrinterSummary {
   const PrinterSummary({
+    required this.printerId,
     required this.serialNumber,
     required this.modelWithDpi,
     required this.clientName,
@@ -11,6 +12,7 @@ class PrinterSummary {
     required this.hasActivePolicy,
   });
 
+  final String printerId;
   final String serialNumber;
   final String modelWithDpi;
   final String clientName;
