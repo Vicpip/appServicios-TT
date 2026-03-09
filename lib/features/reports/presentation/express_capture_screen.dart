@@ -1,10 +1,13 @@
-﻿import 'dart:math' as math;
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
+import 'package:industrial_service_reports/core/router/app_routes.dart';
 import 'package:industrial_service_reports/core/theme/app_palette.dart';
-import 'package:industrial_service_reports/features/reports/presentation/report_summary_screen.dart';
+import 'package:industrial_service_reports/features/reports/providers/capture_provider.dart';
 
-class ExpressCaptureScreen extends StatefulWidget {
+class ExpressCaptureScreen extends ConsumerStatefulWidget {
   const ExpressCaptureScreen({
     super.key,
     this.printerId,
@@ -13,42 +16,33 @@ class ExpressCaptureScreen extends StatefulWidget {
   final String? printerId;
 
   @override
-  State<ExpressCaptureScreen> createState() => _ExpressCaptureScreenState();
+  ConsumerState<ExpressCaptureScreen> createState() =>
+      _ExpressCaptureScreenState();
 }
 
-class _ExpressCaptureScreenState extends State<ExpressCaptureScreen> {
-  static const List<String> _serviceTypes = <String>[
-    'Preventivo',
-    'Correctivo',
-    'Diagnóstico',
-    'Instalación',
-  ];
-
-  static const List<String> _labelTypes = <String>[
-    'Papel TT',
-    'Papel TD',
-    'Plástica (BOPP/Poliéster)',
-  ];
-
-  static const List<String> _checklistItems = <String>[
-    'Mantenimiento general',
-    'Calibración sensores',
-    'Rodillo dañado',
-    'Cabezal dañado',
-    'Sensor ribbon dañado',
-    'Sensor papel dañado',
-    'Pruebas',
-    'Otros',
-  ];
-
+class _ExpressCaptureScreenState extends ConsumerState<ExpressCaptureScreen> {
   final TextEditingController _counterController = TextEditingController();
   final TextEditingController _darknessController = TextEditingController();
   final TextEditingController _notesController = TextEditingController();
   final GlobalKey<FormState> _formKey = GlobalKey<FormState>();
-  final Map<String, bool> _checkValues = <String, bool>{};
 
-  String _selectedServiceType = _serviceTypes.first;
-  String _selectedLabelType = _labelTypes.first;
+  @override
+  void initState() {
+    super.initState();
+    if (widget.printerId != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        ref.read(captureProvider.notifier).setPrinterId(widget.printerId);
+      });
+    }
+  }
+
+  @override
+  void dispose() {
+    _counterController.dispose();
+    _darknessController.dispose();
+    _notesController.dispose();
+    super.dispose();
+  }
 
   _ServiceTypeVisual _serviceTypeVisual(String type) {
     switch (type) {
@@ -81,23 +75,8 @@ class _ExpressCaptureScreenState extends State<ExpressCaptureScreen> {
   }
 
   @override
-  void initState() {
-    super.initState();
-    for (final String item in _checklistItems) {
-      _checkValues[item] = false;
-    }
-  }
-
-  @override
-  void dispose() {
-    _counterController.dispose();
-    _darknessController.dispose();
-    _notesController.dispose();
-    super.dispose();
-  }
-
-  @override
   Widget build(BuildContext context) {
+    final CaptureState capture = ref.watch(captureProvider);
     final ThemeData theme = Theme.of(context);
     final bool isWide = MediaQuery.of(context).size.width >= 900;
 
@@ -115,7 +94,8 @@ class _ExpressCaptureScreenState extends State<ExpressCaptureScreen> {
                 _confirmCancelReport();
               }
             },
-            itemBuilder: (BuildContext context) => const <PopupMenuEntry<String>>[
+            itemBuilder: (BuildContext context) =>
+                const <PopupMenuEntry<String>>[
               PopupMenuItem<String>(
                 value: 'cancel_report',
                 child: Text(
@@ -136,230 +116,228 @@ class _ExpressCaptureScreenState extends State<ExpressCaptureScreen> {
               constraints: const BoxConstraints(maxWidth: 1100),
               child: Column(
                 children: <Widget>[
-                _SectionCard(
-                  title: 'Información Básica',
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: <Widget>[
-                      Text(
-                        'Tipo de Servicio',
-                        style: theme.textTheme.titleMedium?.copyWith(fontSize: 17),
-                      ),
-                      const SizedBox(height: 10),
-                      SingleChildScrollView(
-                        scrollDirection: Axis.horizontal,
-                        child: SegmentedButton<String>(
-                          segments: _serviceTypes
-                              .map(
-                                (String type) => ButtonSegment<String>(
-                                  value: type,
-                                  icon: Icon(
-                                    _serviceTypeVisual(type).icon,
-                                    size: 18,
+                  _SectionCard(
+                    title: 'Información Básica',
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: <Widget>[
+                        Text(
+                          'Tipo de Servicio',
+                          style:
+                              theme.textTheme.titleMedium?.copyWith(fontSize: 17),
+                        ),
+                        const SizedBox(height: 10),
+                        SingleChildScrollView(
+                          scrollDirection: Axis.horizontal,
+                          child: SegmentedButton<String>(
+                            segments: kServiceTypes
+                                .map(
+                                  (String type) => ButtonSegment<String>(
+                                    value: type,
+                                    icon: Icon(
+                                      _serviceTypeVisual(type).icon,
+                                      size: 18,
+                                    ),
+                                    label: Text(type),
                                   ),
+                                )
+                                .toList(),
+                            selected: <String>{capture.selectedServiceType},
+                            onSelectionChanged: (Set<String> values) {
+                              ref
+                                  .read(captureProvider.notifier)
+                                  .setServiceType(values.first);
+                            },
+                          ),
+                        ),
+                        const SizedBox(height: 10),
+                        _SelectedServiceTypeBadge(
+                          type: capture.selectedServiceType,
+                          visual: _serviceTypeVisual(capture.selectedServiceType),
+                        ),
+                        const SizedBox(height: 18),
+                        Text(
+                          'Contador de Pulgadas *',
+                          style: theme.textTheme.titleMedium?.copyWith(
+                            fontSize: 17,
+                            color: AppPalette.primary,
+                          ),
+                        ),
+                        const SizedBox(height: 10),
+                        if (isWide)
+                          Row(
+                            children: <Widget>[
+                              Expanded(child: _buildCounterField()),
+                              const SizedBox(width: 12),
+                              Expanded(child: _buildDarknessField()),
+                            ],
+                          )
+                        else
+                          Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: <Widget>[
+                              _buildCounterField(),
+                              const SizedBox(height: 12),
+                              _buildDarknessField(),
+                            ],
+                          ),
+                        const SizedBox(height: 18),
+                        Text(
+                          'Tipo de Etiqueta',
+                          style:
+                              theme.textTheme.titleMedium?.copyWith(fontSize: 17),
+                        ),
+                        const SizedBox(height: 10),
+                        Wrap(
+                          spacing: 10,
+                          runSpacing: 10,
+                          children: kLabelTypes
+                              .map(
+                                (String type) => ChoiceChip(
                                   label: Text(type),
+                                  selected: capture.selectedLabelType == type,
+                                  onSelected: (_) {
+                                    ref
+                                        .read(captureProvider.notifier)
+                                        .setLabelType(type);
+                                  },
+                                  selectedColor: AppPalette.primary,
+                                  backgroundColor:
+                                      AppPalette.surfaceDarkHighlight,
+                                  labelStyle: const TextStyle(
+                                    color: AppPalette.backgroundLight,
+                                    fontWeight: FontWeight.w700,
+                                  ),
                                 ),
                               )
                               .toList(),
-                          selected: <String>{_selectedServiceType},
-                          onSelectionChanged: (Set<String> values) {
-                            setState(() {
-                              _selectedServiceType = values.first;
-                            });
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                  _SectionCard(
+                    title: 'Revision Tecnica',
+                    child: GridView.builder(
+                      shrinkWrap: true,
+                      physics: const NeverScrollableScrollPhysics(),
+                      itemCount: kChecklistItems.length,
+                      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                        crossAxisCount: 2,
+                        mainAxisExtent: isWide ? 52 : 48,
+                        mainAxisSpacing: 2,
+                        crossAxisSpacing: 8,
+                      ),
+                      itemBuilder: (BuildContext context, int index) {
+                        final String item = kChecklistItems[index];
+                        final bool currentValue =
+                            capture.checkValues[item] ?? false;
+
+                        return InkWell(
+                          borderRadius: BorderRadius.circular(8),
+                          onTap: () {
+                            ref
+                                .read(captureProvider.notifier)
+                                .toggleCheckItem(item);
                           },
-                        ),
-                      ),
-                      const SizedBox(height: 10),
-                      _SelectedServiceTypeBadge(
-                        type: _selectedServiceType,
-                        visual: _serviceTypeVisual(_selectedServiceType),
-                      ),
-                      const SizedBox(height: 18),
-                      Text(
-                        'Contador de Pulgadas *',
-                        style: theme.textTheme.titleMedium?.copyWith(
-                          fontSize: 17,
-                          color: AppPalette.primary,
-                        ),
-                      ),
-                      const SizedBox(height: 10),
-                      if (isWide)
-                        Row(
-                          children: <Widget>[
-                            Expanded(
-                              child: _buildCounterField(),
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 2),
+                            child: Row(
+                              children: <Widget>[
+                                Checkbox(
+                                  value: currentValue,
+                                  materialTapTargetSize:
+                                      MaterialTapTargetSize.shrinkWrap,
+                                  visualDensity: VisualDensity.compact,
+                                  onChanged: (bool? value) {
+                                    ref
+                                        .read(captureProvider.notifier)
+                                        .toggleCheckItem(item);
+                                  },
+                                ),
+                                const SizedBox(width: 6),
+                                Expanded(
+                                  child: Text(
+                                    item,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: TextStyle(
+                                      fontSize: isWide ? 16 : 14,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                ),
+                              ],
                             ),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              child: _buildDarknessField(),
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                  _SectionCard(
+                    title: 'Evidencia Fotografica',
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: <Widget>[
+                        SizedBox(
+                          height: 130,
+                          child: CustomPaint(
+                            painter: _DashedRectPainter(
+                              color: AppPalette.surfaceDarkHighlight,
                             ),
-                          ],
-                        )
-                      else
-                        Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: <Widget>[
-                            _buildCounterField(),
-                            const SizedBox(height: 12),
-                            _buildDarknessField(),
-                          ],
-                        ),
-                      const SizedBox(height: 18),
-                      Text(
-                        'Tipo de Etiqueta',
-                        style: theme.textTheme.titleMedium?.copyWith(fontSize: 17),
-                      ),
-                      const SizedBox(height: 10),
-                      Wrap(
-                        spacing: 10,
-                        runSpacing: 10,
-                        children: _labelTypes
-                            .map(
-                              (String type) => ChoiceChip(
-                                label: Text(type),
-                                selected: _selectedLabelType == type,
-                                onSelected: (_) {
-                                  setState(() {
-                                    _selectedLabelType = type;
-                                  });
-                                },
-                                selectedColor: AppPalette.primary,
-                                backgroundColor: AppPalette.surfaceDarkHighlight,
-                                labelStyle: TextStyle(
-                                  color: _selectedLabelType == type
-                                      ? AppPalette.backgroundLight
-                                      : AppPalette.backgroundLight,
-                                  fontWeight: FontWeight.w700,
+                            child: const Center(
+                              child: Text(
+                                'Mínimo 1 foto de prueba de impresión requerida',
+                                textAlign: TextAlign.center,
+                                style: TextStyle(
+                                  color: Colors.white70,
+                                  fontSize: 17,
+                                  fontWeight: FontWeight.w600,
                                 ),
                               ),
-                            )
-                            .toList(),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 14),
-                _SectionCard(
-                  title: 'Revision Tecnica',
-                  child: GridView.builder(
-                    shrinkWrap: true,
-                    physics: const NeverScrollableScrollPhysics(),
-                    itemCount: _checklistItems.length,
-                    gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                      crossAxisCount: 2,
-                      mainAxisExtent: isWide ? 52 : 48,
-                      mainAxisSpacing: 2,
-                      crossAxisSpacing: 8,
-                    ),
-                    itemBuilder: (BuildContext context, int index) {
-                      final String item = _checklistItems[index];
-                      final bool currentValue = _checkValues[item] ?? false;
-
-                      return InkWell(
-                        borderRadius: BorderRadius.circular(8),
-                        onTap: () {
-                          setState(() {
-                            _checkValues[item] = !currentValue;
-                          });
-                        },
-                        child: Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 2),
-                          child: Row(
-                            children: <Widget>[
-                              Checkbox(
-                                value: currentValue,
-                                materialTapTargetSize:
-                                    MaterialTapTargetSize.shrinkWrap,
-                                visualDensity: VisualDensity.compact,
-                                onChanged: (bool? value) {
-                                  setState(() {
-                                    _checkValues[item] = value ?? false;
-                                  });
-                                },
-                              ),
-                              const SizedBox(width: 6),
-                              Expanded(
-                                child: Text(
-                                  item,
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 14),
+                        Wrap(
+                          spacing: 10,
+                          runSpacing: 10,
+                          children: <Widget>[
+                            SizedBox(
+                              height: 48,
+                              child: FilledButton.icon(
+                                onPressed: _showMockUploadSnackBar,
+                                icon: const Icon(Icons.photo_camera_rounded),
+                                label: const Text(
+                                  'Tomar Foto (Cámara)',
                                   style: TextStyle(
-                                    fontSize: isWide ? 16 : 14,
-                                    fontWeight: FontWeight.w600,
+                                    fontSize: 15,
+                                    fontWeight: FontWeight.w700,
                                   ),
                                 ),
                               ),
-                            ],
-                          ),
-                        ),
-                      );
-                    },
-                  ),
-                ),
-                const SizedBox(height: 14),
-                _SectionCard(
-                  title: 'Evidencia Fotografica',
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: <Widget>[
-                      SizedBox(
-                        height: 130,
-                        child: CustomPaint(
-                          painter: _DashedRectPainter(
-                            color: AppPalette.surfaceDarkHighlight,
-                          ),
-                          child: const Center(
-                            child: Text(
-                              'Mínimo 1 foto de prueba de impresión requerida',
-                              textAlign: TextAlign.center,
-                              style: TextStyle(
-                                color: Colors.white70,
-                                fontSize: 17,
-                                fontWeight: FontWeight.w600,
-                              ),
                             ),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 14),
-                      Wrap(
-                        spacing: 10,
-                        runSpacing: 10,
-                        children: <Widget>[
-                          SizedBox(
-                            height: 48,
-                            child: FilledButton.icon(
-                              onPressed: _showMockUploadSnackBar,
-                              icon: const Icon(Icons.photo_camera_rounded),
-                              label: const Text(
-                                'Tomar Foto (Cámara)',
-                                style: TextStyle(
-                                  fontSize: 15,
-                                  fontWeight: FontWeight.w700,
+                            SizedBox(
+                              height: 48,
+                              child: FilledButton.tonalIcon(
+                                onPressed: _showMockUploadSnackBar,
+                                icon: const Icon(Icons.photo_library_rounded),
+                                label: const Text(
+                                  'Subir de Galería',
+                                  style: TextStyle(
+                                    fontSize: 15,
+                                    fontWeight: FontWeight.w700,
+                                  ),
                                 ),
                               ),
                             ),
-                          ),
-                          SizedBox(
-                            height: 48,
-                            child: FilledButton.tonalIcon(
-                              onPressed: _showMockUploadSnackBar,
-                              icon: const Icon(Icons.photo_library_rounded),
-                              label: const Text(
-                                'Subir de Galería',
-                                style: TextStyle(
-                                  fontSize: 15,
-                                  fontWeight: FontWeight.w700,
-                                ),
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ],
+                          ],
+                        ),
+                      ],
+                    ),
                   ),
-                ),
-                const SizedBox(height: 14),
+                  const SizedBox(height: 14),
                   _SectionCard(
                     title: 'Observaciones',
                     child: TextField(
@@ -382,7 +360,8 @@ class _ExpressCaptureScreenState extends State<ExpressCaptureScreen> {
           padding: const EdgeInsets.fromLTRB(16, 10, 16, 16),
           decoration: const BoxDecoration(
             color: AppPalette.surfaceDark,
-            border: Border(top: BorderSide(color: AppPalette.surfaceDarkHighlight)),
+            border:
+                Border(top: BorderSide(color: AppPalette.surfaceDarkHighlight)),
           ),
           child: SizedBox(
             height: 52,
@@ -462,7 +441,6 @@ class _ExpressCaptureScreenState extends State<ExpressCaptureScreen> {
     if (trimmed.isEmpty) {
       return null;
     }
-
     final String normalized = trimmed.replaceAll(',', '.');
     if (double.tryParse(normalized) == null) {
       return 'Ingrese un número válido';
@@ -477,19 +455,21 @@ class _ExpressCaptureScreenState extends State<ExpressCaptureScreen> {
       return;
     }
 
-    final bool hasTechnicalSelection = _checkValues.values.any(
-      (bool value) => value,
-    );
+    final CaptureState capture = ref.read(captureProvider);
+    final bool hasTechnicalSelection =
+        capture.checkValues.values.any((bool value) => value);
     if (!hasTechnicalSelection) {
       _showValidationSnackBar('Debe seleccionar al menos una opción tecnica');
       return;
     }
 
-    Navigator.of(context).push(
-      MaterialPageRoute<void>(
-        builder: (_) => const ReportSummaryScreen(),
-      ),
-    );
+    ref.read(captureProvider.notifier).commitFormValues(
+          counter: _counterController.text,
+          darkness: _darknessController.text,
+          notes: _notesController.text,
+        );
+
+    context.pushNamed(AppRoutes.reportSummary);
   }
 
   void _showValidationSnackBar(String message) {
@@ -535,7 +515,8 @@ class _ExpressCaptureScreenState extends State<ExpressCaptureScreen> {
     );
 
     if (shouldCancel == true && mounted) {
-      Navigator.of(context).pop();
+      ref.read(captureProvider.notifier).resetCapture();
+      context.pop();
     }
   }
 }
@@ -674,4 +655,3 @@ class _DashedRectPainter extends CustomPainter {
   bool shouldRepaint(covariant _DashedRectPainter oldDelegate) =>
       oldDelegate.color != color;
 }
-

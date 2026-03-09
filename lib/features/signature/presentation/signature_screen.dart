@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 import 'package:industrial_service_reports/core/theme/app_palette.dart';
-import 'package:industrial_service_reports/features/dashboard/presentation/main_dashboard_screen.dart';
 
 class SignatureScreen extends StatefulWidget {
   const SignatureScreen({super.key});
@@ -182,12 +182,7 @@ class _SignatureScreenState extends State<SignatureScreen> {
             FilledButton(
               onPressed: () {
                 Navigator.of(context).pop();
-                Navigator.of(this.context).pushAndRemoveUntil(
-                  MaterialPageRoute<void>(
-                    builder: (_) => const MainDashboardScreen(),
-                  ),
-                  (Route<dynamic> route) => false,
-                );
+                this.context.go('/dashboard');
               },
               child: const Text('Ir al Inicio'),
             ),

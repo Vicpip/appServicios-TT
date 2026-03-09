@@ -1,22 +1,17 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
+import 'package:industrial_service_reports/core/router/app_routes.dart';
+import 'package:industrial_service_reports/core/router/route_args.dart';
 import 'package:industrial_service_reports/data/local/app_database.dart';
-import 'package:industrial_service_reports/features/printers/presentation/printer_detail_screen.dart';
-import 'package:industrial_service_reports/features/printers/presentation/quick_add_printer_screen.dart';
-import 'package:industrial_service_reports/features/reports/presentation/express_capture_screen.dart';
-
-enum _InventoryFilter {
-  all,
-  byClient,
-  byPlant,
-  byContact,
-}
+import 'package:industrial_service_reports/features/printers/providers/printer_inventory_provider.dart';
 
 enum _InventoryStatus {
   inPolicy,
   noPolicy,
 }
 
-class PrinterInventoryScreen extends StatefulWidget {
+class PrinterInventoryScreen extends ConsumerStatefulWidget {
   const PrinterInventoryScreen({
     super.key,
     required this.database,
@@ -25,10 +20,12 @@ class PrinterInventoryScreen extends StatefulWidget {
   final AppDatabase database;
 
   @override
-  State<PrinterInventoryScreen> createState() => _PrinterInventoryScreenState();
+  ConsumerState<PrinterInventoryScreen> createState() =>
+      _PrinterInventoryScreenState();
 }
 
-class _PrinterInventoryScreenState extends State<PrinterInventoryScreen> {
+class _PrinterInventoryScreenState
+    extends ConsumerState<PrinterInventoryScreen> {
   static const Color _screenBg = Color(0xFF0D1117);
   static const Color _cardBg = Color(0xFF161B22);
   static const Color _blueSoft = Color(0xFF8EC5FF);
@@ -36,10 +33,6 @@ class _PrinterInventoryScreenState extends State<PrinterInventoryScreen> {
   static const Color _orangeSoft = Color(0xFFF1A85A);
 
   final TextEditingController _searchController = TextEditingController();
-  _InventoryFilter _selectedFilter = _InventoryFilter.all;
-  String? _selectedClient;
-  String? _selectedPlant;
-  String? _selectedContact;
 
   static const List<_InventoryPrinter> _mockPrinters = <_InventoryPrinter>[
     _InventoryPrinter(
@@ -102,7 +95,9 @@ class _PrinterInventoryScreenState extends State<PrinterInventoryScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final List<_InventoryPrinter> results = _filteredResults();
+    final PrinterInventoryState inventoryState =
+        ref.watch(printerInventoryProvider);
+    final List<_InventoryPrinter> results = _filteredResults(inventoryState);
 
     return Scaffold(
       backgroundColor: _screenBg,
@@ -129,7 +124,11 @@ class _PrinterInventoryScreenState extends State<PrinterInventoryScreen> {
                 ),
                 child: TextField(
                   controller: _searchController,
-                  onChanged: (_) => setState(() {}),
+                  onChanged: (String value) {
+                    ref
+                        .read(printerInventoryProvider.notifier)
+                        .setSearchQuery(value);
+                  },
                   style: const TextStyle(
                     color: Colors.white,
                     fontWeight: FontWeight.w600,
@@ -153,47 +152,45 @@ class _PrinterInventoryScreenState extends State<PrinterInventoryScreen> {
                   children: <Widget>[
                     _InventoryChip(
                       label: 'Todos',
-                      selected: _selectedFilter == _InventoryFilter.all,
-                      onTap: () => setState(() {
-                        _selectedFilter = _InventoryFilter.all;
-                      }),
+                      selected: inventoryState.selectedFilter ==
+                          PrinterFilter.all,
+                      onTap: () => ref
+                          .read(printerInventoryProvider.notifier)
+                          .setFilter(PrinterFilter.all),
                     ),
                     const SizedBox(width: 8),
                     _InventoryChip(
                       label: 'Por Cliente',
-                      selected: _selectedFilter == _InventoryFilter.byClient,
-                      onTap: () => setState(() {
-                        _selectedFilter = _InventoryFilter.byClient;
-                        _selectedPlant = null;
-                        _selectedContact = null;
-                      }),
+                      selected: inventoryState.selectedFilter ==
+                          PrinterFilter.byClient,
+                      onTap: () => ref
+                          .read(printerInventoryProvider.notifier)
+                          .setFilter(PrinterFilter.byClient),
                     ),
                     const SizedBox(width: 8),
                     _InventoryChip(
                       label: 'Planta',
-                      selected: _selectedFilter == _InventoryFilter.byPlant,
-                      onTap: () => setState(() {
-                        _selectedFilter = _InventoryFilter.byPlant;
-                        _selectedClient = null;
-                        _selectedContact = null;
-                      }),
+                      selected: inventoryState.selectedFilter ==
+                          PrinterFilter.byPlant,
+                      onTap: () => ref
+                          .read(printerInventoryProvider.notifier)
+                          .setFilter(PrinterFilter.byPlant),
                     ),
                     const SizedBox(width: 8),
                     _InventoryChip(
                       label: 'Contacto',
-                      selected: _selectedFilter == _InventoryFilter.byContact,
-                      onTap: () => setState(() {
-                        _selectedFilter = _InventoryFilter.byContact;
-                        _selectedClient = null;
-                        _selectedPlant = null;
-                      }),
+                      selected: inventoryState.selectedFilter ==
+                          PrinterFilter.byContact,
+                      onTap: () => ref
+                          .read(printerInventoryProvider.notifier)
+                          .setFilter(PrinterFilter.byContact),
                     ),
                   ],
                 ),
               ),
-              if (_selectedFilter != _InventoryFilter.all) ...<Widget>[
+              if (inventoryState.selectedFilter != PrinterFilter.all) ...<Widget>[
                 const SizedBox(height: 8),
-                _buildEntityFilterChips(),
+                _buildEntityFilterChips(inventoryState),
               ],
               const SizedBox(height: 10),
               Row(
@@ -212,18 +209,12 @@ class _PrinterInventoryScreenState extends State<PrinterInventoryScreen> {
                   SizedBox(
                     height: 34,
                     child: FilledButton.icon(
-                      onPressed: () {
-                        Navigator.of(context).push(
-                          MaterialPageRoute<void>(
-                            builder: (_) =>
-                                QuickAddPrinterScreen(database: widget.database),
-                          ),
-                        );
-                      },
+                      onPressed: () => context.pushNamed(AppRoutes.quickAddPrinter),
                       icon: const Icon(Icons.add_rounded, size: 18),
                       label: const Text(
                         'Agregar Impresora',
-                        style: TextStyle(fontSize: 12, fontWeight: FontWeight.w800),
+                        style: TextStyle(
+                            fontSize: 12, fontWeight: FontWeight.w800),
                       ),
                     ),
                   ),
@@ -241,24 +232,18 @@ class _PrinterInventoryScreenState extends State<PrinterInventoryScreen> {
                       cardBg: _cardBg,
                       blueSoft: _blueSoft,
                       orangeSoft: _orangeSoft,
-                      onCreateReport: () {
-                        Navigator.of(context).push(
-                          MaterialPageRoute<void>(
-                            builder: (_) => const ExpressCaptureScreen(),
-                          ),
-                        );
-                      },
-                      onViewDetail: () {
-                        Navigator.of(context).push(
-                          MaterialPageRoute<void>(
-                            builder: (_) => PrinterDetailScreen(
-                              serialNumber: item.serialNumber,
-                              model: item.model,
-                              client: item.client,
-                            ),
-                          ),
-                        );
-                      },
+                      onCreateReport: () => context.pushNamed(AppRoutes.capture),
+                      onViewDetail: () => context.pushNamed(
+                        AppRoutes.printerDetail,
+                        pathParameters: <String, String>{
+                          'serialNumber': item.serialNumber,
+                        },
+                        extra: PrinterDetailArgs(
+                          serialNumber: item.serialNumber,
+                          model: item.model,
+                          client: item.client,
+                        ),
+                      ),
                     );
                   },
                 ),
@@ -270,21 +255,21 @@ class _PrinterInventoryScreenState extends State<PrinterInventoryScreen> {
     );
   }
 
-  List<_InventoryPrinter> _filteredResults() {
-    final String query = _searchController.text.trim().toLowerCase();
+  List<_InventoryPrinter> _filteredResults(PrinterInventoryState state) {
+    final String query = state.searchQuery.trim().toLowerCase();
 
     bool matchesEntityFilter(_InventoryPrinter p) {
-      switch (_selectedFilter) {
-        case _InventoryFilter.byClient:
-          if (_selectedClient == null) return true;
-          return p.client == _selectedClient;
-        case _InventoryFilter.byPlant:
-          if (_selectedPlant == null) return true;
-          return p.plant == _selectedPlant;
-        case _InventoryFilter.byContact:
-          if (_selectedContact == null) return true;
-          return p.contact == _selectedContact;
-        case _InventoryFilter.all:
+      switch (state.selectedFilter) {
+        case PrinterFilter.byClient:
+          if (state.selectedClient == null) return true;
+          return p.client == state.selectedClient;
+        case PrinterFilter.byPlant:
+          if (state.selectedPlant == null) return true;
+          return p.plant == state.selectedPlant;
+        case PrinterFilter.byContact:
+          if (state.selectedContact == null) return true;
+          return p.contact == state.selectedContact;
+        case PrinterFilter.all:
           return true;
       }
     }
@@ -299,28 +284,29 @@ class _PrinterInventoryScreenState extends State<PrinterInventoryScreen> {
     }
 
     return _mockPrinters
-        .where(( _InventoryPrinter p) => matchesEntityFilter(p) && matchesQuery(p))
+        .where((_InventoryPrinter p) =>
+            matchesEntityFilter(p) && matchesQuery(p))
         .toList();
   }
 
-  Widget _buildEntityFilterChips() {
-    final List<String> values = switch (_selectedFilter) {
-      _InventoryFilter.byClient => _mockPrinters
-          .map(( _InventoryPrinter p) => p.client)
+  Widget _buildEntityFilterChips(PrinterInventoryState state) {
+    final List<String> values = switch (state.selectedFilter) {
+      PrinterFilter.byClient => _mockPrinters
+          .map((_InventoryPrinter p) => p.client)
           .toSet()
           .toList()
         ..sort(),
-      _InventoryFilter.byPlant => _mockPrinters
-          .map(( _InventoryPrinter p) => p.plant)
+      PrinterFilter.byPlant => _mockPrinters
+          .map((_InventoryPrinter p) => p.plant)
           .toSet()
           .toList()
         ..sort(),
-      _InventoryFilter.byContact => _mockPrinters
-          .map(( _InventoryPrinter p) => p.contact)
+      PrinterFilter.byContact => _mockPrinters
+          .map((_InventoryPrinter p) => p.contact)
           .toSet()
           .toList()
         ..sort(),
-      _InventoryFilter.all => <String>[],
+      PrinterFilter.all => <String>[],
     };
 
     return SingleChildScrollView(
@@ -329,18 +315,20 @@ class _PrinterInventoryScreenState extends State<PrinterInventoryScreen> {
         children: <Widget>[
           ChoiceChip(
             label: const Text('Todos'),
-            selected: (_selectedFilter == _InventoryFilter.byClient &&
-                    _selectedClient == null) ||
-                (_selectedFilter == _InventoryFilter.byPlant &&
-                    _selectedPlant == null) ||
-                (_selectedFilter == _InventoryFilter.byContact &&
-                    _selectedContact == null),
+            selected: (state.selectedFilter == PrinterFilter.byClient &&
+                    state.selectedClient == null) ||
+                (state.selectedFilter == PrinterFilter.byPlant &&
+                    state.selectedPlant == null) ||
+                (state.selectedFilter == PrinterFilter.byContact &&
+                    state.selectedContact == null),
             onSelected: (_) {
-              setState(() {
-                _selectedClient = null;
-                _selectedPlant = null;
-                _selectedContact = null;
-              });
+              ref
+                  .read(printerInventoryProvider.notifier)
+                  .setClientFilter(null);
+              ref.read(printerInventoryProvider.notifier).setPlantFilter(null);
+              ref
+                  .read(printerInventoryProvider.notifier)
+                  .setContactFilter(null);
             },
             selectedColor: const Color(0xFF2D3D52),
             backgroundColor: const Color(0xFF1A2029),
@@ -352,11 +340,11 @@ class _PrinterInventoryScreenState extends State<PrinterInventoryScreen> {
           ),
           const SizedBox(width: 8),
           ...values.map((String value) {
-            final bool selected = switch (_selectedFilter) {
-              _InventoryFilter.byClient => _selectedClient == value,
-              _InventoryFilter.byPlant => _selectedPlant == value,
-              _InventoryFilter.byContact => _selectedContact == value,
-              _InventoryFilter.all => false,
+            final bool selected = switch (state.selectedFilter) {
+              PrinterFilter.byClient => state.selectedClient == value,
+              PrinterFilter.byPlant => state.selectedPlant == value,
+              PrinterFilter.byContact => state.selectedContact == value,
+              PrinterFilter.all => false,
             };
             return Padding(
               padding: const EdgeInsets.only(right: 8),
@@ -364,15 +352,22 @@ class _PrinterInventoryScreenState extends State<PrinterInventoryScreen> {
                 label: Text(value),
                 selected: selected,
                 onSelected: (_) {
-                  setState(() {
-                    if (_selectedFilter == _InventoryFilter.byClient) {
-                      _selectedClient = value;
-                    } else if (_selectedFilter == _InventoryFilter.byPlant) {
-                      _selectedPlant = value;
-                    } else if (_selectedFilter == _InventoryFilter.byContact) {
-                      _selectedContact = value;
-                    }
-                  });
+                  switch (state.selectedFilter) {
+                    case PrinterFilter.byClient:
+                      ref
+                          .read(printerInventoryProvider.notifier)
+                          .setClientFilter(value);
+                    case PrinterFilter.byPlant:
+                      ref
+                          .read(printerInventoryProvider.notifier)
+                          .setPlantFilter(value);
+                    case PrinterFilter.byContact:
+                      ref
+                          .read(printerInventoryProvider.notifier)
+                          .setContactFilter(value);
+                    case PrinterFilter.all:
+                      break;
+                  }
                 },
                 selectedColor: const Color(0xFF2D3D52),
                 backgroundColor: const Color(0xFF1A2029),
@@ -440,12 +435,10 @@ class _InventoryPrinterCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final bool hasPolicy = printer.status == _InventoryStatus.inPolicy;
-    final Color badgeBg = hasPolicy
-        ? const Color(0xFF11351E)
-        : const Color(0xFF3A1313);
-    final Color badgeText = hasPolicy
-        ? const Color(0xFF4CFF8C)
-        : const Color(0xFFFF7F7F);
+    final Color badgeBg =
+        hasPolicy ? const Color(0xFF11351E) : const Color(0xFF3A1313);
+    final Color badgeText =
+        hasPolicy ? const Color(0xFF4CFF8C) : const Color(0xFFFF7F7F);
 
     return Container(
       decoration: BoxDecoration(
@@ -471,7 +464,8 @@ class _InventoryPrinterCard extends StatelessWidget {
                 ),
                 const Spacer(),
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                   decoration: BoxDecoration(
                     color: badgeBg,
                     borderRadius: BorderRadius.circular(14),

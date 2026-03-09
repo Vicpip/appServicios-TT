@@ -1,8 +1,10 @@
-import 'package:flutter/material.dart';
 import 'package:drift/drift.dart' as drift;
+import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
+import 'package:industrial_service_reports/core/router/app_routes.dart';
+import 'package:industrial_service_reports/core/router/route_args.dart';
 import 'package:industrial_service_reports/core/theme/app_palette.dart';
 import 'package:industrial_service_reports/data/local/app_database.dart';
-import 'package:industrial_service_reports/features/reports/presentation/express_capture_screen.dart';
 import 'package:uuid/uuid.dart';
 
 class QuickAddPrinterScreen extends StatefulWidget {
@@ -393,10 +395,9 @@ class _QuickAddPrinterScreenState extends State<QuickAddPrinterScreen> {
         ),
       );
 
-      Navigator.of(context).pushReplacement(
-        MaterialPageRoute<void>(
-          builder: (_) => ExpressCaptureScreen(printerId: printerId),
-        ),
+      context.pushReplacementNamed(
+        AppRoutes.capture,
+        extra: CaptureArgs(printerId: printerId),
       );
     } catch (error) {
       if (!mounted) return;

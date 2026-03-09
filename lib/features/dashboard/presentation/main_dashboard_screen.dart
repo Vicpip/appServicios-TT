@@ -1,22 +1,16 @@
 import 'package:flutter/material.dart';
-import 'package:industrial_service_reports/app.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
+import 'package:industrial_service_reports/core/router/app_routes.dart';
 import 'package:industrial_service_reports/core/theme/app_palette.dart';
-import 'package:industrial_service_reports/data/local/local_database.dart';
-import 'package:industrial_service_reports/features/clients/presentation/client_list_screen.dart';
-import 'package:industrial_service_reports/features/policies/presentation/policy_dashboard_screen.dart';
-import 'package:industrial_service_reports/features/printers/presentation/printer_inventory_screen.dart';
-import 'package:industrial_service_reports/features/qr_scanner/presentation/qr_scanner_screen.dart';
+import 'package:industrial_service_reports/features/auth/providers/session_provider.dart';
 
-class MainDashboardScreen extends StatelessWidget {
+class MainDashboardScreen extends ConsumerWidget {
   const MainDashboardScreen({super.key});
 
-  static const String _mockUserName = 'Juan Perez';
-  static const String _mockTechId = '#T-8492';
-  static const int _pendingSyncCount = 3;
-  static const String _lastSyncText = 'Hoy 08:30 AM';
-
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final SessionState session = ref.watch(sessionProvider);
     final ThemeData theme = Theme.of(context);
     final bool isLandscape =
         MediaQuery.of(context).orientation == Orientation.landscape;
@@ -33,11 +27,7 @@ class MainDashboardScreen extends StatelessWidget {
               children: <Widget>[
                 InkWell(
                   borderRadius: BorderRadius.circular(34),
-                  onTap: () {
-                    Navigator.of(context).pushNamed(
-                      ServiceReportsApp.profileRoute,
-                    );
-                  },
+                  onTap: () => context.pushNamed(AppRoutes.profile),
                   child: const CircleAvatar(
                     radius: 22,
                     backgroundColor: AppPalette.surfaceDarkHighlight,
@@ -51,23 +41,19 @@ class MainDashboardScreen extends StatelessWidget {
                 const SizedBox(width: 12),
                 InkWell(
                   borderRadius: BorderRadius.circular(12),
-                  onTap: () {
-                    Navigator.of(context).pushNamed(
-                      ServiceReportsApp.profileRoute,
-                    );
-                  },
+                  onTap: () => context.pushNamed(AppRoutes.profile),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: <Widget>[
                       Text(
-                        _mockUserName,
+                        session.userName,
                         style: theme.textTheme.titleMedium?.copyWith(
                           fontSize: 20,
                           fontWeight: FontWeight.w700,
                         ),
                       ),
                       Text(
-                        'Tech ID: $_mockTechId',
+                        'Tech ID: ${session.techId}',
                         style: theme.textTheme.bodyMedium?.copyWith(
                           fontSize: 13,
                           color: Colors.white70,
@@ -87,17 +73,21 @@ class MainDashboardScreen extends StatelessWidget {
                     Container(
                       width: 12,
                       height: 12,
-                      decoration: const BoxDecoration(
-                        color: AppPalette.success,
+                      decoration: BoxDecoration(
+                        color: session.isOnline
+                            ? AppPalette.success
+                            : AppPalette.warning,
                         shape: BoxShape.circle,
                       ),
                     ),
                     const SizedBox(width: 8),
                     Text(
-                      'ONLINE',
+                      session.isOnline ? 'ONLINE' : 'OFFLINE',
                       style: theme.textTheme.titleMedium?.copyWith(
                         fontSize: 14,
-                        color: AppPalette.success,
+                        color: session.isOnline
+                            ? AppPalette.success
+                            : AppPalette.warning,
                         fontWeight: FontWeight.w800,
                         letterSpacing: 0.8,
                       ),
@@ -106,7 +96,7 @@ class MainDashboardScreen extends StatelessWidget {
                 ),
                 const SizedBox(height: 6),
                 Text(
-                  'Ultima sync: $_lastSyncText',
+                  'Ultima sync: ${session.lastSyncText}',
                   style: theme.textTheme.bodyMedium?.copyWith(
                     fontSize: 12,
                     color: Colors.white70,
@@ -126,7 +116,7 @@ class MainDashboardScreen extends StatelessWidget {
               child: Column(
                 children: <Widget>[
                   _PendingSyncBanner(
-                    pendingCount: _pendingSyncCount,
+                    pendingCount: session.pendingSyncCount,
                     onSyncTap: () =>
                         _showNavigationSnackBar(context, 'Sincronizar'),
                   ),
@@ -143,15 +133,7 @@ class MainDashboardScreen extends StatelessWidget {
                         title: 'Escanear QR',
                         icon: Icons.qr_code_scanner_rounded,
                         isHighlighted: true,
-                        onTap: () {
-                          Navigator.of(context).push(
-                            MaterialPageRoute<void>(
-                              builder: (_) => QrScannerScreen(
-                                database: localDatabase,
-                              ),
-                            ),
-                          );
-                        },
+                        onTap: () => context.pushNamed(AppRoutes.qrScanner),
                       ),
                       DashboardButton(
                         title: 'Pendientes Sync',
@@ -168,39 +150,17 @@ class MainDashboardScreen extends StatelessWidget {
                       DashboardButton(
                         title: 'Clientes',
                         icon: Icons.business_rounded,
-                        onTap: () {
-                          Navigator.of(context).push(
-                            MaterialPageRoute<void>(
-                              builder: (_) => ClientListScreen(
-                                database: localDatabase,
-                              ),
-                            ),
-                          );
-                        },
+                        onTap: () => context.pushNamed(AppRoutes.clients),
                       ),
                       DashboardButton(
                         title: 'Polizas',
                         icon: Icons.assignment_rounded,
-                        onTap: () {
-                          Navigator.of(context).push(
-                            MaterialPageRoute<void>(
-                              builder: (_) => const PolicyDashboardScreen(),
-                            ),
-                          );
-                        },
+                        onTap: () => context.pushNamed(AppRoutes.policies),
                       ),
                       DashboardButton(
                         title: 'Impresoras',
                         icon: Icons.print_rounded,
-                        onTap: () {
-                          Navigator.of(context).push(
-                            MaterialPageRoute<void>(
-                              builder: (_) => PrinterInventoryScreen(
-                                database: localDatabase,
-                              ),
-                            ),
-                          );
-                        },
+                        onTap: () => context.pushNamed(AppRoutes.printerInventory),
                       ),
                     ],
                   ),
@@ -292,8 +252,7 @@ class DashboardButton extends StatelessWidget {
   Widget build(BuildContext context) {
     final Color backgroundColor =
         isHighlighted ? AppPalette.primary : AppPalette.surfaceDark;
-    final Color foregroundColor =
-        AppPalette.backgroundLight;
+    final Color foregroundColor = AppPalette.backgroundLight;
 
     return Material(
       color: backgroundColor,

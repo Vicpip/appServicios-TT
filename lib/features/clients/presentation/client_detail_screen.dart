@@ -1,10 +1,10 @@
-import 'package:flutter/material.dart';
 import 'package:drift/drift.dart' as drift;
+import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
+import 'package:industrial_service_reports/core/router/app_routes.dart';
+import 'package:industrial_service_reports/core/router/route_args.dart';
 import 'package:industrial_service_reports/core/theme/app_palette.dart';
 import 'package:industrial_service_reports/data/local/app_database.dart';
-import 'package:industrial_service_reports/features/clients/presentation/add_client_screen.dart';
-import 'package:industrial_service_reports/features/printers/presentation/quick_add_printer_screen.dart';
-import 'package:industrial_service_reports/features/reports/presentation/express_capture_screen.dart';
 
 class ClientDetailScreen extends StatefulWidget {
   const ClientDetailScreen({
@@ -75,13 +75,9 @@ class _ClientDetailScreenState extends State<ClientDetailScreen> {
             PopupMenuButton<String>(
               onSelected: (String value) {
                 if (value == 'edit') {
-                  Navigator.of(context).push(
-                    MaterialPageRoute<void>(
-                      builder: (_) => AddClientScreen(
-                        database: widget.database,
-                        client: widget.client,
-                      ),
-                    ),
+                  context.pushNamed(
+                    AppRoutes.addClient,
+                    extra: AddClientArgs(client: widget.client),
                   );
                 }
                 if (value == 'delete') {
@@ -489,13 +485,7 @@ class _PrintersTab extends StatelessWidget {
             ),
             const Spacer(),
             FilledButton.icon(
-              onPressed: () {
-                Navigator.of(context).push(
-                  MaterialPageRoute<void>(
-                    builder: (_) => QuickAddPrinterScreen(database: database),
-                  ),
-                );
-              },
+              onPressed: () => context.pushNamed(AppRoutes.quickAddPrinter),
               icon: const Icon(Icons.add_rounded, size: 18),
               label: const Text('Nueva'),
             ),
@@ -649,13 +639,7 @@ class _PrinterCard extends StatelessWidget {
                   child: SizedBox(
                     height: 34,
                     child: ElevatedButton(
-                    onPressed: () {
-                      Navigator.of(context).push(
-                        MaterialPageRoute<void>(
-                          builder: (_) => const ExpressCaptureScreen(),
-                        ),
-                      );
-                    },
+                    onPressed: () => context.pushNamed(AppRoutes.capture),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: AppPalette.primary,
                       foregroundColor: AppPalette.backgroundLight,

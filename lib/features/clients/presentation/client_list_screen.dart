@@ -1,16 +1,13 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
+import 'package:industrial_service_reports/core/router/app_routes.dart';
+import 'package:industrial_service_reports/core/router/route_args.dart';
 import 'package:industrial_service_reports/core/theme/app_palette.dart';
 import 'package:industrial_service_reports/data/local/app_database.dart';
-import 'package:industrial_service_reports/features/clients/presentation/add_client_screen.dart';
-import 'package:industrial_service_reports/features/clients/presentation/client_detail_screen.dart';
+import 'package:industrial_service_reports/features/clients/providers/client_list_provider.dart';
 
-enum _ClientFilter {
-  activePolicy,
-  noPolicy,
-  risk,
-}
-
-class ClientListScreen extends StatefulWidget {
+class ClientListScreen extends ConsumerStatefulWidget {
   const ClientListScreen({
     super.key,
     required this.database,
@@ -19,12 +16,11 @@ class ClientListScreen extends StatefulWidget {
   final AppDatabase database;
 
   @override
-  State<ClientListScreen> createState() => _ClientListScreenState();
+  ConsumerState<ClientListScreen> createState() => _ClientListScreenState();
 }
 
-class _ClientListScreenState extends State<ClientListScreen> {
+class _ClientListScreenState extends ConsumerState<ClientListScreen> {
   final TextEditingController _searchController = TextEditingController();
-  _ClientFilter _selectedFilter = _ClientFilter.activePolicy;
 
   static const List<_ClientItem> _mockClients = <_ClientItem>[
     _ClientItem(
@@ -93,7 +89,8 @@ class _ClientListScreenState extends State<ClientListScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final List<_ClientItem> filteredClients = _filteredClients();
+    final ClientListState listState = ref.watch(clientListProvider);
+    final List<_ClientItem> filteredClients = _filteredClients(listState);
 
     return Scaffold(
       appBar: AppBar(
@@ -141,7 +138,9 @@ class _ClientListScreenState extends State<ClientListScreen> {
             children: <Widget>[
               TextField(
                 controller: _searchController,
-                onChanged: (_) => setState(() {}),
+                onChanged: (String value) {
+                  ref.read(clientListProvider.notifier).setSearchQuery(value);
+                },
                 decoration: const InputDecoration(
                   hintText: 'Nombre, RFC o Contacto',
                   prefixIcon: Icon(Icons.search_rounded),
@@ -154,32 +153,34 @@ class _ClientListScreenState extends State<ClientListScreen> {
                   children: <Widget>[
                     _FilterChip(
                       label: 'Con Poliza Activa',
-                      selected: _selectedFilter == _ClientFilter.activePolicy,
+                      selected: listState.selectedFilter ==
+                          ClientFilter.activePolicy,
                       selectedColor: AppPalette.primary,
                       selectedBorderColor: AppPalette.primaryHover,
-                      onTap: () => setState(() {
-                        _selectedFilter = _ClientFilter.activePolicy;
-                      }),
+                      onTap: () => ref
+                          .read(clientListProvider.notifier)
+                          .setFilter(ClientFilter.activePolicy),
                     ),
                     const SizedBox(width: 8),
                     _FilterChip(
                       label: 'Sin Poliza',
-                      selected: _selectedFilter == _ClientFilter.noPolicy,
+                      selected:
+                          listState.selectedFilter == ClientFilter.noPolicy,
                       selectedColor: AppPalette.surfaceDarkHighlight,
                       selectedBorderColor: AppPalette.surfaceDarkHighlight,
-                      onTap: () => setState(() {
-                        _selectedFilter = _ClientFilter.noPolicy;
-                      }),
+                      onTap: () => ref
+                          .read(clientListProvider.notifier)
+                          .setFilter(ClientFilter.noPolicy),
                     ),
                     const SizedBox(width: 8),
                     _FilterChip(
                       label: 'Con Riesgo',
-                      selected: _selectedFilter == _ClientFilter.risk,
+                      selected: listState.selectedFilter == ClientFilter.risk,
                       selectedColor: const Color(0xFF5A1A1A),
                       selectedBorderColor: const Color(0xFFE57373),
-                      onTap: () => setState(() {
-                        _selectedFilter = _ClientFilter.risk;
-                      }),
+                      onTap: () => ref
+                          .read(clientListProvider.notifier)
+                          .setFilter(ClientFilter.risk),
                     ),
                   ],
                 ),
@@ -218,14 +219,14 @@ class _ClientListScreenState extends State<ClientListScreen> {
     );
   }
 
-  List<_ClientItem> _filteredClients() {
-    final String query = _searchController.text.trim().toLowerCase();
+  List<_ClientItem> _filteredClients(ClientListState listState) {
+    final String query = listState.searchQuery.trim().toLowerCase();
 
     return _mockClients.where((_ClientItem client) {
-      final bool matchesFilter = switch (_selectedFilter) {
-        _ClientFilter.activePolicy => client.policies > 0,
-        _ClientFilter.noPolicy => client.status == _ClientStatus.noPolicy,
-        _ClientFilter.risk => client.status == _ClientStatus.risk,
+      final bool matchesFilter = switch (listState.selectedFilter) {
+        ClientFilter.activePolicy => client.policies > 0,
+        ClientFilter.noPolicy => client.status == _ClientStatus.noPolicy,
+        ClientFilter.risk => client.status == _ClientStatus.risk,
       };
 
       if (!matchesFilter) {
@@ -243,21 +244,13 @@ class _ClientListScreenState extends State<ClientListScreen> {
   }
 
   void _openAddClientScreen() {
-    Navigator.of(context).push(
-      MaterialPageRoute<void>(
-        builder: (_) => AddClientScreen(database: widget.database),
-      ),
-    );
+    context.pushNamed(AppRoutes.addClient);
   }
 
   void _openClientDetail(Client client) {
-    Navigator.of(context).push(
-      MaterialPageRoute<void>(
-        builder: (_) => ClientDetailScreen(
-          database: widget.database,
-          client: client,
-        ),
-      ),
+    context.pushNamed(
+      AppRoutes.clientDetail,
+      extra: ClientDetailArgs(client: client),
     );
   }
 }
@@ -330,7 +323,8 @@ class _ClientCard extends StatelessWidget {
                 Row(
                   children: <Widget>[
                     Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 10, vertical: 5),
                       decoration: BoxDecoration(
                         color: statusStyle.backgroundColor,
                         borderRadius: BorderRadius.circular(14),
@@ -368,7 +362,8 @@ class _ClientCard extends StatelessWidget {
                 const SizedBox(height: 8),
                 Row(
                   children: <Widget>[
-                    const Icon(Icons.badge_rounded, size: 16, color: Colors.white70),
+                    const Icon(Icons.badge_rounded,
+                        size: 16, color: Colors.white70),
                     const SizedBox(width: 8),
                     Text(
                       client.client.rfc ?? 'Sin RFC',
@@ -383,7 +378,8 @@ class _ClientCard extends StatelessWidget {
                 const SizedBox(height: 4),
                 Row(
                   children: <Widget>[
-                    const Icon(Icons.person_rounded, size: 16, color: Colors.white70),
+                    const Icon(Icons.person_rounded,
+                        size: 16, color: Colors.white70),
                     const SizedBox(width: 8),
                     Text(
                       client.contact,

@@ -1,26 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
+import 'package:industrial_service_reports/core/router/app_routes.dart';
+import 'package:industrial_service_reports/core/router/route_args.dart';
 import 'package:industrial_service_reports/core/theme/app_palette.dart';
-import 'package:industrial_service_reports/features/printers/presentation/printer_detail_screen.dart';
-import 'package:industrial_service_reports/features/reports/presentation/express_capture_screen.dart';
-
-@immutable
-class PrinterSummary {
-  const PrinterSummary({
-    required this.serialNumber,
-    required this.modelWithDpi,
-    required this.clientName,
-    required this.plantName,
-    required this.areaName,
-    required this.hasActivePolicy,
-  });
-
-  final String serialNumber;
-  final String modelWithDpi;
-  final String clientName;
-  final String plantName;
-  final String areaName;
-  final bool hasActivePolicy;
-}
+import 'package:industrial_service_reports/features/printers/models/printer_summary.dart';
 
 class PrinterConfirmationScreen extends StatelessWidget {
   const PrinterConfirmationScreen({
@@ -112,27 +95,23 @@ class _ConfirmationCard extends StatelessWidget {
             const SizedBox(height: 14),
             _ActionRow(
               compact: compact,
-              onCancel: () => Navigator.of(context).pop(),
+              onCancel: () => context.pop(),
               onDetail: () {
                 final String model =
                     printer.modelWithDpi.split(' - ').first.trim();
-                Navigator.of(context).push(
-                  MaterialPageRoute<void>(
-                    builder: (_) => PrinterDetailScreen(
-                      serialNumber: printer.serialNumber,
-                      model: model,
-                      client: printer.clientName,
-                    ),
+                context.pushNamed(
+                  AppRoutes.printerDetail,
+                  pathParameters: <String, String>{
+                    'serialNumber': printer.serialNumber,
+                  },
+                  extra: PrinterDetailArgs(
+                    serialNumber: printer.serialNumber,
+                    model: model,
+                    client: printer.clientName,
                   ),
                 );
               },
-              onCreateReport: () {
-                Navigator.of(context).push(
-                  MaterialPageRoute<void>(
-                    builder: (_) => const ExpressCaptureScreen(),
-                  ),
-                );
-              },
+              onCreateReport: () => context.pushNamed(AppRoutes.capture),
             ),
           ],
         ),

@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
-import 'package:industrial_service_reports/app.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
+import 'package:industrial_service_reports/features/auth/providers/auth_provider.dart';
+import 'package:industrial_service_reports/features/auth/providers/session_provider.dart';
 
-class TechnicianProfileScreen extends StatelessWidget {
+class TechnicianProfileScreen extends ConsumerWidget {
   const TechnicianProfileScreen({super.key});
 
   static const Color _screenBg = Color(0xFF0D1117);
@@ -11,7 +14,10 @@ class TechnicianProfileScreen extends StatelessWidget {
   static const Color _softBlue = Color(0xFF8EC5FF);
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final SessionState session = ref.watch(sessionProvider);
+    final String initials = _buildInitials(session.userName);
+
     return Scaffold(
       backgroundColor: _screenBg,
       appBar: AppBar(
@@ -27,12 +33,12 @@ class TechnicianProfileScreen extends StatelessWidget {
               child: Column(
                 children: <Widget>[
                   const SizedBox(height: 6),
-                  const CircleAvatar(
+                  CircleAvatar(
                     radius: 42,
-                    backgroundColor: Color(0xFF1E304D),
+                    backgroundColor: const Color(0xFF1E304D),
                     child: Text(
-                      'JP',
-                      style: TextStyle(
+                      initials,
+                      style: const TextStyle(
                         color: _softBlue,
                         fontSize: 26,
                         fontWeight: FontWeight.w900,
@@ -40,20 +46,20 @@ class TechnicianProfileScreen extends StatelessWidget {
                     ),
                   ),
                   const SizedBox(height: 14),
-                  const Text(
-                    'Ing. Juan Pérez',
+                  Text(
+                    session.userName,
                     textAlign: TextAlign.center,
-                    style: TextStyle(
+                    style: const TextStyle(
                       color: Colors.white,
                       fontSize: 24,
                       fontWeight: FontWeight.w800,
                     ),
                   ),
                   const SizedBox(height: 4),
-                  const Text(
-                    'juan.perez@empresa.com',
+                  Text(
+                    session.email,
                     textAlign: TextAlign.center,
-                    style: TextStyle(
+                    style: const TextStyle(
                       color: _mutedText,
                       fontSize: 14,
                       fontWeight: FontWeight.w600,
@@ -198,10 +204,8 @@ class TechnicianProfileScreen extends StatelessWidget {
                     height: 52,
                     child: FilledButton(
                       onPressed: () {
-                        Navigator.of(context).pushNamedAndRemoveUntil(
-                          ServiceReportsApp.loginRoute,
-                          (Route<dynamic> route) => false,
-                        );
+                        ref.read(authProvider.notifier).logout();
+                        context.go('/login');
                       },
                       style: FilledButton.styleFrom(
                         backgroundColor: const Color(0xFF4B1F1F),
@@ -233,6 +237,13 @@ class TechnicianProfileScreen extends StatelessWidget {
         ),
       ),
     );
+  }
+
+  String _buildInitials(String name) {
+    final List<String> parts = name.trim().split(' ');
+    if (parts.isEmpty) return '?';
+    if (parts.length == 1) return parts[0][0].toUpperCase();
+    return '${parts[0][0]}${parts[parts.length - 1][0]}'.toUpperCase();
   }
 }
 

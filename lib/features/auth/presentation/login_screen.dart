@@ -1,14 +1,15 @@
 import 'package:flutter/material.dart';
-import 'package:industrial_service_reports/app.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:industrial_service_reports/features/auth/providers/auth_provider.dart';
 
-class LoginScreen extends StatefulWidget {
+class LoginScreen extends ConsumerStatefulWidget {
   const LoginScreen({super.key});
 
   @override
-  State<LoginScreen> createState() => _LoginScreenState();
+  ConsumerState<LoginScreen> createState() => _LoginScreenState();
 }
 
-class _LoginScreenState extends State<LoginScreen> {
+class _LoginScreenState extends ConsumerState<LoginScreen> {
   static const Color _screenBg = Color(0xFF0D1117);
   static const Color _cardBg = Color(0xFF161B22);
   static const Color _cardBorder = Color(0xFF293445);
@@ -22,8 +23,6 @@ class _LoginScreenState extends State<LoginScreen> {
   final TextEditingController _pinController =
       TextEditingController(text: '1234');
 
-  bool _isLoading = false;
-
   @override
   void dispose() {
     _userController.dispose();
@@ -33,6 +32,20 @@ class _LoginScreenState extends State<LoginScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final bool isLoading = ref.watch(authProvider).isLoading;
+
+    ref.listen<AsyncValue<void>>(authProvider, (_, next) {
+      if (next is AsyncError) {
+        ScaffoldMessenger.of(context).hideCurrentSnackBar();
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(next.error.toString().replaceFirst('Exception: ', '')),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    });
+
     return Scaffold(
       backgroundColor: _screenBg,
       body: SafeArea(
@@ -155,12 +168,12 @@ class _LoginScreenState extends State<LoginScreen> {
                                     height: 52,
                                     child: FilledButton(
                                       onPressed:
-                                          _isLoading ? null : _onLoginPressed,
+                                          isLoading ? null : _onLoginPressed,
                                       style: FilledButton.styleFrom(
                                         backgroundColor: _primaryBlue,
                                         foregroundColor: Colors.white,
                                       ),
-                                      child: _isLoading
+                                      child: isLoading
                                           ? const SizedBox(
                                               width: 22,
                                               height: 22,
@@ -301,19 +314,10 @@ class _LoginScreenState extends State<LoginScreen> {
   Future<void> _onLoginPressed() async {
     final bool valid = _formKey.currentState?.validate() ?? false;
     if (!valid) return;
-
-    setState(() {
-      _isLoading = true;
-    });
-
-    await Future<void>.delayed(const Duration(seconds: 1));
-    if (!mounted) return;
-
-    setState(() {
-      _isLoading = false;
-    });
-
-    Navigator.of(context).pushReplacementNamed(ServiceReportsApp.dashboardRoute);
+    await ref.read(authProvider.notifier).login(
+          identifier: _userController.text,
+          pin: _pinController.text,
+        );
   }
 
   void _onForceSyncPressed() {

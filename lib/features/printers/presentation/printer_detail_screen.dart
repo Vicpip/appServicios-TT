@@ -1,7 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
+import 'package:industrial_service_reports/core/router/app_routes.dart';
+import 'package:industrial_service_reports/core/router/route_args.dart';
 import 'package:industrial_service_reports/core/theme/app_palette.dart';
-import 'package:industrial_service_reports/features/reports/presentation/express_capture_screen.dart';
-import 'package:industrial_service_reports/features/printers/presentation/service_history_screen.dart';
 
 class PrinterDetailScreen extends StatelessWidget {
   const PrinterDetailScreen({
@@ -419,13 +420,7 @@ class PrinterDetailScreen extends StatelessWidget {
                   height: 50,
                   width: double.infinity,
                   child: FilledButton.icon(
-                    onPressed: () {
-                      Navigator.of(context).push(
-                        MaterialPageRoute<void>(
-                          builder: (_) => const ExpressCaptureScreen(),
-                        ),
-                      );
-                    },
+                    onPressed: () => context.pushNamed(AppRoutes.capture),
                     icon: const Icon(Icons.playlist_add_check_circle_rounded),
                     style: FilledButton.styleFrom(
                       backgroundColor: AppPalette.primary,
@@ -462,17 +457,16 @@ class PrinterDetailScreen extends StatelessWidget {
                       child: SizedBox(
                         height: 44,
                         child: FilledButton.tonalIcon(
-                          onPressed: () {
-                            Navigator.of(context).push(
-                              MaterialPageRoute<void>(
-                                builder: (_) => ServiceHistoryScreen(
-                                  printerId: 'PRN-$serialNumber',
-                                  model: model,
-                                  serialNumber: serialNumber,
-                                ),
-                              ),
-                            );
-                          },
+                          onPressed: () => context.pushNamed(
+                            AppRoutes.serviceHistory,
+                            pathParameters: <String, String>{
+                              'serialNumber': serialNumber,
+                            },
+                            extra: ServiceHistoryArgs(
+                              model: model,
+                              serialNumber: serialNumber,
+                            ),
+                          ),
                           icon: const Icon(Icons.history_rounded, size: 18),
                           style: FilledButton.styleFrom(
                             backgroundColor: const Color(0xFF242E3D),

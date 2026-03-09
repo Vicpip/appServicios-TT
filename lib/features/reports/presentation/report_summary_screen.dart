@@ -1,30 +1,25 @@
-﻿import 'package:fl_chart/fl_chart.dart';
+import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
+import 'package:industrial_service_reports/core/router/app_routes.dart';
 import 'package:industrial_service_reports/core/theme/app_palette.dart';
-import 'package:industrial_service_reports/features/signature/presentation/signature_screen.dart';
+import 'package:industrial_service_reports/features/reports/providers/capture_provider.dart';
 
-class ReportSummaryScreen extends StatelessWidget {
+class ReportSummaryScreen extends ConsumerWidget {
   const ReportSummaryScreen({super.key});
 
+  // Datos de impresora: permanecen mock hasta conectar con BD
   static const String _serial = '99J882';
   static const String _model = 'ZT610';
-  static const String _serviceType = 'Preventivo';
-  static const String _counterCurrent = '125,000';
   static const String _counterPrevious = '100,000';
-  static const String _darkness = '18.5';
-  static const String _labelType = 'Papel TT';
   static const String _previousServiceDate = '12 Feb 2025';
   static const String _currentServiceDate = '12 Ago 2025';
 
-  static const List<String> _selectedDiagnostics = <String>[
-    'Mantenimiento general',
-    'Pruebas',
-    'Cabezal dañado',
-    'Otros',
-  ];
-
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final CaptureState capture = ref.watch(captureProvider);
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('Resumen del Reporte'),
@@ -38,27 +33,27 @@ class ReportSummaryScreen extends StatelessWidget {
               children: <Widget>[
                 const _StatusBanner(),
                 const SizedBox(height: 12),
-                const _GeneralSummaryCard(
+                _GeneralSummaryCard(
                   serial: _serial,
                   model: _model,
-                  serviceType: _serviceType,
-                  counter: _counterCurrent,
-                  darkness: _darkness,
-                  labelType: _labelType,
+                  serviceType: capture.selectedServiceType,
+                  counter: capture.counterValue,
+                  darkness: capture.darknessValue,
+                  labelType: capture.selectedLabelType,
                 ),
                 const SizedBox(height: 12),
-                const _UsageChartCard(
+                _UsageChartCard(
                   previousCounter: _counterPrevious,
-                  currentCounter: _counterCurrent,
+                  currentCounter: capture.counterValue,
                   previousDate: _previousServiceDate,
                   currentDate: _currentServiceDate,
                 ),
                 const SizedBox(height: 12),
-                const _DiagnosticCard(
-                  diagnostics: _selectedDiagnostics,
-                  notes:
-                      'Se realizó mantenimiento preventivo completo y pruebas de impresión. '
-                      'Se detectó desgaste en cabezal, recomendado reemplazo en siguiente visita.',
+                _DiagnosticCard(
+                  diagnostics: capture.selectedDiagnostics,
+                  notes: capture.notes.isEmpty
+                      ? 'Sin observaciones adicionales.'
+                      : capture.notes,
                 ),
                 const SizedBox(height: 12),
                 const _EvidenceCard(),
@@ -73,19 +68,14 @@ class ReportSummaryScreen extends StatelessWidget {
           padding: const EdgeInsets.fromLTRB(16, 10, 16, 16),
           decoration: const BoxDecoration(
             color: AppPalette.surfaceDark,
-            border: Border(top: BorderSide(color: AppPalette.surfaceDarkHighlight)),
+            border:
+                Border(top: BorderSide(color: AppPalette.surfaceDarkHighlight)),
           ),
           child: SizedBox(
             height: 50,
             width: double.infinity,
             child: FilledButton(
-              onPressed: () {
-                Navigator.of(context).push(
-                  MaterialPageRoute<void>(
-                    builder: (_) => const SignatureScreen(),
-                  ),
-                );
-              },
+              onPressed: () => context.pushNamed(AppRoutes.signature),
               style: FilledButton.styleFrom(
                 backgroundColor: AppPalette.success,
                 foregroundColor: AppPalette.backgroundLight,
@@ -242,10 +232,13 @@ class _GeneralSummaryCard extends StatelessWidget {
               children: <Widget>[
                 _InfoLineCompact(
                   label: 'Contador Actual',
-                  value: '$counter in',
+                  value: counter.isEmpty ? '-' : '$counter in',
                 ),
                 const SizedBox(height: 10),
-                _InfoLineCompact(label: 'Nivel de Darkness', value: darkness),
+                _InfoLineCompact(
+                  label: 'Nivel de Darkness',
+                  value: darkness.isEmpty ? '-' : darkness,
+                ),
                 const SizedBox(height: 10),
                 _InfoLineCompact(label: 'Etiqueta', value: labelType),
               ],
@@ -300,7 +293,8 @@ class _UsageChartCard extends StatelessWidget {
   final String previousDate;
   final String currentDate;
 
-  int _parseCounter(String value) => int.tryParse(value.replaceAll(',', '')) ?? 0;
+  int _parseCounter(String value) =>
+      int.tryParse(value.replaceAll(',', '')) ?? 0;
 
   String _formatCounter(int value) {
     final String raw = value.toString();
@@ -413,7 +407,8 @@ class _UsageBarChart extends StatelessWidget {
         barTouchData: BarTouchData(
           enabled: true,
           touchTooltipData: BarTouchTooltipData(
-            tooltipBorder: const BorderSide(color: AppPalette.surfaceDarkHighlight),
+            tooltipBorder:
+                const BorderSide(color: AppPalette.surfaceDarkHighlight),
             getTooltipColor: (_) => const Color(0xFF0E1522),
             getTooltipItem: (
               BarChartGroupData group,
@@ -442,8 +437,10 @@ class _UsageBarChart extends StatelessWidget {
           ),
         ),
         titlesData: FlTitlesData(
-          topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-          rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+          topTitles:
+              const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+          rightTitles:
+              const AxisTitles(sideTitles: SideTitles(showTitles: false)),
           leftTitles: AxisTitles(
             sideTitles: SideTitles(
               showTitles: true,
@@ -511,28 +508,34 @@ class _DiagnosticCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
-          ...diagnostics.map((String item) {
-            final _DiagnosticStyle style = _styleFor(item);
-            return Padding(
-              padding: const EdgeInsets.only(bottom: 8),
-              child: Row(
-                children: <Widget>[
-                  Icon(style.icon, color: style.color, size: 18),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      item,
-                      style: TextStyle(
-                        color: style.color,
-                        fontWeight: FontWeight.w700,
-                        fontSize: 14,
+          if (diagnostics.isEmpty)
+            const Text(
+              'Sin diagnósticos seleccionados.',
+              style: TextStyle(color: Colors.white54, fontSize: 14),
+            )
+          else
+            ...diagnostics.map((String item) {
+              final _DiagnosticStyle style = _styleFor(item);
+              return Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: Row(
+                  children: <Widget>[
+                    Icon(style.icon, color: style.color, size: 18),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        item,
+                        style: TextStyle(
+                          color: style.color,
+                          fontWeight: FontWeight.w700,
+                          fontSize: 14,
+                        ),
                       ),
                     ),
-                  ),
-                ],
-              ),
-            );
-          }),
+                  ],
+                ),
+              );
+            }),
           const SizedBox(height: 8),
           Container(
             width: double.infinity,
@@ -888,4 +891,3 @@ class _CounterBarPoint {
   final int increase;
   final Color color;
 }
-
