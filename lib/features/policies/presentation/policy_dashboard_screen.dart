@@ -1,4 +1,5 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
+import 'package:industrial_service_reports/core/theme/app_palette.dart';
 
 enum _PolicyFilter {
   all,
@@ -40,15 +41,6 @@ class PolicyDashboardScreen extends StatefulWidget {
 }
 
 class _PolicyDashboardScreenState extends State<PolicyDashboardScreen> {
-  static const Color _screenBg = Color(0xFF0D1117);
-  static const Color _cardBg = Color(0xFF161B22);
-  static const Color _cardBorder = Color(0xFF293445);
-  static const Color _chipBg = Color(0xFF1A2029);
-  static const Color _chipBorder = Color(0xFF2A3342);
-  static const Color _primaryBlue = Color(0xFF136DEC);
-  static const Color _folioBlue = Color(0xFF8EC5FF);
-  static const Color _mutedText = Color(0xFFA2ADBC);
-
   static const List<PolicySummary> _mockPolicies = <PolicySummary>[
     PolicySummary(
       folio: 'POL-2026-001',
@@ -113,7 +105,6 @@ class _PolicyDashboardScreenState extends State<PolicyDashboardScreen> {
       };
 
       if (!matchesFilter) return false;
-
       if (query.isEmpty) return true;
 
       return policy.clientName.toLowerCase().contains(query) ||
@@ -126,10 +117,14 @@ class _PolicyDashboardScreenState extends State<PolicyDashboardScreen> {
     final List<PolicySummary> policies = _filteredPolicies();
 
     return Scaffold(
-      backgroundColor: _screenBg,
       appBar: AppBar(
-        backgroundColor: _screenBg,
-        title: const Text('Pólizas de Mantenimiento'),
+        title: Row(
+          children: const <Widget>[
+            Icon(Icons.assignment_rounded, size: 22),
+            SizedBox(width: 8),
+            Text('Pólizas'),
+          ],
+        ),
         actions: <Widget>[
           Padding(
             padding: const EdgeInsets.only(right: 14),
@@ -137,20 +132,20 @@ class _PolicyDashboardScreenState extends State<PolicyDashboardScreen> {
               child: Container(
                 padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                 decoration: BoxDecoration(
-                  color: const Color(0xFF11351E),
+                  color: AppPalette.successDark,
                   borderRadius: BorderRadius.circular(16),
-                  border: Border.all(color: const Color(0xFF1F5A35)),
+                  border: Border.all(color: AppPalette.success),
                 ),
-                child: const Row(
-                  children: <Widget>[
-                    Icon(Icons.circle_rounded, size: 9, color: Color(0xFF4CFF8C)),
+                child: Row(
+                  children: const <Widget>[
+                    Icon(Icons.circle, color: AppPalette.success, size: 9),
                     SizedBox(width: 7),
                     Text(
-                      'ONLINE',
+                      'Sincronizado',
                       style: TextStyle(
-                        color: Color(0xFF4CFF8C),
+                        color: AppPalette.success,
                         fontSize: 12,
-                        fontWeight: FontWeight.w800,
+                        fontWeight: FontWeight.w700,
                       ),
                     ),
                   ],
@@ -162,32 +157,15 @@ class _PolicyDashboardScreenState extends State<PolicyDashboardScreen> {
       ),
       body: SafeArea(
         child: Padding(
-          padding: const EdgeInsets.fromLTRB(14, 10, 14, 10),
+          padding: const EdgeInsets.fromLTRB(16, 14, 16, 10),
           child: Column(
             children: <Widget>[
-              Container(
-                decoration: BoxDecoration(
-                  color: const Color(0xFF0F1722),
-                  borderRadius: BorderRadius.circular(26),
-                  border: Border.all(color: const Color(0xFF1F2937)),
-                ),
-                child: TextField(
-                  controller: _searchController,
-                  onChanged: (_) => setState(() {}),
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontWeight: FontWeight.w600,
-                  ),
-                  decoration: const InputDecoration(
-                    hintText: 'Buscar por Cliente o Folio...',
-                    hintStyle: TextStyle(color: Colors.white54),
-                    prefixIcon: Icon(Icons.search_rounded),
-                    border: InputBorder.none,
-                    contentPadding: EdgeInsets.symmetric(
-                      horizontal: 14,
-                      vertical: 14,
-                    ),
-                  ),
+              TextField(
+                controller: _searchController,
+                onChanged: (_) => setState(() {}),
+                decoration: const InputDecoration(
+                  hintText: 'Cliente o Folio',
+                  prefixIcon: Icon(Icons.search_rounded),
                 ),
               ),
               const SizedBox(height: 10),
@@ -199,7 +177,8 @@ class _PolicyDashboardScreenState extends State<PolicyDashboardScreen> {
                       label: 'Todas',
                       icon: Icons.layers_rounded,
                       selected: _selectedFilter == _PolicyFilter.all,
-                      textColor: Colors.white,
+                      selectedColor: AppPalette.primary,
+                      selectedBorderColor: AppPalette.primaryHover,
                       onTap: () => setState(() {
                         _selectedFilter = _PolicyFilter.all;
                       }),
@@ -209,7 +188,8 @@ class _PolicyDashboardScreenState extends State<PolicyDashboardScreen> {
                       label: 'Vigentes',
                       icon: Icons.check_circle_rounded,
                       selected: _selectedFilter == _PolicyFilter.active,
-                      textColor: const Color(0xFF4CFF8C),
+                      selectedColor: AppPalette.successDark,
+                      selectedBorderColor: AppPalette.success,
                       onTap: () => setState(() {
                         _selectedFilter = _PolicyFilter.active;
                       }),
@@ -219,7 +199,8 @@ class _PolicyDashboardScreenState extends State<PolicyDashboardScreen> {
                       label: 'Por Vencer',
                       icon: Icons.schedule_rounded,
                       selected: _selectedFilter == _PolicyFilter.expiring,
-                      textColor: const Color(0xFFF1A85A),
+                      selectedColor: AppPalette.warningDark,
+                      selectedBorderColor: AppPalette.warning,
                       onTap: () => setState(() {
                         _selectedFilter = _PolicyFilter.expiring;
                       }),
@@ -229,7 +210,8 @@ class _PolicyDashboardScreenState extends State<PolicyDashboardScreen> {
                       label: 'Vencidas',
                       icon: Icons.error_rounded,
                       selected: _selectedFilter == _PolicyFilter.expired,
-                      textColor: const Color(0xFFFF8F8F),
+                      selectedColor: const Color(0xFF471C1C),
+                      selectedBorderColor: const Color(0xFFE57373),
                       onTap: () => setState(() {
                         _selectedFilter = _PolicyFilter.expired;
                       }),
@@ -237,16 +219,13 @@ class _PolicyDashboardScreenState extends State<PolicyDashboardScreen> {
                   ],
                 ),
               ),
-              const SizedBox(height: 10),
+              const SizedBox(height: 12),
               Expanded(
                 child: policies.isEmpty
                     ? const Center(
                         child: Text(
-                          'No hay pólizas para este filtro',
-                          style: TextStyle(
-                            color: Colors.white70,
-                            fontWeight: FontWeight.w600,
-                          ),
+                          'No hay pólizas para el filtro actual',
+                          style: TextStyle(color: Colors.white70),
                         ),
                       )
                     : ListView.separated(
@@ -254,15 +233,9 @@ class _PolicyDashboardScreenState extends State<PolicyDashboardScreen> {
                         separatorBuilder: (_, __) => const SizedBox(height: 10),
                         itemBuilder: (BuildContext context, int index) {
                           final PolicySummary policy = policies[index];
-                          final _PolicyStatusStyle statusStyle =
-                              _styleFor(policy.status);
                           return _PolicyCard(
                             policy: policy,
-                            cardBg: _cardBg,
-                            cardBorder: _cardBorder,
-                            folioBlue: _folioBlue,
-                            mutedText: _mutedText,
-                            statusStyle: statusStyle,
+                            statusStyle: _styleFor(policy.status),
                           );
                         },
                       ),
@@ -271,9 +244,9 @@ class _PolicyDashboardScreenState extends State<PolicyDashboardScreen> {
           ),
         ),
       ),
-      floatingActionButton: FloatingActionButton.extended(
-        backgroundColor: _primaryBlue,
-        foregroundColor: Colors.white,
+      floatingActionButton: FloatingActionButton.large(
+        backgroundColor: AppPalette.primary,
+        foregroundColor: AppPalette.backgroundLight,
         onPressed: () {
           Navigator.of(context).push(
             MaterialPageRoute<void>(
@@ -281,11 +254,7 @@ class _PolicyDashboardScreenState extends State<PolicyDashboardScreen> {
             ),
           );
         },
-        icon: const Icon(Icons.add_rounded),
-        label: const Text(
-          'Nueva Póliza',
-          style: TextStyle(fontWeight: FontWeight.w800),
-        ),
+        child: const Icon(Icons.add_rounded, size: 34),
       ),
     );
   }
@@ -294,21 +263,21 @@ class _PolicyDashboardScreenState extends State<PolicyDashboardScreen> {
     return switch (status) {
       PolicyStatus.active => const _PolicyStatusStyle(
           label: 'VIGENTE',
-          bg: Color(0xFF11351E),
-          border: Color(0xFF1F5A35),
-          text: Color(0xFF4CFF8C),
+          bg: AppPalette.successDark,
+          border: AppPalette.success,
+          text: AppPalette.success,
         ),
       PolicyStatus.expiring => const _PolicyStatusStyle(
           label: 'POR VENCER',
-          bg: Color(0xFF4A2F10),
-          border: Color(0xFF7A4F1A),
-          text: Color(0xFFF1A85A),
+          bg: AppPalette.warningDark,
+          border: AppPalette.warning,
+          text: AppPalette.warning,
         ),
       PolicyStatus.expired => const _PolicyStatusStyle(
           label: 'VENCIDA',
           bg: Color(0xFF471C1C),
-          border: Color(0xFF753434),
-          text: Color(0xFFFF8F8F),
+          border: Color(0xFFE57373),
+          text: Color(0xFFFFB3B3),
         ),
     };
   }
@@ -319,14 +288,16 @@ class _FilterChip extends StatelessWidget {
     required this.label,
     required this.icon,
     required this.selected,
-    required this.textColor,
+    required this.selectedColor,
+    required this.selectedBorderColor,
     required this.onTap,
   });
 
   final String label;
   final IconData icon;
   final bool selected;
-  final Color textColor;
+  final Color selectedColor;
+  final Color selectedBorderColor;
   final VoidCallback onTap;
 
   @override
@@ -334,31 +305,30 @@ class _FilterChip extends StatelessWidget {
     return ChoiceChip(
       selected: selected,
       onSelected: (_) => onTap(),
-      selectedColor: _PolicyDashboardScreenState._primaryBlue,
-      backgroundColor: _PolicyDashboardScreenState._chipBg,
+      selectedColor: selectedColor,
+      backgroundColor: AppPalette.surfaceDark,
       side: BorderSide(
-        color: selected
-            ? _PolicyDashboardScreenState._primaryBlue
-            : _PolicyDashboardScreenState._chipBorder,
+        color: selected ? selectedBorderColor : AppPalette.surfaceDarkHighlight,
       ),
       label: Row(
         mainAxisSize: MainAxisSize.min,
         children: <Widget>[
           Icon(
             icon,
-            size: 16,
-            color: selected ? Colors.white : textColor,
+            size: 15,
+            color: AppPalette.backgroundLight,
           ),
           const SizedBox(width: 6),
           Text(
             label,
-            style: TextStyle(
-              color: selected ? Colors.white : textColor,
+            style: const TextStyle(
+              color: AppPalette.backgroundLight,
               fontWeight: FontWeight.w700,
             ),
           ),
         ],
       ),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
     );
   }
 }
@@ -366,141 +336,154 @@ class _FilterChip extends StatelessWidget {
 class _PolicyCard extends StatelessWidget {
   const _PolicyCard({
     required this.policy,
-    required this.cardBg,
-    required this.cardBorder,
-    required this.folioBlue,
-    required this.mutedText,
     required this.statusStyle,
   });
 
   final PolicySummary policy;
-  final Color cardBg;
-  final Color cardBorder;
-  final Color folioBlue;
-  final Color mutedText;
   final _PolicyStatusStyle statusStyle;
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      decoration: BoxDecoration(
-        color: cardBg,
+    return Material(
+      color: Colors.transparent,
+      borderRadius: BorderRadius.circular(14),
+      child: InkWell(
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: cardBorder),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: <Widget>[
-            Row(
-              children: <Widget>[
-                const Icon(Icons.description_rounded, color: Colors.white70, size: 20),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    policy.folio,
-                    style: TextStyle(
-                      color: folioBlue,
-                      fontWeight: FontWeight.w800,
-                      fontSize: 15,
-                    ),
-                  ),
-                ),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
-                  decoration: BoxDecoration(
-                    color: statusStyle.bg,
-                    borderRadius: BorderRadius.circular(14),
-                    border: Border.all(color: statusStyle.border),
-                  ),
-                  child: Text(
-                    '● ${statusStyle.label}',
-                    style: TextStyle(
-                      color: statusStyle.text,
-                      fontSize: 11,
-                      fontWeight: FontWeight.w800,
-                    ),
-                  ),
-                ),
-              ],
+        onTap: () {
+          Navigator.of(context).push(
+            MaterialPageRoute<void>(
+              builder: (_) => PolicyDetailScreen(policy: policy),
             ),
-            const SizedBox(height: 8),
-            Text(
-              policy.clientName,
-              style: const TextStyle(
-                color: Colors.white,
-                fontSize: 21,
-                fontWeight: FontWeight.w800,
-              ),
-            ),
-            const SizedBox(height: 8),
-            Row(
+          );
+        },
+        child: Card(
+          color: AppPalette.surfaceDark,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(14),
+            side: const BorderSide(color: AppPalette.surfaceDarkHighlight),
+          ),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: <Widget>[
-                Icon(Icons.calendar_month_rounded, size: 16, color: mutedText),
-                const SizedBox(width: 7),
-                Expanded(
-                  child: Text(
-                    'Vigencia: ${policy.startDate} - ${policy.endDate}',
-                    style: TextStyle(
-                      color: mutedText,
-                      fontWeight: FontWeight.w600,
+                Row(
+                  children: <Widget>[
+                    const Icon(
+                      Icons.description_rounded,
+                      color: Colors.white70,
+                      size: 18,
                     ),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 10),
-            Row(
-              children: <Widget>[
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFF1F2836),
-                    borderRadius: BorderRadius.circular(14),
-                    border: Border.all(color: const Color(0xFF2E3B4F)),
-                  ),
-                  child: Row(
-                    children: <Widget>[
-                      const Icon(Icons.print_rounded, size: 16, color: Colors.white70),
-                      const SizedBox(width: 6),
-                      Text(
-                        '${policy.coveredPrinters} Equipos amparados',
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        policy.folio,
                         style: const TextStyle(
-                          color: Colors.white70,
-                          fontSize: 12,
-                          fontWeight: FontWeight.w700,
+                          color: AppPalette.accentBlue,
+                          fontWeight: FontWeight.w800,
+                          fontSize: 15,
                         ),
                       ),
-                    ],
+                    ),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                      decoration: BoxDecoration(
+                        color: statusStyle.bg,
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(color: statusStyle.border),
+                      ),
+                      child: Text(
+                        statusStyle.label,
+                        style: TextStyle(
+                          color: statusStyle.text,
+                          fontSize: 11,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  policy.clientName,
+                  style: const TextStyle(
+                    color: AppPalette.backgroundLight,
+                    fontSize: 20,
+                    fontWeight: FontWeight.w800,
                   ),
                 ),
-                const Spacer(),
-                SizedBox(
-                  height: 34,
-                  child: FilledButton.tonalIcon(
-                    onPressed: () {
-                      Navigator.of(context).push(
-                        MaterialPageRoute<void>(
-                          builder: (_) => PolicyDetailScreen(policy: policy),
+                const SizedBox(height: 8),
+                Row(
+                  children: <Widget>[
+                    const Icon(
+                      Icons.calendar_month_rounded,
+                      size: 16,
+                      color: Colors.white70,
+                    ),
+                    const SizedBox(width: 7),
+                    Expanded(
+                      child: Text(
+                        '${policy.startDate} - ${policy.endDate}',
+                        style: const TextStyle(
+                          color: Colors.white70,
+                          fontWeight: FontWeight.w600,
+                          fontSize: 14,
                         ),
-                      );
-                    },
-                    icon: const Icon(Icons.visibility_outlined, size: 16),
-                    style: FilledButton.styleFrom(
-                      backgroundColor: const Color(0xFF2A3342),
-                      foregroundColor: Colors.white,
+                      ),
                     ),
-                    label: const Text(
-                      'Ver Detalles',
-                      style: TextStyle(fontWeight: FontWeight.w700, fontSize: 12),
+                  ],
+                ),
+                const SizedBox(height: 10),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 6,
+                  children: <Widget>[
+                    _StatPill(
+                      icon: Icons.print_rounded,
+                      text: '${policy.coveredPrinters} Equipos amparados',
                     ),
-                  ),
+                  ],
                 ),
               ],
             ),
-          ],
+          ),
         ),
+      ),
+    );
+  }
+}
+
+class _StatPill extends StatelessWidget {
+  const _StatPill({
+    required this.icon,
+    required this.text,
+  });
+
+  final IconData icon;
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+      decoration: BoxDecoration(
+        color: AppPalette.surfaceDarkHighlight,
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: <Widget>[
+          Icon(icon, size: 16, color: AppPalette.backgroundLight),
+          const SizedBox(width: 6),
+          Text(
+            text,
+            style: const TextStyle(
+              color: AppPalette.backgroundLight,
+              fontSize: 13,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -520,6 +503,8 @@ class _PolicyStatusStyle {
   final Color text;
 }
 
+// ─── Add / Edit Policy ────────────────────────────────────────────────────────
+
 class AddPolicyScreen extends StatefulWidget {
   const AddPolicyScreen({
     super.key,
@@ -535,11 +520,6 @@ class AddPolicyScreen extends StatefulWidget {
 }
 
 class _AddPolicyScreenState extends State<AddPolicyScreen> {
-  static const Color _screenBg = Color(0xFF0D1117);
-  static const Color _cardBg = Color(0xFF161B22);
-  static const Color _cardBorder = Color(0xFF293445);
-  static const Color _sectionTitle = Color(0xFF8EA3BF);
-
   static const List<String> _clientOptions = <String>[
     'Logística Global S.A.',
     'Beautyge Mexico',
@@ -574,14 +554,8 @@ class _AddPolicyScreenState extends State<AddPolicyScreen> {
   DateTime? _endDate;
 
   final List<_PolicyPrinterItem> _selectedPrinters = <_PolicyPrinterItem>[
-    const _PolicyPrinterItem(
-      model: 'Zebra ZT411',
-      serial: '52J194200122',
-    ),
-    const _PolicyPrinterItem(
-      model: 'Zebra ZD421',
-      serial: '21C203301045',
-    ),
+    const _PolicyPrinterItem(model: 'Zebra ZT411', serial: '52J194200122'),
+    const _PolicyPrinterItem(model: 'Zebra ZD421', serial: '21C203301045'),
   ];
 
   @override
@@ -627,16 +601,14 @@ class _AddPolicyScreenState extends State<AddPolicyScreen> {
         : 'Nueva Póliza de Mantenimiento';
 
     return Scaffold(
-      backgroundColor: _screenBg,
       appBar: AppBar(
-        backgroundColor: _screenBg,
         title: Text(title),
         actions: <Widget>[
           if (widget.isEditMode)
             IconButton(
               tooltip: 'Eliminar póliza',
               onPressed: _confirmDelete,
-              icon: const Icon(Icons.delete_outline_rounded, color: Color(0xFFFF8F8F)),
+              icon: const Icon(Icons.delete_outline_rounded, color: Color(0xFFE57373)),
             ),
         ],
       ),
@@ -719,8 +691,7 @@ class _AddPolicyScreenState extends State<AddPolicyScreen> {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: <Widget>[
                           LayoutBuilder(
-                            builder:
-                                (BuildContext context, BoxConstraints constraints) {
+                            builder: (BuildContext context, BoxConstraints constraints) {
                               final bool compact = constraints.maxWidth < 620;
                               if (compact) {
                                 return Column(
@@ -769,8 +740,7 @@ class _AddPolicyScreenState extends State<AddPolicyScreen> {
                             ),
                             items: _frequencyOptions
                                 .map(
-                                  (String frequency) =>
-                                      DropdownMenuItem<String>(
+                                  (String frequency) => DropdownMenuItem<String>(
                                     value: frequency,
                                     child: Text(frequency),
                                   ),
@@ -820,12 +790,12 @@ class _AddPolicyScreenState extends State<AddPolicyScreen> {
                                 ),
                                 leading: const Icon(
                                   Icons.print_rounded,
-                                  color: Color(0xFF8EC5FF),
+                                  color: AppPalette.accentBlue,
                                 ),
                                 title: Text(
                                   printer.model,
                                   style: const TextStyle(
-                                    color: Colors.white,
+                                    color: AppPalette.backgroundLight,
                                     fontWeight: FontWeight.w700,
                                   ),
                                 ),
@@ -838,7 +808,7 @@ class _AddPolicyScreenState extends State<AddPolicyScreen> {
                                   onPressed: () => _removePrinter(printer),
                                   icon: const Icon(
                                     Icons.delete_outline_rounded,
-                                    color: Color(0xFFFF8F8F),
+                                    color: Color(0xFFE57373),
                                   ),
                                 ),
                               ),
@@ -858,18 +828,14 @@ class _AddPolicyScreenState extends State<AddPolicyScreen> {
         child: Container(
           padding: const EdgeInsets.fromLTRB(14, 10, 14, 14),
           decoration: const BoxDecoration(
-            color: _cardBg,
-            border: Border(top: BorderSide(color: _cardBorder)),
+            color: AppPalette.surfaceDark,
+            border: Border(top: BorderSide(color: AppPalette.surfaceDarkHighlight)),
           ),
           child: SizedBox(
             height: 52,
             width: double.infinity,
             child: FilledButton(
               onPressed: _onSave,
-              style: FilledButton.styleFrom(
-                backgroundColor: const Color(0xFF136DEC),
-                foregroundColor: Colors.white,
-              ),
               child: const Text(
                 'GUARDAR POLIZA',
                 style: TextStyle(fontWeight: FontWeight.w800, fontSize: 16),
@@ -924,18 +890,8 @@ class _AddPolicyScreenState extends State<AddPolicyScreen> {
   String _formatDate(DateTime? date) {
     if (date == null) return '';
     const List<String> months = <String>[
-      'Ene',
-      'Feb',
-      'Mar',
-      'Abr',
-      'May',
-      'Jun',
-      'Jul',
-      'Ago',
-      'Sep',
-      'Oct',
-      'Nov',
-      'Dic',
+      'Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun',
+      'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic',
     ];
     final String day = date.day.toString().padLeft(2, '0');
     final String month = months[date.month - 1];
@@ -1027,38 +983,39 @@ class _SectionCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
-      decoration: BoxDecoration(
-        color: _AddPolicyScreenState._cardBg,
+    return Card(
+      color: AppPalette.surfaceDark,
+      shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: _AddPolicyScreenState._cardBorder),
+        side: const BorderSide(color: AppPalette.surfaceDarkHighlight),
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: <Widget>[
-          Row(
-            children: <Widget>[
-              Icon(icon, size: 18, color: _AddPolicyScreenState._sectionTitle),
-              const SizedBox(width: 7),
-              Expanded(
-                child: Text(
-                  title,
-                  style: const TextStyle(
-                    color: _AddPolicyScreenState._sectionTitle,
-                    fontWeight: FontWeight.w800,
-                    fontSize: 12,
-                    letterSpacing: 0.7,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(14, 12, 14, 14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: <Widget>[
+            Row(
+              children: <Widget>[
+                Icon(icon, size: 18, color: Colors.white60),
+                const SizedBox(width: 7),
+                Expanded(
+                  child: Text(
+                    title,
+                    style: const TextStyle(
+                      color: Colors.white60,
+                      fontWeight: FontWeight.w800,
+                      fontSize: 12,
+                      letterSpacing: 0.7,
+                    ),
                   ),
                 ),
-              ),
-              if (action != null) action!,
-            ],
-          ),
-          const SizedBox(height: 10),
-          child,
-        ],
+                if (action != null) action!,
+              ],
+            ),
+            const SizedBox(height: 10),
+            child,
+          ],
+        ),
       ),
     );
   }
@@ -1104,6 +1061,8 @@ class _PolicyPrinterItem {
   final String serial;
 }
 
+// ─── Policy Detail ────────────────────────────────────────────────────────────
+
 class PolicyDetailScreen extends StatefulWidget {
   const PolicyDetailScreen({
     super.key,
@@ -1117,12 +1076,6 @@ class PolicyDetailScreen extends StatefulWidget {
 }
 
 class _PolicyDetailScreenState extends State<PolicyDetailScreen> {
-  static const Color _screenBg = Color(0xFF0D1117);
-  static const Color _cardBg = Color(0xFF161B22);
-  static const Color _cardBorder = Color(0xFF293445);
-  static const Color _mutedText = Color(0xFFA2ADBC);
-  static const Color _softBlue = Color(0xFF8EC5FF);
-
   late final List<_PolicyAsset> _parqueTotal;
   late final List<_PolicyAsset> _misTareas;
   late final List<_PolicyVisit> _visits;
@@ -1158,28 +1111,16 @@ class _PolicyDetailScreenState extends State<PolicyDetailScreen> {
 
   List<_PolicyAsset> _buildParqueTotal() {
     const List<String> models = <String>[
-      'Zebra ZT411',
-      'Zebra ZD421',
-      'Zebra ZT610',
-      'Zebra ZT231',
+      'Zebra ZT411', 'Zebra ZD421', 'Zebra ZT610', 'Zebra ZT231',
     ];
     const List<String> plants = <String>[
-      'Planta Norte',
-      'Planta Sur',
-      'Principal',
-      'Nave 2',
+      'Planta Norte', 'Planta Sur', 'Principal', 'Nave 2',
     ];
     const List<String> areas = <String>[
-      'Línea de Empaque',
-      'Línea 3',
-      'Almacén',
-      'Recibo',
+      'Línea de Empaque', 'Línea 3', 'Almacén', 'Recibo',
     ];
     const List<String> others = <String>[
-      'Pedro R.',
-      'Daniela M.',
-      'Mariana S.',
-      'Luis T.',
+      'Pedro R.', 'Daniela M.', 'Mariana S.', 'Luis T.',
     ];
 
     return List<_PolicyAsset>.generate(24, (int index) {
@@ -1200,21 +1141,21 @@ class _PolicyDetailScreenState extends State<PolicyDetailScreen> {
     return switch (status) {
       PolicyStatus.active => const _PolicyStatusStyle(
           label: 'VIGENTE',
-          bg: Color(0xFF11351E),
-          border: Color(0xFF1F5A35),
-          text: Color(0xFF4CFF8C),
+          bg: AppPalette.successDark,
+          border: AppPalette.success,
+          text: AppPalette.success,
         ),
       PolicyStatus.expiring => const _PolicyStatusStyle(
           label: 'POR VENCER',
-          bg: Color(0xFF4A2F10),
-          border: Color(0xFF7A4F1A),
-          text: Color(0xFFF1A85A),
+          bg: AppPalette.warningDark,
+          border: AppPalette.warning,
+          text: AppPalette.warning,
         ),
       PolicyStatus.expired => const _PolicyStatusStyle(
           label: 'VENCIDA',
           bg: Color(0xFF471C1C),
-          border: Color(0xFF753434),
-          text: Color(0xFFFF8F8F),
+          border: Color(0xFFE57373),
+          text: Color(0xFFFFB3B3),
         ),
     };
   }
@@ -1269,9 +1210,7 @@ class _PolicyDetailScreenState extends State<PolicyDetailScreen> {
     final _PolicyStatusStyle style = _statusStyle(widget.policy.status);
 
     return Scaffold(
-      backgroundColor: _screenBg,
       appBar: AppBar(
-        backgroundColor: _screenBg,
         title: const Text('Detalle de Póliza'),
         actions: <Widget>[
           PopupMenuButton<String>(
@@ -1296,7 +1235,7 @@ class _PolicyDetailScreenState extends State<PolicyDetailScreen> {
                 value: 'delete',
                 child: Text(
                   'Eliminar Póliza',
-                  style: TextStyle(color: Color(0xFFFF8F8F)),
+                  style: TextStyle(color: Color(0xFFE57373)),
                 ),
               ),
             ],
@@ -1307,133 +1246,134 @@ class _PolicyDetailScreenState extends State<PolicyDetailScreen> {
         length: 3,
         child: SafeArea(
           child: Padding(
-            padding: const EdgeInsets.fromLTRB(14, 10, 14, 10),
+            padding: const EdgeInsets.fromLTRB(16, 14, 16, 10),
             child: Column(
               children: <Widget>[
-                Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
-                  decoration: BoxDecoration(
-                    color: _cardBg,
+                Card(
+                  color: AppPalette.surfaceDark,
+                  shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(14),
-                    border: Border.all(color: _cardBorder),
+                    side: const BorderSide(color: AppPalette.surfaceDarkHighlight),
                   ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: <Widget>[
-                      Row(
-                        children: <Widget>[
-                          Expanded(
-                            child: Text(
-                              widget.policy.folio,
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: <Widget>[
+                        Row(
+                          children: <Widget>[
+                            Expanded(
+                              child: Text(
+                                widget.policy.folio,
+                                style: const TextStyle(
+                                  color: AppPalette.backgroundLight,
+                                  fontSize: 24,
+                                  fontWeight: FontWeight.w900,
+                                ),
+                              ),
+                            ),
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 10,
+                                vertical: 5,
+                              ),
+                              decoration: BoxDecoration(
+                                color: style.bg,
+                                borderRadius: BorderRadius.circular(14),
+                                border: Border.all(color: style.border),
+                              ),
+                              child: Text(
+                                style.label,
+                                style: TextStyle(
+                                  color: style.text,
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w800,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 10),
+                        Row(
+                          children: <Widget>[
+                            const Icon(
+                              Icons.business_rounded,
+                              size: 20,
+                              color: AppPalette.accentBlue,
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: <Widget>[
+                                  Text(
+                                    widget.policy.clientName,
+                                    style: const TextStyle(
+                                      color: AppPalette.backgroundLight,
+                                      fontSize: 18,
+                                      fontWeight: FontWeight.w800,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 2),
+                                  const Text(
+                                    'Cobertura: Premium',
+                                    style: TextStyle(
+                                      color: Colors.white70,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 10),
+                        Row(
+                          children: <Widget>[
+                            const Icon(
+                              Icons.event_rounded,
+                              size: 16,
+                              color: Colors.white70,
+                            ),
+                            const SizedBox(width: 6),
+                            Text(
+                              _compactDateRange(),
                               style: const TextStyle(
-                                color: Colors.white,
-                                fontSize: 24,
-                                fontWeight: FontWeight.w900,
+                                color: Colors.white70,
+                                fontWeight: FontWeight.w700,
                               ),
                             ),
-                          ),
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 9,
-                              vertical: 5,
+                            const SizedBox(width: 14),
+                            const Icon(
+                              Icons.autorenew_rounded,
+                              size: 16,
+                              color: Colors.white70,
                             ),
-                            decoration: BoxDecoration(
-                              color: style.bg,
-                              borderRadius: BorderRadius.circular(14),
-                              border: Border.all(color: style.border),
-                            ),
-                            child: Text(
-                              '● ${style.label}',
+                            const SizedBox(width: 6),
+                            const Text(
+                              'Trimestral',
                               style: TextStyle(
-                                color: style.text,
-                                fontSize: 11,
-                                fontWeight: FontWeight.w800,
+                                color: Colors.white70,
+                                fontWeight: FontWeight.w700,
                               ),
                             ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 10),
-                      Row(
-                        children: <Widget>[
-                          const Icon(
-                            Icons.business_rounded,
-                            size: 20,
-                            color: _softBlue,
-                          ),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: <Widget>[
-                                Text(
-                                  widget.policy.clientName,
-                                  style: const TextStyle(
-                                    color: Colors.white,
-                                    fontSize: 18,
-                                    fontWeight: FontWeight.w800,
-                                  ),
-                                ),
-                                const SizedBox(height: 2),
-                                const Text(
-                                  'Cobertura: Premium',
-                                  style: TextStyle(
-                                    color: Colors.white70,
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 10),
-                      Row(
-                        children: <Widget>[
-                          const Icon(
-                            Icons.event_rounded,
-                            size: 16,
-                            color: _mutedText,
-                          ),
-                          const SizedBox(width: 6),
-                          Text(
-                            _compactDateRange(),
-                            style: const TextStyle(
-                              color: _mutedText,
-                              fontWeight: FontWeight.w700,
-                            ),
-                          ),
-                          const SizedBox(width: 14),
-                          const Icon(
-                            Icons.autorenew_rounded,
-                            size: 16,
-                            color: _mutedText,
-                          ),
-                          const SizedBox(width: 6),
-                          const Text(
-                            'Trimestral',
-                            style: TextStyle(
-                              color: _mutedText,
-                              fontWeight: FontWeight.w700,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ],
+                          ],
+                        ),
+                      ],
+                    ),
                   ),
                 ),
                 const SizedBox(height: 10),
                 Container(
                   decoration: BoxDecoration(
-                    color: _cardBg,
+                    color: AppPalette.surfaceDark,
                     borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: _cardBorder),
+                    border: Border.all(color: AppPalette.surfaceDarkHighlight),
                   ),
                   child: TabBar(
-                    labelColor: Colors.white,
+                    labelColor: AppPalette.backgroundLight,
                     unselectedLabelColor: Colors.white60,
-                    indicatorColor: const Color(0xFF136DEC),
+                    indicatorColor: AppPalette.primary,
                     indicatorSize: TabBarIndicatorSize.tab,
                     tabs: <Widget>[
                       Tab(text: 'Mis Tareas (${_misTareas.length})'),
@@ -1503,10 +1443,6 @@ class _MyTasksTab extends StatelessWidget {
           width: double.infinity,
           child: FilledButton(
             onPressed: onStartService,
-            style: FilledButton.styleFrom(
-              backgroundColor: const Color(0xFF136DEC),
-              foregroundColor: Colors.white,
-            ),
             child: Text(
               '✓ INICIAR MI SERVICIO (${tasks.length} EQUIPOS)',
               style: const TextStyle(
@@ -1552,11 +1488,11 @@ class _TaskCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      decoration: BoxDecoration(
-        color: const Color(0xFF161B22),
+    return Card(
+      color: AppPalette.surfaceDark,
+      shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: const Color(0xFF293445)),
+        side: const BorderSide(color: AppPalette.surfaceDarkHighlight),
       ),
       child: Padding(
         padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
@@ -1569,7 +1505,7 @@ class _TaskCard extends StatelessWidget {
                   child: Text(
                     item.model,
                     style: const TextStyle(
-                      color: Colors.white,
+                      color: AppPalette.backgroundLight,
                       fontSize: 17,
                       fontWeight: FontWeight.w800,
                     ),
@@ -1577,8 +1513,7 @@ class _TaskCard extends StatelessWidget {
                 ),
                 if (showMineBadge)
                   Container(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
                     decoration: BoxDecoration(
                       color: const Color(0xFF1E304D),
                       borderRadius: BorderRadius.circular(12),
@@ -1587,7 +1522,7 @@ class _TaskCard extends StatelessWidget {
                     child: const Text(
                       'TU ASIGNACIÓN',
                       style: TextStyle(
-                        color: Color(0xFF8EC5FF),
+                        color: AppPalette.accentBlue,
                         fontSize: 10,
                         fontWeight: FontWeight.w800,
                       ),
@@ -1601,7 +1536,7 @@ class _TaskCard extends StatelessWidget {
             Text(
               'S/N: ${item.serial}',
               style: const TextStyle(
-                color: Color(0xFF8EC5FF),
+                color: AppPalette.accentBlue,
                 fontWeight: FontWeight.w700,
               ),
             ),
@@ -1654,11 +1589,11 @@ class _AssigneeBadge extends StatelessWidget {
           children: <Widget>[
             CircleAvatar(
               radius: 8,
-              backgroundColor: Color(0xFF8EC5FF),
+              backgroundColor: AppPalette.accentBlue,
               child: Text(
                 'T',
                 style: TextStyle(
-                  color: Color(0xFF0D1117),
+                  color: AppPalette.backgroundDark,
                   fontSize: 10,
                   fontWeight: FontWeight.w800,
                 ),
@@ -1668,7 +1603,7 @@ class _AssigneeBadge extends StatelessWidget {
             Text(
               'Tú',
               style: TextStyle(
-                color: Color(0xFF8EC5FF),
+                color: AppPalette.accentBlue,
                 fontSize: 12,
                 fontWeight: FontWeight.w700,
               ),
@@ -1681,7 +1616,7 @@ class _AssigneeBadge extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
       decoration: BoxDecoration(
-        color: const Color(0xFF2A3342),
+        color: AppPalette.surfaceDarkHighlight,
         borderRadius: BorderRadius.circular(12),
         border: Border.all(color: const Color(0xFF3A4557)),
       ),
@@ -1694,7 +1629,7 @@ class _AssigneeBadge extends StatelessWidget {
             child: Text(
               item.assignedTo.characters.first.toUpperCase(),
               style: const TextStyle(
-                color: Colors.white,
+                color: AppPalette.backgroundLight,
                 fontSize: 10,
                 fontWeight: FontWeight.w800,
               ),
@@ -1756,54 +1691,56 @@ class _CalendarTab extends StatelessWidget {
                       Container(
                         width: 2,
                         height: 74,
-                        color: const Color(0xFF2A3342),
+                        color: AppPalette.surfaceDarkHighlight,
                       ),
                   ],
                 ),
               ),
               const SizedBox(width: 10),
               Expanded(
-                child: Container(
-                  padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFF161B22),
+                child: Card(
+                  color: AppPalette.surfaceDark,
+                  shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: const Color(0xFF293445)),
+                    side: const BorderSide(color: AppPalette.surfaceDarkHighlight),
                   ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: <Widget>[
-                      Row(
-                        children: <Widget>[
-                          Expanded(
-                            child: Text(
-                              visit.title,
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontWeight: FontWeight.w800,
-                                fontSize: 16,
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: <Widget>[
+                        Row(
+                          children: <Widget>[
+                            Expanded(
+                              child: Text(
+                                visit.title,
+                                style: const TextStyle(
+                                  color: AppPalette.backgroundLight,
+                                  fontWeight: FontWeight.w800,
+                                  fontSize: 16,
+                                ),
                               ),
                             ),
-                          ),
-                          Text(
-                            style.label,
-                            style: TextStyle(
-                              color: style.iconColor,
-                              fontWeight: FontWeight.w800,
-                              fontSize: 11,
+                            Text(
+                              style.label,
+                              style: TextStyle(
+                                color: style.iconColor,
+                                fontWeight: FontWeight.w800,
+                                fontSize: 11,
+                              ),
                             ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        visit.dateLabel,
-                        style: const TextStyle(
-                          color: Colors.white70,
-                          fontWeight: FontWeight.w600,
+                          ],
                         ),
-                      ),
-                    ],
+                        const SizedBox(height: 4),
+                        Text(
+                          visit.dateLabel,
+                          style: const TextStyle(
+                            color: Colors.white70,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
                 ),
               ),
@@ -1819,23 +1756,23 @@ class _CalendarTab extends StatelessWidget {
       _VisitStatus.completed => const _VisitStyle(
           label: 'COMPLETADA',
           icon: Icons.check_rounded,
-          bg: Color(0xFF11351E),
-          border: Color(0xFF1F5A35),
-          iconColor: Color(0xFF4CFF8C),
+          bg: AppPalette.successDark,
+          border: AppPalette.success,
+          iconColor: AppPalette.success,
         ),
       _VisitStatus.pending => const _VisitStyle(
           label: 'PENDIENTE',
           icon: Icons.schedule_rounded,
-          bg: Color(0xFF4A2F10),
-          border: Color(0xFF7A4F1A),
-          iconColor: Color(0xFFF1A85A),
+          bg: AppPalette.warningDark,
+          border: AppPalette.warning,
+          iconColor: AppPalette.warning,
         ),
       _VisitStatus.scheduled => const _VisitStyle(
           label: 'PROGRAMADA',
           icon: Icons.event_available_rounded,
           bg: Color(0xFF1E304D),
           border: Color(0xFF355A8C),
-          iconColor: Color(0xFF8EC5FF),
+          iconColor: AppPalette.accentBlue,
         ),
     };
   }
@@ -1894,4 +1831,3 @@ class _VisitStyle {
   final Color border;
   final Color iconColor;
 }
-

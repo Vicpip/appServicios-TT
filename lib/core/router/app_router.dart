@@ -20,6 +20,7 @@ import 'package:industrial_service_reports/features/qr_scanner/presentation/qr_s
 import 'package:industrial_service_reports/features/reports/presentation/express_capture_screen.dart';
 import 'package:industrial_service_reports/features/reports/presentation/report_summary_screen.dart';
 import 'package:industrial_service_reports/features/signature/presentation/signature_screen.dart';
+import 'package:industrial_service_reports/features/sync/presentation/sync_dashboard_screen.dart';
 
 final routerProvider = Provider<GoRouter>((ref) {
   final RouterNotifier notifier = RouterNotifier(ref);
@@ -147,6 +148,11 @@ final routerProvider = Provider<GoRouter>((ref) {
         path: '/policies',
         name: AppRoutes.policies,
         builder: (_, __) => const PolicyDashboardScreen(),
+      ),
+      GoRoute(
+        path: '/sync',
+        name: AppRoutes.sync,
+        builder: (_, __) => const SyncDashboardScreen(),
       ),
     ],
   );

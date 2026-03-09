@@ -117,8 +117,7 @@ class MainDashboardScreen extends ConsumerWidget {
                 children: <Widget>[
                   _PendingSyncBanner(
                     pendingCount: session.pendingSyncCount,
-                    onSyncTap: () =>
-                        _showNavigationSnackBar(context, 'Sincronizar'),
+                    onSyncTap: () => context.pushNamed(AppRoutes.sync),
                   ),
                   const SizedBox(height: 14),
                   GridView.count(
@@ -138,8 +137,7 @@ class MainDashboardScreen extends ConsumerWidget {
                       DashboardButton(
                         title: 'Pendientes Sync',
                         icon: Icons.sync_problem_rounded,
-                        onTap: () =>
-                            _showNavigationSnackBar(context, 'Pendientes Sync'),
+                        onTap: () => context.pushNamed(AppRoutes.sync),
                       ),
                       DashboardButton(
                         title: 'Alertas Riesgo',

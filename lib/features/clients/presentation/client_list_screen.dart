@@ -214,6 +214,7 @@ class _ClientListScreenState extends ConsumerState<ClientListScreen> {
         backgroundColor: AppPalette.primary,
         foregroundColor: AppPalette.backgroundLight,
         onPressed: _openAddClientScreen,
+        tooltip: 'Nuevo Cliente',
         child: const Icon(Icons.add_rounded, size: 34),
       ),
     );
