@@ -200,6 +200,17 @@ class Reports extends Table {
 
   TextColumn get supersedesReportId => text().nullable().references(Reports, #id)();
 
+  // Fotografía de evidencia
+  TextColumn get photoPaths => text().withDefault(const Constant('[]'))();
+  IntColumn get photoCount => integer().withDefault(const Constant(0))();
+
+  // Firma digital
+  TextColumn get signatureImagePath => text().nullable()();
+
+  // Bloque de reportes (para preventivos)
+  TextColumn get signatureBlockId => text().nullable()();
+  TextColumn get reportBlockStatus => text().nullable()();
+
   DateTimeColumn get syncDate => dateTime().nullable()();
 
   DateTimeColumn get createdAt =>
@@ -355,7 +366,7 @@ class AppDatabase extends _$AppDatabase {
   AppDatabase([QueryExecutor? executor]) : super(executor ?? _openConnection());
 
   @override
-  int get schemaVersion => 3;
+  int get schemaVersion => 4;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -369,6 +380,13 @@ class AppDatabase extends _$AppDatabase {
           if (from < 3) {
             await migrator.addColumn(plants, plants.contactName);
             await migrator.addColumn(plants, plants.phone);
+          }
+          if (from < 4) {
+            await migrator.addColumn(reports, reports.photoPaths);
+            await migrator.addColumn(reports, reports.photoCount);
+            await migrator.addColumn(reports, reports.signatureImagePath);
+            await migrator.addColumn(reports, reports.signatureBlockId);
+            await migrator.addColumn(reports, reports.reportBlockStatus);
           }
         },
         beforeOpen: (OpeningDetails details) async {
