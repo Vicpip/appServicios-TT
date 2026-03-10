@@ -1,13 +1,16 @@
 import 'package:flutter/material.dart';
+import 'package:industrial_service_reports/data/local/app_database.dart';
 
 class ServiceHistoryScreen extends StatefulWidget {
   const ServiceHistoryScreen({
     super.key,
+    required this.database,
     required this.printerId,
     required this.model,
     required this.serialNumber,
   });
 
+  final AppDatabase database;
   final String printerId;
   final String model;
   final String serialNumber;
@@ -28,61 +31,79 @@ class _ServiceHistoryScreenState extends State<ServiceHistoryScreen> {
   static const Color _infoPillBorder = Color(0xFF2C3748);
   static const Color _accentBlue = Color(0xFF69AFFF);
 
-  static const List<_ServiceHistoryItem> _mockHistory = <_ServiceHistoryItem>[
-    _ServiceHistoryItem(
-      dateText: '12 Ago 2025',
-      reportId: '#REP-1042',
-      technician: 'Ing. Carlos M.',
-      notes:
-          'Se limpio sensor de ribbon, se ajusto presion de cabezal y se valido impresion continua sin errores.',
-      counterText: '1,450,200 in',
-      type: _ServiceType.preventivo,
-    ),
-    _ServiceHistoryItem(
-      dateText: '03 Jul 2025',
-      reportId: '#REP-1018',
-      technician: 'Ing. Laura R.',
-      notes:
-          'Correctivo por atasco recurrente en salida. Se reemplazo rodillo y se recalibraron sensores.',
-      counterText: '1,420,950 in',
-      type: _ServiceType.correctivo,
-    ),
-    _ServiceHistoryItem(
-      dateText: '22 May 2025',
-      reportId: '#REP-0986',
-      technician: 'Ing. Carlos M.',
-      notes:
-          'Diagnostico de fallas intermitentes en sensor de papel y pruebas de validacion con diferentes materiales.',
-      counterText: '1,398,410 in',
-      type: _ServiceType.diagnostico,
-    ),
-    _ServiceHistoryItem(
-      dateText: '09 Abr 2025',
-      reportId: '#REP-0943',
-      technician: 'Ing. Fernanda T.',
-      notes:
-          'Instalacion inicial en linea de produccion, calibracion de parametros y pruebas de rendimiento.',
-      counterText: '1,372,080 in',
-      type: _ServiceType.instalacion,
-    ),
-    _ServiceHistoryItem(
-      dateText: '18 Feb 2025',
-      reportId: '#REP-0891',
-      technician: 'Ing. Omar V.',
-      notes:
-          'Servicio preventivo de rutina. Se ejecutaron pruebas de impresion y verificacion de componentes.',
-      counterText: '1,340,300 in',
-      type: _ServiceType.preventivo,
-    ),
-  ];
-
+  List<_ServiceHistoryItem> _history = <_ServiceHistoryItem>[];
   _ServiceType? _selectedFilter;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadServiceHistory();
+  }
+
+  Future<void> _loadServiceHistory() async {
+    try {
+      final List<_ServiceHistoryItem> items = await _buildServiceHistoryItems();
+      if (mounted) setState(() => _history = items);
+    } catch (_) {
+      // Handle error silently
+    }
+  }
+
+  Future<List<_ServiceHistoryItem>> _buildServiceHistoryItems() async {
+    final AppDatabase db = widget.database;
+    final List<_ServiceHistoryItem> items = <_ServiceHistoryItem>[];
+
+    final List<Report> allReports = await (db.select(db.reports)
+          ..where((r) => r.printerId.equals(widget.printerId)))
+        .get();
+
+    for (final Report report in allReports) {
+      // Obtener nombre del técnico
+      final User? technician = await (db.select(db.users)
+            ..where((u) => u.id.equals(report.techId)))
+          .getSingleOrNull();
+      final String technicianName = technician?.name ?? 'Técnico desconocido';
+
+      // Mapear tipo de servicio a enum
+      final _ServiceType serviceType = _parseServiceType(report.serviceType);
+
+      items.add(_ServiceHistoryItem(
+        dateText: _formatDate(report.serviceDate),
+        reportId: '#REP-${report.id.substring(0, 8).toUpperCase()}',
+        technician: technicianName,
+        notes: report.notes ?? 'Sin notas',
+        counterText: '${report.linearInchesCounter} in',
+        type: serviceType,
+      ));
+    }
+
+    // Ordenar por fecha descendente
+    items.sort((a, b) => b.dateText.compareTo(a.dateText));
+    return items;
+  }
+
+  String _formatDate(DateTime date) {
+    final List<String> monthNames = <String>[
+      'Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun',
+      'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'
+    ];
+    return '${date.day.toString().padLeft(2, '0')} ${monthNames[date.month - 1]} ${date.year}';
+  }
+
+  _ServiceType _parseServiceType(String type) {
+    final String lower = type.toLowerCase();
+    if (lower.contains('preventivo')) return _ServiceType.preventivo;
+    if (lower.contains('correctivo')) return _ServiceType.correctivo;
+    if (lower.contains('diagnostico')) return _ServiceType.diagnostico;
+    if (lower.contains('instalacion')) return _ServiceType.instalacion;
+    return _ServiceType.preventivo;
+  }
 
   List<_ServiceHistoryItem> get _filteredHistory {
     if (_selectedFilter == null) {
-      return _mockHistory;
+      return _history;
     }
-    return _mockHistory
+    return _history
         .where((_ServiceHistoryItem item) => item.type == _selectedFilter)
         .toList();
   }

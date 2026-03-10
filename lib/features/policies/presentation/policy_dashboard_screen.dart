@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:industrial_service_reports/core/theme/app_palette.dart';
+import 'package:industrial_service_reports/data/local/app_database.dart';
 
 enum _PolicyFilter {
   all,
@@ -34,58 +35,25 @@ class PolicySummary {
 }
 
 class PolicyDashboardScreen extends StatefulWidget {
-  const PolicyDashboardScreen({super.key});
+  const PolicyDashboardScreen({super.key, required this.database});
+
+  final AppDatabase database;
 
   @override
   State<PolicyDashboardScreen> createState() => _PolicyDashboardScreenState();
 }
 
 class _PolicyDashboardScreenState extends State<PolicyDashboardScreen> {
-  static const List<PolicySummary> _mockPolicies = <PolicySummary>[
-    PolicySummary(
-      folio: 'POL-2026-001',
-      clientName: 'Logística Global S.A.',
-      startDate: '01 Ene 2026',
-      endDate: '31 Dic 2026',
-      coveredPrinters: 15,
-      status: PolicyStatus.active,
-    ),
-    PolicySummary(
-      folio: 'POL-2025-118',
-      clientName: 'Beautyge Mexico',
-      startDate: '01 Jul 2025',
-      endDate: '15 Mar 2026',
-      coveredPrinters: 9,
-      status: PolicyStatus.expiring,
-    ),
-    PolicySummary(
-      folio: 'POL-2024-077',
-      clientName: 'Empaques del Centro',
-      startDate: '01 Ene 2024',
-      endDate: '31 Dic 2025',
-      coveredPrinters: 6,
-      status: PolicyStatus.expired,
-    ),
-    PolicySummary(
-      folio: 'POL-2026-014',
-      clientName: 'Norte Industrial Group',
-      startDate: '01 Feb 2026',
-      endDate: '31 Ene 2027',
-      coveredPrinters: 20,
-      status: PolicyStatus.active,
-    ),
-    PolicySummary(
-      folio: 'POL-2025-132',
-      clientName: 'Global Trade Operations',
-      startDate: '15 Ago 2025',
-      endDate: '30 Abr 2026',
-      coveredPrinters: 12,
-      status: PolicyStatus.expiring,
-    ),
-  ];
-
   final TextEditingController _searchController = TextEditingController();
   _PolicyFilter _selectedFilter = _PolicyFilter.all;
+  List<PolicySummary> _policies = <PolicySummary>[];
+  bool _loading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadPolicies();
+  }
 
   @override
   void dispose() {
@@ -93,10 +61,70 @@ class _PolicyDashboardScreenState extends State<PolicyDashboardScreen> {
     super.dispose();
   }
 
+  Future<void> _loadPolicies() async {
+    try {
+      final List<PolicySummary> policies = await _buildPolicySummaries();
+      if (mounted) setState(() { _policies = policies; _loading = false; });
+    } catch (_) {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  Future<List<PolicySummary>> _buildPolicySummaries() async {
+    final AppDatabase db = widget.database;
+    final DateTime now = DateTime.now();
+
+    final List<Policy> allPolicies = await db.select(db.policies).get();
+    final List<PolicySummary> summaries = <PolicySummary>[];
+
+    for (final Policy policy in allPolicies) {
+      // Obtener nombre del cliente
+      final Client? client = await (db.select(db.clients)
+            ..where((c) => c.id.equals(policy.clientId)))
+          .getSingleOrNull();
+      final String clientName = client?.name ?? 'Cliente desconocido';
+
+      // Contar impresoras cubiertas por la póliza
+      final List<PolicyPrinter> policyPrinters = await (db.select(db.policyPrinters)
+            ..where((pp) => pp.policyId.equals(policy.id)))
+          .get();
+      final int coveredPrinters = policyPrinters.length;
+
+      // Determinar estado de la póliza
+      final PolicyStatus status;
+      if (now.isAfter(policy.endDate)) {
+        status = PolicyStatus.expired;
+      } else if (policy.endDate.difference(now).inDays < 30) {
+        status = PolicyStatus.expiring;
+      } else {
+        status = PolicyStatus.active;
+      }
+
+      summaries.add(PolicySummary(
+        folio: policy.folio,
+        clientName: clientName,
+        startDate: _formatDate(policy.startDate),
+        endDate: _formatDate(policy.endDate),
+        coveredPrinters: coveredPrinters,
+        status: status,
+      ));
+    }
+
+    return summaries;
+  }
+
+  String _formatDate(DateTime date) {
+    final List<String> monthNames = <String>[
+      'Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun',
+      'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'
+    ];
+    return '${date.day.toString().padLeft(2, '0')} ${monthNames[date.month - 1]} ${date.year}';
+  }
+
   List<PolicySummary> _filteredPolicies() {
     final String query = _searchController.text.trim().toLowerCase();
 
-    return _mockPolicies.where((PolicySummary policy) {
+    return _policies.where((PolicySummary policy) {
       final bool matchesFilter = switch (_selectedFilter) {
         _PolicyFilter.all => true,
         _PolicyFilter.active => policy.status == PolicyStatus.active,

@@ -5,6 +5,7 @@ import 'package:industrial_service_reports/core/router/app_routes.dart';
 import 'package:industrial_service_reports/core/router/route_args.dart';
 import 'package:industrial_service_reports/core/theme/app_palette.dart';
 import 'package:industrial_service_reports/data/local/app_database.dart';
+import 'package:intl/intl.dart';
 
 class ClientDetailScreen extends StatefulWidget {
   const ClientDetailScreen({
@@ -21,24 +22,6 @@ class ClientDetailScreen extends StatefulWidget {
 }
 
 class _ClientDetailScreenState extends State<ClientDetailScreen> {
-  static const List<_PrinterMockItem> _mockPrinters = <_PrinterMockItem>[
-    _PrinterMockItem(
-      model: 'Zebra ZT411',
-      serialNumber: '52J194200122',
-      status: _PrinterStatus.active,
-    ),
-    _PrinterMockItem(
-      model: 'Zebra ZT610',
-      serialNumber: '99J882310245',
-      status: _PrinterStatus.active,
-    ),
-    _PrinterMockItem(
-      model: 'Zebra ZD421',
-      serialNumber: '71K009830711',
-      status: _PrinterStatus.maintenance,
-    ),
-  ];
-
   bool _isDeleting = false;
 
   @override
@@ -134,7 +117,7 @@ class _ClientDetailScreenState extends State<ClientDetailScreen> {
                     children: <Widget>[
                       _PrintersTab(
                         database: widget.database,
-                        printers: _mockPrinters,
+                        clientId: widget.client.id,
                       ),
                       const _EmptyTab(
                         icon: Icons.assignment_outlined,
@@ -457,51 +440,104 @@ class _CorporateInfoCard extends StatelessWidget {
   }
 }
 
-class _PrintersTab extends StatelessWidget {
+class _PrintersTab extends StatefulWidget {
   const _PrintersTab({
     required this.database,
-    required this.printers,
+    required this.clientId,
   });
 
   final AppDatabase database;
-  final List<_PrinterMockItem> printers;
+  final String clientId;
+
+  @override
+  State<_PrintersTab> createState() => _PrintersTabState();
+}
+
+class _PrintersTabState extends State<_PrintersTab> {
+  late Future<List<_PrinterMockItem>> _printersFuture;
+
+  @override
+  void initState() {
+    super.initState();
+    _printersFuture = _loadPrinters();
+  }
+
+  Future<List<_PrinterMockItem>> _loadPrinters() async {
+    try {
+      final List<Printer> printers = await (widget.database.select(widget.database.printers)
+            ..where((p) => p.clientId.equals(widget.clientId) & p.isActive.equals(true)))
+          .get();
+
+      final List<_PrinterMockItem> items = <_PrinterMockItem>[];
+      for (final Printer printer in printers) {
+        final CatalogModel? model = await (widget.database.select(widget.database.catalogModels)
+              ..where((m) => m.id.equals(printer.modelId)))
+            .getSingleOrNull();
+
+        items.add(_PrinterMockItem(
+          model: model?.modelName ?? 'Modelo desconocido',
+          serialNumber: printer.serialNumber,
+          status: _PrinterStatus.active,
+        ));
+      }
+      return items;
+    } catch (_) {
+      return <_PrinterMockItem>[];
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
-    final int total = printers.length;
+    return FutureBuilder<List<_PrinterMockItem>>(
+      future: _printersFuture,
+      builder: (BuildContext context, AsyncSnapshot<List<_PrinterMockItem>> snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Center(child: CircularProgressIndicator());
+        }
 
-    return Column(
-      children: <Widget>[
-        Row(
+        final List<_PrinterMockItem> printers = snapshot.data ?? <_PrinterMockItem>[];
+
+        return Column(
           children: <Widget>[
-            Text(
-              'EQUIPOS REGISTRADOS ($total)',
-              style: const TextStyle(
-                color: Colors.white60,
-                fontWeight: FontWeight.w800,
-                letterSpacing: 1.1,
-                fontSize: 12,
-              ),
+            Row(
+              children: <Widget>[
+                Text(
+                  'EQUIPOS REGISTRADOS (${printers.length})',
+                  style: const TextStyle(
+                    color: Colors.white60,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: 1.1,
+                    fontSize: 12,
+                  ),
+                ),
+                const Spacer(),
+                FilledButton.icon(
+                  onPressed: () => context.pushNamed(AppRoutes.quickAddPrinter),
+                  icon: const Icon(Icons.add_rounded, size: 18),
+                  label: const Text('Nueva'),
+                ),
+              ],
             ),
-            const Spacer(),
-            FilledButton.icon(
-              onPressed: () => context.pushNamed(AppRoutes.quickAddPrinter),
-              icon: const Icon(Icons.add_rounded, size: 18),
-              label: const Text('Nueva'),
+            const SizedBox(height: 8),
+            Expanded(
+              child: printers.isEmpty
+                  ? const Center(
+                      child: Text(
+                        'Sin impresoras registradas',
+                        style: TextStyle(color: Colors.white54),
+                      ),
+                    )
+                  : ListView.separated(
+                      itemCount: printers.length,
+                      separatorBuilder: (_, __) => const SizedBox(height: 8),
+                      itemBuilder: (BuildContext context, int index) {
+                        return _PrinterCard(printer: printers[index]);
+                      },
+                    ),
             ),
           ],
-        ),
-        const SizedBox(height: 8),
-        Expanded(
-          child: ListView.separated(
-            itemCount: printers.length,
-            separatorBuilder: (_, __) => const SizedBox(height: 8),
-            itemBuilder: (BuildContext context, int index) {
-              return _PrinterCard(printer: printers[index]);
-            },
-          ),
-        ),
-      ],
+        );
+      },
     );
   }
 }

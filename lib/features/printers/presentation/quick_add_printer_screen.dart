@@ -26,37 +26,6 @@ class _QuickAddPrinterScreenState extends State<QuickAddPrinterScreen> {
     'ZD421 - 203dpi',
     '105SL Plus',
   ];
-  static const Map<String, String> _mockClientIds = <String, String>{
-    'Beautyge Mexico': '10000000-0000-0000-0000-000000000001',
-    'Generic Client': '10000000-0000-0000-0000-000000000002',
-  };
-  static const Map<String, String> _mockPlantIds = <String, String>{
-    'Nave 1': '20000000-0000-0000-0000-000000000001',
-    'Nave 2': '20000000-0000-0000-0000-000000000002',
-    'Principal': '20000000-0000-0000-0000-000000000003',
-  };
-  static const Map<String, String> _mockAreaIds = <String, String>{
-    'Linea de Empaque': '30000000-0000-0000-0000-000000000001',
-    'Almacen': '30000000-0000-0000-0000-000000000002',
-    'Recibo': '30000000-0000-0000-0000-000000000003',
-  };
-
-  static const List<String> _clientOptions = <String>[
-    'Beautyge Mexico',
-    'Generic Client',
-  ];
-
-  static const List<String> _plantOptions = <String>[
-    'Nave 1',
-    'Nave 2',
-    'Principal',
-  ];
-
-  static const List<String> _areaOptions = <String>[
-    'Linea de Empaque',
-    'Almacen',
-    'Recibo',
-  ];
 
   final GlobalKey<FormState> _formKey = GlobalKey<FormState>();
   final Uuid _uuid = const Uuid();
@@ -64,10 +33,94 @@ class _QuickAddPrinterScreenState extends State<QuickAddPrinterScreen> {
   final TextEditingController _modelController = TextEditingController();
   final FocusNode _modelFocusNode = FocusNode();
 
+  List<String> _clientOptions = <String>[];
+  List<String> _plantOptions = <String>[];
+  List<String> _areaOptions = <String>[];
+
+  late Map<String, String> _clientMap; // nombre -> id
+  late Map<String, String> _plantMap; // nombre -> id
+  late Map<String, String> _areaMap;  // nombre -> id
+
   String? _selectedClient;
   String? _selectedPlant;
   String? _selectedArea;
   bool _isSaving = false;
+  bool _loading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadFormData();
+  }
+
+  Future<void> _loadFormData() async {
+    try {
+      await _loadClients();
+      await _loadPlants();
+      await _loadAreas();
+      if (mounted) setState(() => _loading = false);
+    } catch (_) {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  Future<void> _loadClients() async {
+    final List<Client> clients = await (widget.database.select(widget.database.clients)
+          ..where((c) => c.isActive.equals(true)))
+        .get();
+    final Map<String, String> map = <String, String>{};
+    final List<String> options = <String>[];
+
+    for (final Client client in clients) {
+      map[client.name] = client.id;
+      options.add(client.name);
+    }
+
+    if (mounted) {
+      setState(() {
+        _clientMap = map;
+        _clientOptions = options..sort();
+      });
+    }
+  }
+
+  Future<void> _loadPlants() async {
+    final List<Plant> plants = await (widget.database.select(widget.database.plants)
+          ..where((p) => p.clientId.isNotNull()))
+        .get();
+    final Map<String, String> map = <String, String>{};
+    final List<String> options = <String>[];
+
+    for (final Plant plant in plants) {
+      map[plant.name] = plant.id;
+      options.add(plant.name);
+    }
+
+    if (mounted) {
+      setState(() {
+        _plantMap = map;
+        _plantOptions = options..sort();
+      });
+    }
+  }
+
+  Future<void> _loadAreas() async {
+    final List<Area> areas = await widget.database.select(widget.database.areas).get();
+    final Map<String, String> map = <String, String>{};
+    final List<String> options = <String>[];
+
+    for (final Area area in areas) {
+      map[area.name] = area.id;
+      options.add(area.name);
+    }
+
+    if (mounted) {
+      setState(() {
+        _areaMap = map;
+        _areaOptions = options..sort();
+      });
+    }
+  }
 
   @override
   void dispose() {
@@ -339,9 +392,14 @@ class _QuickAddPrinterScreenState extends State<QuickAddPrinterScreen> {
       final String printerId = _uuid.v4();
       final String qrUuid = _uuid.v4();
 
-      final String clientId = _mockClientIds[clientName]!;
-      final String plantId = _mockPlantIds[plantName]!;
-      final String areaId = _mockAreaIds[areaName]!;
+      final String? clientId = _clientMap[clientName];
+      final String? plantId = _plantMap[plantName];
+      final String? areaId = _areaMap[areaName];
+
+      if (clientId == null || plantId == null || areaId == null) {
+        _showErrorSnackBar('Datos incompletos en la base de datos');
+        return;
+      }
 
       await widget.database.transaction(() async {
         await widget.database.into(widget.database.clients).insertOnConflictUpdate(

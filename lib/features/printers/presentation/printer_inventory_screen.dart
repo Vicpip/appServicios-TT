@@ -33,59 +33,81 @@ class _PrinterInventoryScreenState
   static const Color _orangeSoft = Color(0xFFF1A85A);
 
   final TextEditingController _searchController = TextEditingController();
+  List<_InventoryPrinter> _printers = <_InventoryPrinter>[];
 
-  static const List<_InventoryPrinter> _mockPrinters = <_InventoryPrinter>[
-    _InventoryPrinter(
-      serialNumber: 'Z7J214500982',
-      model: 'ZT411',
-      dpi: 300,
-      client: 'Logistics Corp MX',
-      plant: 'Planta Norte',
-      area: 'Linea de Empaque A4',
-      contact: 'Juan Perez',
-      status: _InventoryStatus.inPolicy,
-    ),
-    _InventoryPrinter(
-      serialNumber: 'X5T338100214',
-      model: 'ZT610',
-      dpi: 600,
-      client: 'Beautyge Mexico',
-      plant: 'Sede Principal',
-      area: 'Empaque Final B2',
-      contact: 'Daniela Rios',
-      status: _InventoryStatus.noPolicy,
-    ),
-    _InventoryPrinter(
-      serialNumber: 'Q9M119430778',
-      model: 'ZD421',
-      dpi: 203,
-      client: 'Norte Industrial Group',
-      plant: 'Planta Sur',
-      area: 'Linea A1',
-      contact: 'Mariana Soto',
-      status: _InventoryStatus.inPolicy,
-    ),
-    _InventoryPrinter(
-      serialNumber: 'M2R446900531',
-      model: 'ZT231',
-      dpi: 300,
-      client: 'Empaques del Centro',
-      plant: 'Nave 2',
-      area: 'Recepcion de Material',
-      contact: 'Luis Torres',
-      status: _InventoryStatus.noPolicy,
-    ),
-    _InventoryPrinter(
-      serialNumber: 'B4K802200667',
-      model: 'ZT410',
-      dpi: 203,
-      client: 'Global Trade Operations',
-      plant: 'Monterrey Hub',
-      area: 'Linea C3',
-      contact: 'Paola Nunez',
-      status: _InventoryStatus.inPolicy,
-    ),
-  ];
+  @override
+  void initState() {
+    super.initState();
+    _loadPrinters();
+  }
+
+  Future<void> _loadPrinters() async {
+    try {
+      final List<_InventoryPrinter> printers = await _buildInventoryPrinters();
+      if (mounted) setState(() => _printers = printers);
+    } catch (_) {
+      // Handle error silently
+    }
+  }
+
+  Future<List<_InventoryPrinter>> _buildInventoryPrinters() async {
+    final AppDatabase db = widget.database;
+    final List<_InventoryPrinter> items = <_InventoryPrinter>[];
+
+    final List<Printer> allPrinters = await (db.select(db.printers)
+          ..where((p) => p.isActive.equals(true)))
+        .get();
+
+    for (final Printer printer in allPrinters) {
+      // Obtener modelo del catálogo
+      final CatalogModel? model = await (db.select(db.catalogModels)
+            ..where((m) => m.id.equals(printer.modelId)))
+          .getSingleOrNull();
+      final String modelName = model?.modelName ?? 'Modelo desconocido';
+
+      // Obtener cliente
+      final Client? client = await (db.select(db.clients)
+            ..where((c) => c.id.equals(printer.clientId)))
+          .getSingleOrNull();
+      final String clientName = client?.name ?? 'Cliente desconocido';
+
+      // Obtener planta
+      final Plant? plant = await (db.select(db.plants)
+            ..where((p) => p.id.equals(printer.plantId)))
+          .getSingleOrNull();
+      final String plantName = plant?.name ?? 'Planta desconocida';
+
+      // Obtener área
+      final Area? area = await (db.select(db.areas)
+            ..where((a) => a.id.equals(printer.areaId)))
+          .getSingleOrNull();
+      final String areaName = area?.name ?? 'Área desconocida';
+
+      // Obtener contacto de planta
+      final String contact = plant?.contactName ?? 'Sin contacto';
+
+      // Determinar status: revisar si está en alguna póliza
+      final List<PolicyPrinter> policyPrinters = await (db.select(db.policyPrinters)
+            ..where((pp) => pp.printerId.equals(printer.id)))
+          .get();
+      final _InventoryStatus status = policyPrinters.isNotEmpty
+          ? _InventoryStatus.inPolicy
+          : _InventoryStatus.noPolicy;
+
+      items.add(_InventoryPrinter(
+        serialNumber: printer.serialNumber,
+        model: modelName,
+        dpi: model?.dpi ?? 0,
+        client: clientName,
+        plant: plantName,
+        area: areaName,
+        contact: contact,
+        status: status,
+      ));
+    }
+
+    return items;
+  }
 
   @override
   void dispose() {
@@ -283,7 +305,7 @@ class _PrinterInventoryScreenState
           p.contact.toLowerCase().contains(query);
     }
 
-    return _mockPrinters
+    return _printers
         .where((_InventoryPrinter p) =>
             matchesEntityFilter(p) && matchesQuery(p))
         .toList();
@@ -291,17 +313,17 @@ class _PrinterInventoryScreenState
 
   Widget _buildEntityFilterChips(PrinterInventoryState state) {
     final List<String> values = switch (state.selectedFilter) {
-      PrinterFilter.byClient => _mockPrinters
+      PrinterFilter.byClient => _printers
           .map((_InventoryPrinter p) => p.client)
           .toSet()
           .toList()
         ..sort(),
-      PrinterFilter.byPlant => _mockPrinters
+      PrinterFilter.byPlant => _printers
           .map((_InventoryPrinter p) => p.plant)
           .toSet()
           .toList()
         ..sort(),
-      PrinterFilter.byContact => _mockPrinters
+      PrinterFilter.byContact => _printers
           .map((_InventoryPrinter p) => p.contact)
           .toSet()
           .toList()

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:industrial_service_reports/core/theme/app_palette.dart';
+import 'package:industrial_service_reports/data/local/app_database.dart';
 
 enum _SyncStatus { success, partial, failed }
 
@@ -21,59 +22,18 @@ class _SyncLogEntry {
 }
 
 class SyncHistoryScreen extends StatefulWidget {
-  const SyncHistoryScreen({super.key});
+  const SyncHistoryScreen({super.key, required this.database});
+
+  final AppDatabase database;
 
   @override
   State<SyncHistoryScreen> createState() => _SyncHistoryScreenState();
 }
 
 class _SyncHistoryScreenState extends State<SyncHistoryScreen> {
-  static const List<_SyncLogEntry> _mockLog = <_SyncLogEntry>[
-    _SyncLogEntry(
-      status: _SyncStatus.success,
-      title: 'Sync Completada',
-      timestamp: 'Hoy, 07:30 AM',
-      actions: <String>[
-        '↑ 3 Reportes de servicio subidos',
-        '↑ 12 Evidencias fotográficas subidas',
-        '↑ 2 Firmas de clientes subidas',
-        '↓ 5 Nuevas asignaciones descargadas',
-        '↓ Catálogos actualizados',
-      ],
-    ),
-    _SyncLogEntry(
-      status: _SyncStatus.partial,
-      title: 'Sync Parcial',
-      timestamp: 'Ayer, 18:45 PM',
-      actions: <String>[
-        '↑ 1 Reporte subido',
-        '↑ 4 Evidencias fotográficas subidas',
-        '⚠ 8 Evidencias no pudieron subirse (tamaño excedido)',
-        '↓ 2 Asignaciones descargadas',
-      ],
-    ),
-    _SyncLogEntry(
-      status: _SyncStatus.failed,
-      title: 'Error de Conexión',
-      timestamp: 'Ayer, 14:10 PM',
-      actions: <String>[],
-      errorMessage:
-          'No se pudo conectar con el servidor local (Timeout después de 30s).',
-    ),
-    _SyncLogEntry(
-      status: _SyncStatus.success,
-      title: 'Sync Completada',
-      timestamp: '22 Jun, 08:00 AM',
-      actions: <String>[
-        '↑ 6 Reportes de servicio subidos',
-        '↑ 27 Evidencias fotográficas subidas',
-        '↑ 5 Firmas de clientes subidas',
-        '↓ 3 Nuevas asignaciones descargadas',
-      ],
-    ),
-  ];
-
-  List<_SyncLogEntry> _entries = List<_SyncLogEntry>.from(_mockLog);
+  // Nota: La tabla de sincronización no existe en la BD actual
+  // Se muestra un mensaje de "Sin registros" como fallback
+  List<_SyncLogEntry> _entries = <_SyncLogEntry>[];
 
   void _confirmClearHistory() {
     showDialog<bool>(

@@ -1,9 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:industrial_service_reports/core/theme/app_palette.dart';
+import 'package:industrial_service_reports/data/local/app_database.dart';
 import 'package:industrial_service_reports/features/sync/presentation/sync_history_screen.dart';
 
 class SyncDashboardScreen extends StatefulWidget {
-  const SyncDashboardScreen({super.key});
+  const SyncDashboardScreen({super.key, required this.database});
+
+  final AppDatabase database;
 
   @override
   State<SyncDashboardScreen> createState() => _SyncDashboardScreenState();
@@ -65,7 +68,7 @@ class _SyncDashboardScreenState extends State<SyncDashboardScreen> {
             onPressed: () {
               Navigator.of(context).push(
                 MaterialPageRoute<void>(
-                  builder: (_) => const SyncHistoryScreen(),
+                  builder: (_) => SyncHistoryScreen(database: widget.database),
                 ),
               );
             },

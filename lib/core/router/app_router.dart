@@ -107,6 +107,7 @@ final routerProvider = Provider<GoRouter>((ref) {
               final String printerId =
                   state.pathParameters['serialNumber'] ?? '';
               return ServiceHistoryScreen(
+                database: localDatabase,
                 printerId: printerId,
                 model: args.model,
                 serialNumber: args.serialNumber,
@@ -147,12 +148,12 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: '/policies',
         name: AppRoutes.policies,
-        builder: (_, __) => const PolicyDashboardScreen(),
+        builder: (_, __) => PolicyDashboardScreen(database: localDatabase),
       ),
       GoRoute(
         path: '/sync',
         name: AppRoutes.sync,
-        builder: (_, __) => const SyncDashboardScreen(),
+        builder: (_, __) => SyncDashboardScreen(database: localDatabase),
       ),
     ],
   );
