@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:drift/drift.dart' show OrderingTerm, innerJoin;
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
@@ -139,7 +141,7 @@ class ReportSummaryScreen extends ConsumerWidget {
                       : capture.notes,
                 ),
                 const SizedBox(height: 12),
-                const _EvidenceCard(),
+                _EvidenceCard(photoPaths: capture.photoPaths),
               ],
             ),
           ),
@@ -706,65 +708,70 @@ class _DiagnosticCard extends StatelessWidget {
 }
 
 class _EvidenceCard extends StatelessWidget {
-  const _EvidenceCard();
+  const _EvidenceCard({required this.photoPaths});
+
+  final List<String> photoPaths;
 
   @override
   Widget build(BuildContext context) {
-    const List<String> labels = <String>[
-      'Prueba de impresión',
-      'Cabezal dañado',
-      'Rodillo',
-    ];
-
     return _PremiumCard(
       title: 'Evidencia Capturada',
-      child: Wrap(
-        spacing: 10,
-        runSpacing: 10,
-        children: labels
-            .map(
-              (String label) => SizedBox(
-                width: 190,
-                child: Container(
-                  padding: const EdgeInsets.all(10),
-                  decoration: BoxDecoration(
-                    color: AppPalette.surfaceDarkHighlight,
-                    borderRadius: BorderRadius.circular(10),
-                    border: Border.all(color: AppPalette.primaryHover),
-                  ),
-                  child: Column(
-                    children: <Widget>[
-                      Container(
-                        height: 88,
-                        decoration: BoxDecoration(
-                          color: const Color(0xFF7B8390),
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        child: const Center(
-                          child: Icon(
-                            Icons.image_rounded,
-                            color: AppPalette.backgroundLight,
-                            size: 34,
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        label,
-                        textAlign: TextAlign.center,
-                        style: const TextStyle(
-                          color: AppPalette.backgroundLight,
-                          fontSize: 12,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                    ],
-                  ),
+      child: photoPaths.isEmpty
+          ? Container(
+              height: 80,
+              decoration: BoxDecoration(
+                color: AppPalette.surfaceDarkHighlight,
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: const Center(
+                child: Text(
+                  'Sin fotos adjuntas',
+                  style: TextStyle(color: Colors.white38, fontSize: 14),
                 ),
               ),
             )
-            .toList(),
-      ),
+          : Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                Text(
+                  '${photoPaths.length} foto${photoPaths.length == 1 ? '' : 's'} de evidencia',
+                  style: const TextStyle(
+                    color: Colors.white54,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: 10),
+                GridView.builder(
+                  shrinkWrap: true,
+                  physics: const NeverScrollableScrollPhysics(),
+                  itemCount: photoPaths.length,
+                  gridDelegate:
+                      const SliverGridDelegateWithFixedCrossAxisCount(
+                    crossAxisCount: 3,
+                    mainAxisSpacing: 6,
+                    crossAxisSpacing: 6,
+                    childAspectRatio: 1.0,
+                  ),
+                  itemBuilder: (BuildContext context, int index) {
+                    return ClipRRect(
+                      borderRadius: BorderRadius.circular(8),
+                      child: Image.file(
+                        File(photoPaths[index]),
+                        fit: BoxFit.cover,
+                        errorBuilder: (_, __, ___) => Container(
+                          color: AppPalette.surfaceDarkHighlight,
+                          child: const Icon(
+                            Icons.broken_image_rounded,
+                            color: Colors.white38,
+                          ),
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              ],
+            ),
     );
   }
 }

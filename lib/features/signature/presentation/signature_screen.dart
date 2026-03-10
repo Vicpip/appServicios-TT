@@ -1,3 +1,7 @@
+import 'dart:convert';
+import 'dart:io';
+import 'dart:typed_data';
+
 import 'package:drift/drift.dart' show Value;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -7,6 +11,9 @@ import 'package:industrial_service_reports/data/local/app_database.dart';
 import 'package:industrial_service_reports/data/local/local_database.dart';
 import 'package:industrial_service_reports/features/auth/providers/session_provider.dart';
 import 'package:industrial_service_reports/features/reports/providers/capture_provider.dart';
+import 'package:industrial_service_reports/features/reports/providers/file_storage_provider.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:signature/signature.dart';
 import 'package:uuid/uuid.dart';
 
 class SignatureScreen extends ConsumerStatefulWidget {
@@ -20,12 +27,30 @@ class _SignatureScreenState extends ConsumerState<SignatureScreen> {
   final GlobalKey<FormState> _formKey = GlobalKey<FormState>();
   final TextEditingController _signerNameController = TextEditingController();
   final TextEditingController _signerRoleController = TextEditingController();
+  late final SignatureController _signatureController;
   bool _isSaving = false;
+  bool _signatureEmpty = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _signatureController = SignatureController(
+      penStrokeWidth: 3,
+      penColor: Colors.black87,
+      exportBackgroundColor: Colors.white,
+    );
+    _signatureController.addListener(() {
+      setState(() {
+        _signatureEmpty = _signatureController.isEmpty;
+      });
+    });
+  }
 
   @override
   void dispose() {
     _signerNameController.dispose();
     _signerRoleController.dispose();
+    _signatureController.dispose();
     super.dispose();
   }
 
@@ -54,31 +79,36 @@ class _SignatureScreenState extends ConsumerState<SignatureScreen> {
                           decoration: BoxDecoration(
                             color: const Color(0xFFF3F4F6),
                             borderRadius: BorderRadius.circular(10),
-                            border: Border.all(color: const Color(0xFFCFD3DA)),
+                            border: Border.all(
+                              color: _signatureEmpty
+                                  ? const Color(0xFFCFD3DA)
+                                  : AppPalette.primary,
+                              width: _signatureEmpty ? 1.0 : 1.5,
+                            ),
                           ),
-                          child: const Center(
-                            child: Text(
-                              'Lienzo de firma (Simulado por ahora)',
-                              style: TextStyle(
-                                color: Color(0xFF7D8794),
-                                fontSize: 16,
-                                fontWeight: FontWeight.w600,
-                              ),
+                          child: ClipRRect(
+                            borderRadius: BorderRadius.circular(10),
+                            child: Signature(
+                              controller: _signatureController,
+                              backgroundColor: const Color(0xFFF3F4F6),
                             ),
                           ),
                         ),
+                        const SizedBox(height: 6),
+                        if (_signatureEmpty)
+                          const Text(
+                            'Dibuje la firma en el área de arriba',
+                            style: TextStyle(
+                              color: Colors.grey,
+                              fontSize: 12,
+                            ),
+                          ),
                         const SizedBox(height: 10),
                         Align(
                           alignment: Alignment.centerLeft,
                           child: OutlinedButton.icon(
                             onPressed: () {
-                              ScaffoldMessenger.of(context).hideCurrentSnackBar();
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(
-                                  content: Text('Firma limpiada (simulado)'),
-                                  behavior: SnackBarBehavior.floating,
-                                ),
-                              );
+                              _signatureController.clear();
                             },
                             icon: const Icon(
                               Icons.cleaning_services_rounded,
@@ -125,7 +155,8 @@ class _SignatureScreenState extends ConsumerState<SignatureScreen> {
           padding: const EdgeInsets.fromLTRB(16, 10, 16, 16),
           decoration: const BoxDecoration(
             color: AppPalette.surfaceDark,
-            border: Border(top: BorderSide(color: AppPalette.surfaceDarkHighlight)),
+            border:
+                Border(top: BorderSide(color: AppPalette.surfaceDarkHighlight)),
           ),
           child: SizedBox(
             height: 52,
@@ -146,7 +177,8 @@ class _SignatureScreenState extends ConsumerState<SignatureScreen> {
                     )
                   : const Text(
                       'Finalizar y Guardar Reporte',
-                      style: TextStyle(fontSize: 17, fontWeight: FontWeight.w800),
+                      style:
+                          TextStyle(fontSize: 17, fontWeight: FontWeight.w800),
                     ),
             ),
           ),
@@ -173,6 +205,22 @@ class _SignatureScreenState extends ConsumerState<SignatureScreen> {
       return;
     }
 
+    if (_signatureController.isEmpty) {
+      ScaffoldMessenger.of(context).hideCurrentSnackBar();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          backgroundColor: Theme.of(context).colorScheme.error,
+          content: Text(
+            'Se requiere la firma del cliente',
+            style:
+                TextStyle(color: Theme.of(context).colorScheme.onError),
+          ),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      return;
+    }
+
     setState(() => _isSaving = true);
 
     try {
@@ -188,14 +236,17 @@ class _SignatureScreenState extends ConsumerState<SignatureScreen> {
       String techId = sessionState.userId;
       if (techId.isEmpty) {
         const String defaultTechId = '00000000-0000-0000-0000-000000000001';
-        final User? existingUser = await (localDatabase.select(localDatabase.users)
-              ..where((u) => u.id.equals(defaultTechId)))
-            .getSingleOrNull();
+        final User? existingUser =
+            await (localDatabase.select(localDatabase.users)
+                  ..where((u) => u.id.equals(defaultTechId)))
+                .getSingleOrNull();
         if (existingUser == null) {
           await localDatabase.into(localDatabase.users).insert(
                 UsersCompanion.insert(
                   id: defaultTechId,
-                  name: sessionState.userName.isEmpty ? 'Técnico' : sessionState.userName,
+                  name: sessionState.userName.isEmpty
+                      ? 'Técnico'
+                      : sessionState.userName,
                   email: sessionState.email.isEmpty
                       ? 'tecnico@empresa.com'
                       : sessionState.email,
@@ -205,6 +256,9 @@ class _SignatureScreenState extends ConsumerState<SignatureScreen> {
         }
         techId = defaultTechId;
       }
+
+      // Guardar firma como PNG en almacenamiento local
+      final String? signatureImagePath = await _saveSignatureImage();
 
       // Buscar labelTypeId en catálogo
       final CatalogLabelType? labelTypeRow = await (localDatabase
@@ -219,6 +273,9 @@ class _SignatureScreenState extends ConsumerState<SignatureScreen> {
           ? int.tryParse(captureState.darknessValue)
           : null;
 
+      // Serializar rutas de fotos como JSON
+      final String photoPathsJson = jsonEncode(captureState.photoPaths);
+
       // Insertar reporte en DB
       final String reportId = const Uuid().v4();
       await localDatabase.into(localDatabase.reports).insert(
@@ -227,15 +284,19 @@ class _SignatureScreenState extends ConsumerState<SignatureScreen> {
               printerId: printerId,
               techId: techId,
               serviceType: captureState.selectedServiceType,
-              status: 'pendiente_sync',
+              status: 'Draft',
               serviceDate: DateTime.now(),
               linearInchesCounter: counterValue,
               technicalCheckboxes: captureState.checkValues,
               darknessLevel: Value(darknessValue),
               labelTypeId: Value(labelTypeRow?.id),
-              notes: Value(captureState.notes.isEmpty ? null : captureState.notes),
+              notes:
+                  Value(captureState.notes.isEmpty ? null : captureState.notes),
               signatureName: Value(_signerNameController.text.trim()),
               signatureRole: Value(_signerRoleController.text.trim()),
+              photoPaths: Value(photoPathsJson),
+              photoCount: Value(captureState.photoPaths.length),
+              signatureImagePath: Value(signatureImagePath),
             ),
           );
 
@@ -255,19 +316,6 @@ class _SignatureScreenState extends ConsumerState<SignatureScreen> {
               'El reporte se guardó correctamente en la base local.',
             ),
             actions: <Widget>[
-              TextButton(
-                onPressed: () {
-                  Navigator.of(dialogContext).pop();
-                  ScaffoldMessenger.of(context).hideCurrentSnackBar();
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text('Generando PDF...'),
-                      behavior: SnackBarBehavior.floating,
-                    ),
-                  );
-                },
-                child: const Text('Compartir PDF'),
-              ),
               FilledButton(
                 onPressed: () {
                   Navigator.of(dialogContext).pop();
@@ -290,6 +338,32 @@ class _SignatureScreenState extends ConsumerState<SignatureScreen> {
           behavior: SnackBarBehavior.floating,
         ),
       );
+    }
+  }
+
+  /// Captura la firma del pad y la guarda como PNG
+  Future<String?> _saveSignatureImage() async {
+    try {
+      final Uint8List? signatureBytes =
+          await _signatureController.toPngBytes();
+      if (signatureBytes == null) return null;
+
+      final Directory appDir = await getApplicationDocumentsDirectory();
+      final String signaturesDir =
+          '${appDir.path}/reports/signatures';
+      final Directory dir = Directory(signaturesDir);
+      if (!await dir.exists()) {
+        await dir.create(recursive: true);
+      }
+
+      final String signatureId = const Uuid().v4();
+      final String filePath = '$signaturesDir/signature_$signatureId.png';
+      final File file = File(filePath);
+      await file.writeAsBytes(signatureBytes);
+
+      return filePath;
+    } catch (e) {
+      return null;
     }
   }
 

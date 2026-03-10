@@ -3,6 +3,7 @@ import 'package:go_router/go_router.dart';
 import 'package:industrial_service_reports/core/router/app_routes.dart';
 import 'package:industrial_service_reports/core/router/route_args.dart';
 import 'package:industrial_service_reports/core/theme/app_palette.dart';
+import 'package:qr_flutter/qr_flutter.dart';
 
 class PrinterDetailScreen extends StatelessWidget {
   const PrinterDetailScreen({
@@ -442,7 +443,7 @@ class PrinterDetailScreen extends StatelessWidget {
                       child: SizedBox(
                         height: 44,
                         child: FilledButton.tonalIcon(
-                          onPressed: () => _showMockSnack(context, 'Mostrando QR...'),
+                          onPressed: () => _showQrDialog(context, serialNumber, model),
                           icon: const Icon(Icons.qr_code_2_rounded, size: 18),
                           style: FilledButton.styleFrom(
                             backgroundColor: const Color(0xFF242E3D),
@@ -483,6 +484,101 @@ class PrinterDetailScreen extends StatelessWidget {
           ),
         ),
       ),
+    );
+  }
+
+  static void _showQrDialog(
+    BuildContext context,
+    String serialNumber,
+    String model,
+  ) {
+    final String qrData = '$serialNumber|$model';
+    showDialog<void>(
+      context: context,
+      builder: (BuildContext dialogContext) {
+        return Dialog(
+          backgroundColor: const Color(0xFF101826),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(20),
+            side: const BorderSide(color: Color(0xFF243245)),
+          ),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(24, 24, 24, 20),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: <Widget>[
+                const Text(
+                  'Código QR de Impresora',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 18,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                const SizedBox(height: 20),
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: QrImageView(
+                    data: qrData,
+                    version: QrVersions.auto,
+                    size: 200,
+                    backgroundColor: Colors.white,
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF152133),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: const Color(0xFF243245)),
+                  ),
+                  child: Column(
+                    children: <Widget>[
+                      const Text(
+                        'FORMATO DEL QR',
+                        style: TextStyle(
+                          color: Color(0xFF8BA0BC),
+                          fontSize: 10,
+                          fontWeight: FontWeight.w700,
+                          letterSpacing: 0.8,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        qrData,
+                        style: const TextStyle(
+                          color: Color(0xFF2A8BFF),
+                          fontSize: 13,
+                          fontWeight: FontWeight.w700,
+                          fontFamily: 'monospace',
+                        ),
+                        textAlign: TextAlign.center,
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 20),
+                SizedBox(
+                  width: double.infinity,
+                  child: FilledButton(
+                    onPressed: () => Navigator.of(dialogContext).pop(),
+                    style: FilledButton.styleFrom(
+                      backgroundColor: const Color(0xFF242E3D),
+                      foregroundColor: Colors.white,
+                    ),
+                    child: const Text('Cerrar'),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
     );
   }
 
