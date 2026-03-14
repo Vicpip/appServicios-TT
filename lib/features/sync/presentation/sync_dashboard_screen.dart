@@ -1,9 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:industrial_service_reports/core/theme/app_palette.dart';
+import 'package:industrial_service_reports/data/local/app_database.dart';
 import 'package:industrial_service_reports/features/sync/presentation/sync_history_screen.dart';
 
 class SyncDashboardScreen extends StatefulWidget {
-  const SyncDashboardScreen({super.key});
+  const SyncDashboardScreen({super.key, required this.database});
+
+  final AppDatabase database;
 
   @override
   State<SyncDashboardScreen> createState() => _SyncDashboardScreenState();
@@ -11,6 +14,71 @@ class SyncDashboardScreen extends StatefulWidget {
 
 class _SyncDashboardScreenState extends State<SyncDashboardScreen> {
   bool _isSyncing = false;
+  int _pendingReports = 0;
+  int _pendingFiles = 0;
+  int _pendingSignatures = 0;
+  bool _loading = true;
+  DateTime? _lastSync;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadSyncData();
+  }
+
+  Future<void> _loadSyncData() async {
+    // Count pending items in sync queue
+    final List<SyncQueueData> allPending =
+        await (widget.database.select(widget.database.syncQueue)
+              ..where((q) => q.estadoPeticion.equals('pending')))
+            .get();
+
+    int reports = 0, files = 0, signatures = 0;
+    for (final SyncQueueData item in allPending) {
+      if (item.entityType == 'report') {
+        reports++;
+      } else if (item.entityType == 'file') {
+        files++;
+      } else if (item.entityType == 'signature') {
+        signatures++;
+      }
+    }
+
+    // Get last sync from users table
+    final List<User> users =
+        await widget.database.select(widget.database.users).get();
+    DateTime? lastSync;
+    for (final User u in users) {
+      if (u.lastSyncAt != null) {
+        if (lastSync == null || u.lastSyncAt!.isAfter(lastSync)) {
+          lastSync = u.lastSyncAt;
+        }
+      }
+    }
+
+    if (mounted) {
+      setState(() {
+        _pendingReports = reports;
+        _pendingFiles = files;
+        _pendingSignatures = signatures;
+        _lastSync = lastSync;
+        _loading = false;
+      });
+    }
+  }
+
+  String _formatLastSync(DateTime dt) {
+    const List<String> months = <String>[
+      'Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun',
+      'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic',
+    ];
+    final String day = dt.day.toString().padLeft(2, '0');
+    final String month = months[dt.month - 1];
+    final String year = dt.year.toString();
+    final String hour = dt.hour.toString().padLeft(2, '0');
+    final String minute = dt.minute.toString().padLeft(2, '0');
+    return '$day $month $year, $hour:$minute';
+  }
 
   Future<void> _startSync() async {
     if (_isSyncing) return;
@@ -49,6 +117,10 @@ class _SyncDashboardScreenState extends State<SyncDashboardScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final String lastSyncText = _lastSync != null
+        ? 'Última sincronización exitosa: ${_formatLastSync(_lastSync!)}'
+        : 'Sin sincronización aún';
+
     return Scaffold(
       appBar: AppBar(
         title: Row(
@@ -65,7 +137,7 @@ class _SyncDashboardScreenState extends State<SyncDashboardScreen> {
             onPressed: () {
               Navigator.of(context).push(
                 MaterialPageRoute<void>(
-                  builder: (_) => const SyncHistoryScreen(),
+                  builder: (_) => SyncHistoryScreen(database: widget.database),
                 ),
               );
             },
@@ -76,84 +148,91 @@ class _SyncDashboardScreenState extends State<SyncDashboardScreen> {
         child: Column(
           children: <Widget>[
             Expanded(
-              child: SingleChildScrollView(
-                padding: const EdgeInsets.fromLTRB(16, 14, 16, 24),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: <Widget>[
-                    // ── Estado de conexión ────────────────────────────────
-                    _NetworkStatusCard(isSyncing: _isSyncing),
-                    const SizedBox(height: 20),
-
-                    // ── Cola local (por subir) ────────────────────────────
-                    const _SectionLabel(text: 'EN LA COLA LOCAL (POR SUBIR)'),
-                    const SizedBox(height: 8),
-                    Card(
-                      color: AppPalette.surfaceDark,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(14),
-                        side: const BorderSide(
-                            color: AppPalette.surfaceDarkHighlight),
-                      ),
+              child: _loading
+                  ? const Center(child: CircularProgressIndicator())
+                  : SingleChildScrollView(
+                      padding: const EdgeInsets.fromLTRB(16, 14, 16, 24),
                       child: Column(
-                        children: const <Widget>[
-                          _SyncItem(
-                            icon: Icons.upload_file_rounded,
-                            label: 'Reportes de Servicio',
-                            count: 3,
-                            badge: _BadgeType.pending,
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: <Widget>[
+                          // ── Estado de conexión ────────────────────────────────
+                          _NetworkStatusCard(
+                            isSyncing: _isSyncing,
+                            lastSyncText: lastSyncText,
                           ),
-                          _Divider(),
-                          _SyncItem(
-                            icon: Icons.image_rounded,
-                            label: 'Evidencias Fotográficas',
-                            count: 12,
-                            badge: _BadgeType.pending,
+                          const SizedBox(height: 20),
+
+                          // ── Cola local (por subir) ────────────────────────────
+                          const _SectionLabel(
+                              text: 'EN LA COLA LOCAL (POR SUBIR)'),
+                          const SizedBox(height: 8),
+                          Card(
+                            color: AppPalette.surfaceDark,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(14),
+                              side: const BorderSide(
+                                  color: AppPalette.surfaceDarkHighlight),
+                            ),
+                            child: Column(
+                              children: <Widget>[
+                                _SyncItem(
+                                  icon: Icons.upload_file_rounded,
+                                  label: 'Reportes de Servicio',
+                                  count: _pendingReports,
+                                  badge: _BadgeType.pending,
+                                ),
+                                const _Divider(),
+                                _SyncItem(
+                                  icon: Icons.image_rounded,
+                                  label: 'Evidencias Fotográficas',
+                                  count: _pendingFiles,
+                                  badge: _BadgeType.pending,
+                                ),
+                                const _Divider(),
+                                _SyncItem(
+                                  icon: Icons.draw_rounded,
+                                  label: 'Firmas de Clientes',
+                                  count: _pendingSignatures,
+                                  badge: _BadgeType.pending,
+                                ),
+                              ],
+                            ),
                           ),
-                          _Divider(),
-                          _SyncItem(
-                            icon: Icons.draw_rounded,
-                            label: 'Firmas de Clientes',
-                            count: 2,
-                            badge: _BadgeType.pending,
+                          const SizedBox(height: 20),
+
+                          // ── Disponible en servidor (por bajar) ────────────────
+                          const _SectionLabel(
+                              text:
+                                  'DISPONIBLE EN SERVIDOR (POR DESCARGAR)'),
+                          const SizedBox(height: 8),
+                          Card(
+                            color: AppPalette.surfaceDark,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(14),
+                              side: const BorderSide(
+                                  color: AppPalette.surfaceDarkHighlight),
+                            ),
+                            child: Column(
+                              children: const <Widget>[
+                                _SyncItem(
+                                  icon: Icons.cloud_download_rounded,
+                                  label: 'Nuevas Asignaciones',
+                                  count: 0,
+                                  badge: _BadgeType.newItem,
+                                ),
+                                _Divider(),
+                                _SyncItem(
+                                  icon: Icons.list_alt_rounded,
+                                  label: 'Actualización de Catálogos',
+                                  count: 0,
+                                  badge: _BadgeType.upToDate,
+                                ),
+                              ],
+                            ),
                           ),
                         ],
                       ),
                     ),
-                    const SizedBox(height: 20),
-
-                    // ── Disponible en servidor (por bajar) ────────────────
-                    const _SectionLabel(
-                        text: 'DISPONIBLE EN SERVIDOR (POR DESCARGAR)'),
-                    const SizedBox(height: 8),
-                    Card(
-                      color: AppPalette.surfaceDark,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(14),
-                        side: const BorderSide(
-                            color: AppPalette.surfaceDarkHighlight),
-                      ),
-                      child: Column(
-                        children: const <Widget>[
-                          _SyncItem(
-                            icon: Icons.cloud_download_rounded,
-                            label: 'Nuevas Asignaciones',
-                            count: 5,
-                            badge: _BadgeType.newItem,
-                          ),
-                          _Divider(),
-                          _SyncItem(
-                            icon: Icons.list_alt_rounded,
-                            label: 'Actualización de Catálogos',
-                            count: 0,
-                            badge: _BadgeType.upToDate,
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-              ),
             ),
 
             // ── Botón principal fijo ──────────────────────────────────────
@@ -168,9 +247,13 @@ class _SyncDashboardScreenState extends State<SyncDashboardScreen> {
 // ─── Red / Conexión ───────────────────────────────────────────────────────────
 
 class _NetworkStatusCard extends StatelessWidget {
-  const _NetworkStatusCard({required this.isSyncing});
+  const _NetworkStatusCard({
+    required this.isSyncing,
+    required this.lastSyncText,
+  });
 
   final bool isSyncing;
+  final String lastSyncText;
 
   @override
   Widget build(BuildContext context) {
@@ -220,7 +303,9 @@ class _NetworkStatusCard extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: <Widget>[
                   Text(
-                    isSyncing ? 'Sincronizando...' : 'Conectado al Servidor Local',
+                    isSyncing
+                        ? 'Sincronizando...'
+                        : 'Conectado al Servidor Local',
                     style: const TextStyle(
                       color: AppPalette.backgroundLight,
                       fontSize: 16,
@@ -228,9 +313,9 @@ class _NetworkStatusCard extends StatelessWidget {
                     ),
                   ),
                   const SizedBox(height: 4),
-                  const Text(
-                    'Última sincronización exitosa: Hoy, 07:30 AM',
-                    style: TextStyle(
+                  Text(
+                    lastSyncText,
+                    style: const TextStyle(
                       color: Colors.white70,
                       fontSize: 13,
                       fontWeight: FontWeight.w600,

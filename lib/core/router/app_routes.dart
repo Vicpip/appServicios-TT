@@ -16,4 +16,5 @@ abstract final class AppRoutes {
   static const String serviceHistory = 'serviceHistory';
   static const String policies       = 'policies';
   static const String sync           = 'sync';
+  static const String reportView     = 'reportView';
 }

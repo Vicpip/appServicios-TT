@@ -1,10 +1,12 @@
 import 'package:drift/drift.dart' as drift;
+import 'package:drift/drift.dart' show OrderingTerm, OrderingMode;
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:industrial_service_reports/core/router/app_routes.dart';
 import 'package:industrial_service_reports/core/router/route_args.dart';
 import 'package:industrial_service_reports/core/theme/app_palette.dart';
 import 'package:industrial_service_reports/data/local/app_database.dart';
+import 'package:intl/intl.dart';
 
 class ClientDetailScreen extends StatefulWidget {
   const ClientDetailScreen({
@@ -21,24 +23,6 @@ class ClientDetailScreen extends StatefulWidget {
 }
 
 class _ClientDetailScreenState extends State<ClientDetailScreen> {
-  static const List<_PrinterMockItem> _mockPrinters = <_PrinterMockItem>[
-    _PrinterMockItem(
-      model: 'Zebra ZT411',
-      serialNumber: '52J194200122',
-      status: _PrinterStatus.active,
-    ),
-    _PrinterMockItem(
-      model: 'Zebra ZT610',
-      serialNumber: '99J882310245',
-      status: _PrinterStatus.active,
-    ),
-    _PrinterMockItem(
-      model: 'Zebra ZD421',
-      serialNumber: '71K009830711',
-      status: _PrinterStatus.maintenance,
-    ),
-  ];
-
   bool _isDeleting = false;
 
   @override
@@ -134,15 +118,16 @@ class _ClientDetailScreenState extends State<ClientDetailScreen> {
                     children: <Widget>[
                       _PrintersTab(
                         database: widget.database,
-                        printers: _mockPrinters,
+                        clientId: widget.client.id,
+                        clientName: widget.client.name,
                       ),
-                      const _EmptyTab(
-                        icon: Icons.assignment_outlined,
-                        message: 'No hay polizas registradas aun',
+                      _PoliciesTab(
+                        database: widget.database,
+                        clientId: widget.client.id,
                       ),
-                      const _EmptyTab(
-                        icon: Icons.description_outlined,
-                        message: 'No hay reportes registrados aun',
+                      _ReportsTab(
+                        database: widget.database,
+                        clientId: widget.client.id,
                       ),
                     ],
                   ),
@@ -457,51 +442,107 @@ class _CorporateInfoCard extends StatelessWidget {
   }
 }
 
-class _PrintersTab extends StatelessWidget {
+class _PrintersTab extends StatefulWidget {
   const _PrintersTab({
     required this.database,
-    required this.printers,
+    required this.clientId,
+    required this.clientName,
   });
 
   final AppDatabase database;
-  final List<_PrinterMockItem> printers;
+  final String clientId;
+  final String clientName;
+
+  @override
+  State<_PrintersTab> createState() => _PrintersTabState();
+}
+
+class _PrintersTabState extends State<_PrintersTab> {
+  late Future<List<_PrinterMockItem>> _printersFuture;
+
+  @override
+  void initState() {
+    super.initState();
+    _printersFuture = _loadPrinters();
+  }
+
+  Future<List<_PrinterMockItem>> _loadPrinters() async {
+    try {
+      final List<Printer> printers = await (widget.database.select(widget.database.printers)
+            ..where((p) => p.clientId.equals(widget.clientId) & p.isActive.equals(true)))
+          .get();
+
+      final List<_PrinterMockItem> items = <_PrinterMockItem>[];
+      for (final Printer printer in printers) {
+        final CatalogModel? model = await (widget.database.select(widget.database.catalogModels)
+              ..where((m) => m.id.equals(printer.modelId)))
+            .getSingleOrNull();
+
+        items.add(_PrinterMockItem(
+          model: model?.modelName ?? 'Modelo desconocido',
+          serialNumber: printer.serialNumber,
+          status: _PrinterStatus.active,
+          printerId: printer.id,
+        ));
+      }
+      return items;
+    } catch (_) {
+      return <_PrinterMockItem>[];
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
-    final int total = printers.length;
+    return FutureBuilder<List<_PrinterMockItem>>(
+      future: _printersFuture,
+      builder: (BuildContext context, AsyncSnapshot<List<_PrinterMockItem>> snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Center(child: CircularProgressIndicator());
+        }
 
-    return Column(
-      children: <Widget>[
-        Row(
+        final List<_PrinterMockItem> printers = snapshot.data ?? <_PrinterMockItem>[];
+
+        return Column(
           children: <Widget>[
-            Text(
-              'EQUIPOS REGISTRADOS ($total)',
-              style: const TextStyle(
-                color: Colors.white60,
-                fontWeight: FontWeight.w800,
-                letterSpacing: 1.1,
-                fontSize: 12,
-              ),
+            Row(
+              children: <Widget>[
+                Text(
+                  'EQUIPOS REGISTRADOS (${printers.length})',
+                  style: const TextStyle(
+                    color: Colors.white60,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: 1.1,
+                    fontSize: 12,
+                  ),
+                ),
+                const Spacer(),
+                FilledButton.icon(
+                  onPressed: () => context.pushNamed(AppRoutes.quickAddPrinter),
+                  icon: const Icon(Icons.add_rounded, size: 18),
+                  label: const Text('Nueva'),
+                ),
+              ],
             ),
-            const Spacer(),
-            FilledButton.icon(
-              onPressed: () => context.pushNamed(AppRoutes.quickAddPrinter),
-              icon: const Icon(Icons.add_rounded, size: 18),
-              label: const Text('Nueva'),
+            const SizedBox(height: 8),
+            Expanded(
+              child: printers.isEmpty
+                  ? const Center(
+                      child: Text(
+                        'Sin impresoras registradas',
+                        style: TextStyle(color: Colors.white54),
+                      ),
+                    )
+                  : ListView.separated(
+                      itemCount: printers.length,
+                      separatorBuilder: (_, __) => const SizedBox(height: 8),
+                      itemBuilder: (BuildContext context, int index) {
+                        return _PrinterCard(printer: printers[index], clientName: widget.clientName, database: widget.database);
+                      },
+                    ),
             ),
           ],
-        ),
-        const SizedBox(height: 8),
-        Expanded(
-          child: ListView.separated(
-            itemCount: printers.length,
-            separatorBuilder: (_, __) => const SizedBox(height: 8),
-            itemBuilder: (BuildContext context, int index) {
-              return _PrinterCard(printer: printers[index]);
-            },
-          ),
-        ),
-      ],
+        );
+      },
     );
   }
 }
@@ -509,9 +550,13 @@ class _PrintersTab extends StatelessWidget {
 class _PrinterCard extends StatelessWidget {
   const _PrinterCard({
     required this.printer,
+    required this.clientName,
+    required this.database,
   });
 
   final _PrinterMockItem printer;
+  final String clientName;
+  final AppDatabase database;
 
   @override
   Widget build(BuildContext context) {
@@ -604,11 +649,13 @@ class _PrinterCard extends StatelessWidget {
                     height: 34,
                     child: ElevatedButton(
                     onPressed: () {
-                      ScaffoldMessenger.of(context).hideCurrentSnackBar();
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(
-                          content: Text('Detalle de impresora en construccion'),
-                          behavior: SnackBarBehavior.floating,
+                      context.pushNamed(
+                        AppRoutes.printerDetail,
+                        extra: PrinterDetailArgs(
+                          printerId: printer.printerId,
+                          serialNumber: printer.serialNumber,
+                          model: printer.model,
+                          client: clientName,
                         ),
                       );
                     },
@@ -639,7 +686,10 @@ class _PrinterCard extends StatelessWidget {
                   child: SizedBox(
                     height: 34,
                     child: ElevatedButton(
-                    onPressed: () => context.pushNamed(AppRoutes.capture),
+                    onPressed: () => context.pushNamed(
+                      AppRoutes.capture,
+                      extra: CaptureArgs(printerId: printer.printerId),
+                    ),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: AppPalette.primary,
                       foregroundColor: AppPalette.backgroundLight,
@@ -667,6 +717,288 @@ class _PrinterCard extends StatelessWidget {
           ],
         ),
       ),
+    );
+  }
+}
+
+// ─── TAB PÓLIZAS ────────────────────────────────────────────────────────────
+
+class _PoliciesTab extends StatefulWidget {
+  const _PoliciesTab({required this.database, required this.clientId});
+  final AppDatabase database;
+  final String clientId;
+  @override
+  State<_PoliciesTab> createState() => _PoliciesTabState();
+}
+
+class _PoliciesTabState extends State<_PoliciesTab> {
+  late Future<List<Policy>> _future;
+
+  @override
+  void initState() {
+    super.initState();
+    _future = (widget.database.select(widget.database.policies)
+          ..where((p) => p.clientId.equals(widget.clientId))
+          ..orderBy([(p) => OrderingTerm(expression: p.startDate, mode: OrderingMode.desc)]))
+        .get();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return FutureBuilder<List<Policy>>(
+      future: _future,
+      builder: (BuildContext ctx, AsyncSnapshot<List<Policy>> snap) {
+        if (snap.connectionState == ConnectionState.waiting) {
+          return const Center(child: CircularProgressIndicator());
+        }
+        final List<Policy> policies = snap.data ?? <Policy>[];
+        if (policies.isEmpty) {
+          return const _EmptyTab(
+            icon: Icons.assignment_outlined,
+            message: 'No hay polizas registradas para este cliente',
+          );
+        }
+        return ListView.separated(
+          padding: const EdgeInsets.only(top: 4, bottom: 12),
+          itemCount: policies.length,
+          separatorBuilder: (_, __) => const SizedBox(height: 8),
+          itemBuilder: (BuildContext ctx2, int i) {
+            final Policy p = policies[i];
+            final bool vigente = p.status == 'Vigente';
+            final Color statusColor = vigente ? AppPalette.success : Colors.orange;
+            return Card(
+              color: AppPalette.surfaceDark,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+                side: const BorderSide(color: AppPalette.surfaceDarkHighlight),
+              ),
+              child: Padding(
+                padding: const EdgeInsets.all(12),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: <Widget>[
+                    Container(
+                      width: 40,
+                      height: 40,
+                      decoration: BoxDecoration(
+                        color: AppPalette.primaryHover.withValues(alpha: 0.25),
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: const Icon(Icons.assignment_rounded, color: AppPalette.primary, size: 22),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: <Widget>[
+                          Text(
+                            'Folio: ${p.folio}',
+                            style: const TextStyle(
+                              color: AppPalette.backgroundLight,
+                              fontWeight: FontWeight.w800,
+                              fontSize: 15,
+                            ),
+                          ),
+                          const SizedBox(height: 3),
+                          Text(
+                            '${DateFormat('dd/MM/yyyy').format(p.startDate)} — ${DateFormat('dd/MM/yyyy').format(p.endDate)}',
+                            style: const TextStyle(color: Colors.white60, fontSize: 13),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            p.coverageType,
+                            style: const TextStyle(color: Colors.white54, fontSize: 13),
+                          ),
+                        ],
+                      ),
+                    ),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: statusColor.withValues(alpha: 0.15),
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: statusColor.withValues(alpha: 0.5)),
+                      ),
+                      child: Text(
+                        p.status.toUpperCase(),
+                        style: TextStyle(
+                          color: statusColor,
+                          fontSize: 11,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+}
+
+// ─── TAB REPORTES ────────────────────────────────────────────────────────────
+
+class _ReportItem {
+  const _ReportItem({
+    required this.reportId,
+    required this.serviceType,
+    required this.status,
+    required this.serialNumber,
+    required this.createdAt,
+  });
+  final String reportId;
+  final String serviceType;
+  final String status;
+  final String serialNumber;
+  final DateTime createdAt;
+}
+
+class _ReportsTab extends StatefulWidget {
+  const _ReportsTab({required this.database, required this.clientId});
+  final AppDatabase database;
+  final String clientId;
+  @override
+  State<_ReportsTab> createState() => _ReportsTabState();
+}
+
+class _ReportsTabState extends State<_ReportsTab> {
+  late Future<List<_ReportItem>> _future;
+
+  @override
+  void initState() {
+    super.initState();
+    _future = _loadReports();
+  }
+
+  Future<List<_ReportItem>> _loadReports() async {
+    // Obtener IDs de impresoras del cliente
+    final List<Printer> printers = await (widget.database.select(widget.database.printers)
+          ..where((p) => p.clientId.equals(widget.clientId)))
+        .get();
+    if (printers.isEmpty) return <_ReportItem>[];
+
+    final List<String> printerIds = printers.map((Printer p) => p.id).toList();
+
+    final List<Report> reports = await (widget.database.select(widget.database.reports)
+          ..where((r) => r.printerId.isIn(printerIds))
+          ..orderBy([(r) => OrderingTerm(expression: r.createdAt, mode: OrderingMode.desc)]))
+        .get();
+
+    // Mapa serialNumber por printerId
+    final Map<String, String> serialMap = <String, String>{
+      for (final Printer p in printers) p.id: p.serialNumber,
+    };
+
+    return reports.map((Report r) => _ReportItem(
+          reportId: r.id,
+          serviceType: r.serviceType,
+          status: r.status,
+          serialNumber: serialMap[r.printerId] ?? r.printerId,
+          createdAt: r.createdAt,
+        )).toList();
+  }
+
+  Color _statusColor(String status) {
+    switch (status.toLowerCase()) {
+      case 'signed':
+        return Colors.orange;
+      case 'synced':
+        return AppPalette.success;
+      default:
+        return Colors.white54;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return FutureBuilder<List<_ReportItem>>(
+      future: _future,
+      builder: (BuildContext ctx, AsyncSnapshot<List<_ReportItem>> snap) {
+        if (snap.connectionState == ConnectionState.waiting) {
+          return const Center(child: CircularProgressIndicator());
+        }
+        final List<_ReportItem> items = snap.data ?? <_ReportItem>[];
+        if (items.isEmpty) {
+          return const _EmptyTab(
+            icon: Icons.description_outlined,
+            message: 'No hay reportes registrados para este cliente',
+          );
+        }
+        return ListView.separated(
+          padding: const EdgeInsets.only(top: 4, bottom: 12),
+          itemCount: items.length,
+          separatorBuilder: (_, __) => const SizedBox(height: 8),
+          itemBuilder: (BuildContext ctx2, int i) {
+            final _ReportItem r = items[i];
+            final Color sc = _statusColor(r.status);
+            return Card(
+              color: AppPalette.surfaceDark,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+                side: const BorderSide(color: AppPalette.surfaceDarkHighlight),
+              ),
+              child: Padding(
+                padding: const EdgeInsets.all(12),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: <Widget>[
+                    Container(
+                      width: 40,
+                      height: 40,
+                      decoration: BoxDecoration(
+                        color: AppPalette.primaryHover.withValues(alpha: 0.25),
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: const Icon(Icons.description_rounded, color: AppPalette.primary, size: 22),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: <Widget>[
+                          Text(
+                            r.serviceType,
+                            style: const TextStyle(
+                              color: AppPalette.backgroundLight,
+                              fontWeight: FontWeight.w800,
+                              fontSize: 15,
+                            ),
+                          ),
+                          const SizedBox(height: 3),
+                          Text(
+                            'S/N: ${r.serialNumber}',
+                            style: const TextStyle(color: Color(0xFF8BC2FF), fontSize: 13, fontWeight: FontWeight.w600),
+                          ),
+                          const SizedBox(height: 3),
+                          Text(
+                            DateFormat('dd/MM/yyyy HH:mm').format(r.createdAt),
+                            style: const TextStyle(color: Colors.white54, fontSize: 12),
+                          ),
+                        ],
+                      ),
+                    ),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: sc.withValues(alpha: 0.15),
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: sc.withValues(alpha: 0.5)),
+                      ),
+                      child: Text(
+                        r.status.toUpperCase(),
+                        style: TextStyle(color: sc, fontSize: 11, fontWeight: FontWeight.w800),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
     );
   }
 }
@@ -712,9 +1044,11 @@ class _PrinterMockItem {
     required this.model,
     required this.serialNumber,
     required this.status,
+    required this.printerId,
   });
 
   final String model;
   final String serialNumber;
   final _PrinterStatus status;
+  final String printerId;
 }

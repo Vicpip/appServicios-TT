@@ -108,6 +108,7 @@ class _ConfirmationCard extends StatelessWidget {
                     serialNumber: printer.serialNumber,
                     model: model,
                     client: printer.clientName,
+                    printerId: printer.printerId,
                   ),
                 );
               },

@@ -1,3 +1,4 @@
+import 'dart:io' as io;
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
@@ -6,6 +7,7 @@ import 'package:go_router/go_router.dart';
 import 'package:industrial_service_reports/core/router/app_routes.dart';
 import 'package:industrial_service_reports/core/theme/app_palette.dart';
 import 'package:industrial_service_reports/features/reports/providers/capture_provider.dart';
+import 'package:industrial_service_reports/features/reports/services/image_capture_service.dart';
 
 class ExpressCaptureScreen extends ConsumerStatefulWidget {
   const ExpressCaptureScreen({
@@ -277,64 +279,11 @@ class _ExpressCaptureScreenState extends ConsumerState<ExpressCaptureScreen> {
                   const SizedBox(height: 14),
                   _SectionCard(
                     title: 'Evidencia Fotografica',
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: <Widget>[
-                        SizedBox(
-                          height: 130,
-                          child: CustomPaint(
-                            painter: _DashedRectPainter(
-                              color: AppPalette.surfaceDarkHighlight,
-                            ),
-                            child: const Center(
-                              child: Text(
-                                'Mínimo 1 foto de prueba de impresión requerida',
-                                textAlign: TextAlign.center,
-                                style: TextStyle(
-                                  color: Colors.white70,
-                                  fontSize: 17,
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              ),
-                            ),
-                          ),
-                        ),
-                        const SizedBox(height: 14),
-                        Wrap(
-                          spacing: 10,
-                          runSpacing: 10,
-                          children: <Widget>[
-                            SizedBox(
-                              height: 48,
-                              child: FilledButton.icon(
-                                onPressed: _showMockUploadSnackBar,
-                                icon: const Icon(Icons.photo_camera_rounded),
-                                label: const Text(
-                                  'Tomar Foto (Cámara)',
-                                  style: TextStyle(
-                                    fontSize: 15,
-                                    fontWeight: FontWeight.w700,
-                                  ),
-                                ),
-                              ),
-                            ),
-                            SizedBox(
-                              height: 48,
-                              child: FilledButton.tonalIcon(
-                                onPressed: _showMockUploadSnackBar,
-                                icon: const Icon(Icons.photo_library_rounded),
-                                label: const Text(
-                                  'Subir de Galería',
-                                  style: TextStyle(
-                                    fontSize: 15,
-                                    fontWeight: FontWeight.w700,
-                                  ),
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ],
+                    child: _PhotoEvidenceSection(
+                      photoPaths: capture.photoPaths,
+                      onCameraPressed: _onCameraPressed,
+                      onGalleryPressed: _onGalleryPressed,
+                      onRemovePhoto: _onRemovePhoto,
                     ),
                   ),
                   const SizedBox(height: 14),
@@ -382,14 +331,30 @@ class _ExpressCaptureScreenState extends ConsumerState<ExpressCaptureScreen> {
     );
   }
 
-  void _showMockUploadSnackBar() {
-    ScaffoldMessenger.of(context).hideCurrentSnackBar();
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Función de evidencia en modo mock'),
-        behavior: SnackBarBehavior.floating,
-      ),
-    );
+  Future<void> _onCameraPressed() async {
+    final String? path = await ImageCaptureService.captureFromCamera();
+    if (path != null) {
+      ref.read(captureProvider.notifier).addPhotoPaths([path]);
+    } else if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('No se pudo acceder a la cámara'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
+  }
+
+  Future<void> _onGalleryPressed() async {
+    final List<String> paths =
+        await ImageCaptureService.selectMultipleFromGallery();
+    if (paths.isNotEmpty) {
+      ref.read(captureProvider.notifier).addPhotoPaths(paths);
+    }
+  }
+
+  void _onRemovePhoto(int index) {
+    ref.read(captureProvider.notifier).removePhotoAt(index);
   }
 
   Widget _buildCounterField() {
@@ -460,6 +425,11 @@ class _ExpressCaptureScreenState extends ConsumerState<ExpressCaptureScreen> {
         capture.checkValues.values.any((bool value) => value);
     if (!hasTechnicalSelection) {
       _showValidationSnackBar('Debe seleccionar al menos una opción tecnica');
+      return;
+    }
+
+    if (!capture.hasPhotos) {
+      _showValidationSnackBar('Se requiere mínimo 1 foto de evidencia');
       return;
     }
 
@@ -598,6 +568,188 @@ class _SectionCard extends StatelessWidget {
           ],
         ),
       ),
+    );
+  }
+}
+
+class _PhotoEvidenceSection extends StatelessWidget {
+  const _PhotoEvidenceSection({
+    required this.photoPaths,
+    required this.onCameraPressed,
+    required this.onGalleryPressed,
+    required this.onRemovePhoto,
+  });
+
+  final List<String> photoPaths;
+  final VoidCallback onCameraPressed;
+  final VoidCallback onGalleryPressed;
+  final void Function(int) onRemovePhoto;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: <Widget>[
+        if (photoPaths.isEmpty)
+          SizedBox(
+            height: 110,
+            child: CustomPaint(
+              painter: _DashedRectPainter(
+                color: AppPalette.surfaceDarkHighlight,
+              ),
+              child: Center(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: const <Widget>[
+                    Icon(Icons.add_photo_alternate_rounded,
+                        color: Colors.white38, size: 32),
+                    SizedBox(height: 6),
+                    Text(
+                      'Mínimo 1 foto de evidencia requerida',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        color: Colors.white54,
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          )
+        else
+          _PhotoGrid(
+            photoPaths: photoPaths,
+            onRemovePhoto: onRemovePhoto,
+          ),
+        const SizedBox(height: 14),
+        if (photoPaths.isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 8),
+            child: Text(
+              '${photoPaths.length} foto${photoPaths.length == 1 ? '' : 's'} adjunta${photoPaths.length == 1 ? '' : 's'}',
+              style: const TextStyle(
+                color: AppPalette.success,
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+        Wrap(
+          spacing: 10,
+          runSpacing: 10,
+          children: <Widget>[
+            SizedBox(
+              height: 48,
+              child: FilledButton.icon(
+                onPressed: onCameraPressed,
+                icon: const Icon(Icons.photo_camera_rounded),
+                label: const Text(
+                  'Tomar Foto',
+                  style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700),
+                ),
+              ),
+            ),
+            SizedBox(
+              height: 48,
+              child: FilledButton.tonalIcon(
+                onPressed: onGalleryPressed,
+                icon: const Icon(Icons.photo_library_rounded),
+                label: const Text(
+                  'Subir de Galería',
+                  style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+}
+
+class _PhotoGrid extends StatelessWidget {
+  const _PhotoGrid({
+    required this.photoPaths,
+    required this.onRemovePhoto,
+  });
+
+  final List<String> photoPaths;
+  final void Function(int) onRemovePhoto;
+
+  @override
+  Widget build(BuildContext context) {
+    return GridView.builder(
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      itemCount: photoPaths.length,
+      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: 3,
+        mainAxisSpacing: 6,
+        crossAxisSpacing: 6,
+        childAspectRatio: 1.0,
+      ),
+      itemBuilder: (BuildContext context, int index) {
+        return _PhotoThumbnail(
+          filePath: photoPaths[index],
+          onRemove: () => onRemovePhoto(index),
+        );
+      },
+    );
+  }
+}
+
+class _PhotoThumbnail extends StatelessWidget {
+  const _PhotoThumbnail({
+    required this.filePath,
+    required this.onRemove,
+  });
+
+  final String filePath;
+  final VoidCallback onRemove;
+
+  @override
+  Widget build(BuildContext context) {
+    return Stack(
+      children: <Widget>[
+        ClipRRect(
+          borderRadius: BorderRadius.circular(8),
+          child: Image.file(
+            io.File(filePath),
+            width: double.infinity,
+            height: double.infinity,
+            fit: BoxFit.cover,
+            errorBuilder: (_, __, ___) => Container(
+              color: AppPalette.surfaceDarkHighlight,
+              child: const Icon(
+                Icons.broken_image_rounded,
+                color: Colors.white38,
+              ),
+            ),
+          ),
+        ),
+        Positioned(
+          top: 4,
+          right: 4,
+          child: GestureDetector(
+            onTap: onRemove,
+            child: Container(
+              width: 24,
+              height: 24,
+              decoration: const BoxDecoration(
+                color: Colors.black54,
+                shape: BoxShape.circle,
+              ),
+              child: const Icon(
+                Icons.close_rounded,
+                color: Colors.white,
+                size: 16,
+              ),
+            ),
+          ),
+        ),
+      ],
     );
   }
 }

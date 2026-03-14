@@ -39,6 +39,8 @@ class CaptureState {
     this.counterValue = '',
     this.darknessValue = '',
     this.notes = '',
+    this.photoPaths = const <String>[],
+    this.signatureImagePath,
   });
 
   final String? printerId;
@@ -49,10 +51,20 @@ class CaptureState {
   final String darknessValue;
   final String notes;
 
+  // Campos nuevos para multimedia
+  final List<String> photoPaths;
+  final String? signatureImagePath;
+
   List<String> get selectedDiagnostics => checkValues.entries
       .where((MapEntry<String, bool> e) => e.value)
       .map((MapEntry<String, bool> e) => e.key)
       .toList();
+
+  /// Número de fotos capturadas
+  int get photoCount => photoPaths.length;
+
+  /// Verifica si hay al menos una foto
+  bool get hasPhotos => photoPaths.isNotEmpty;
 
   CaptureState copyWith({
     String? printerId,
@@ -62,6 +74,8 @@ class CaptureState {
     String? counterValue,
     String? darknessValue,
     String? notes,
+    List<String>? photoPaths,
+    String? signatureImagePath,
   }) {
     return CaptureState(
       printerId: printerId ?? this.printerId,
@@ -71,6 +85,8 @@ class CaptureState {
       counterValue: counterValue ?? this.counterValue,
       darknessValue: darknessValue ?? this.darknessValue,
       notes: notes ?? this.notes,
+      photoPaths: photoPaths ?? this.photoPaths,
+      signatureImagePath: signatureImagePath ?? this.signatureImagePath,
     );
   }
 }
@@ -105,6 +121,53 @@ class CaptureNotifier extends Notifier<CaptureState> {
   }
 
   void setPrinterId(String? id) => state = state.copyWith(printerId: id);
+
+  // ============================================================================
+  // Métodos para manejo de fotos
+  // ============================================================================
+
+  /// Agrega una o más fotos a la captura
+  void addPhotoPaths(List<String> paths) {
+    final updatedPaths = <String>[...state.photoPaths, ...paths];
+    state = state.copyWith(photoPaths: updatedPaths);
+  }
+
+  /// Elimina una foto por índice
+  void removePhotoAt(int index) {
+    if (index >= 0 && index < state.photoPaths.length) {
+      final updatedPaths = <String>[...state.photoPaths];
+      updatedPaths.removeAt(index);
+      state = state.copyWith(photoPaths: updatedPaths);
+    }
+  }
+
+  /// Limpia todas las fotos
+  void clearPhotos() {
+    state = state.copyWith(photoPaths: const <String>[]);
+  }
+
+  /// Reemplaza todas las fotos
+  void setPhotoPaths(List<String> paths) {
+    state = state.copyWith(photoPaths: paths);
+  }
+
+  // ============================================================================
+  // Métodos para manejo de firma
+  // ============================================================================
+
+  /// Establece la ruta de la imagen de firma
+  void setSignatureImagePath(String path) {
+    state = state.copyWith(signatureImagePath: path);
+  }
+
+  /// Limpia la firma
+  void clearSignature() {
+    state = state.copyWith(signatureImagePath: null);
+  }
+
+  // ============================================================================
+  // Reset
+  // ============================================================================
 
   void resetCapture() => state = CaptureState(checkValues: _emptyChecklist());
 }
