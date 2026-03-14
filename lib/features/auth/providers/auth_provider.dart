@@ -1,3 +1,4 @@
+import 'package:drift/drift.dart' show Value;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:industrial_service_reports/data/local/app_database.dart';
 import 'package:industrial_service_reports/data/local/local_database.dart';
@@ -28,20 +29,40 @@ class AuthNotifier extends AsyncNotifier<void> {
 
       late String userId;
       late String userName;
+      late String techCode;
 
       if (existingUser != null) {
         userId = existingUser.id;
         userName = existingUser.name;
+        if (existingUser.code != null && existingUser.code!.isNotEmpty) {
+          techCode = existingUser.code!;
+        } else {
+          // Generar código si falta (usuarios creados antes de la migración)
+          final int count = await localDatabase
+              .select(localDatabase.users)
+              .get()
+              .then((List<User> l) => l.length);
+          techCode = 'T-${count.toString().padLeft(3, '0')}';
+          await (localDatabase.update(localDatabase.users)
+                ..where((u) => u.id.equals(userId)))
+              .write(UsersCompanion(code: Value(techCode)));
+        }
       } else {
         // Crear usuario nuevo
         userId = const Uuid().v4();
         userName = email.contains('@') ? email.split('@').first : email;
+        final int count = await localDatabase
+            .select(localDatabase.users)
+            .get()
+            .then((List<User> l) => l.length);
+        techCode = 'T-${(count + 1).toString().padLeft(3, '0')}';
         await localDatabase.into(localDatabase.users).insert(
               UsersCompanion.insert(
                 id: userId,
                 name: userName,
                 email: email,
                 role: 'technician',
+                code: Value(techCode),
               ),
             );
       }
@@ -50,7 +71,7 @@ class AuthNotifier extends AsyncNotifier<void> {
             userId: userId,
             userName: userName,
             email: email,
-            techId: userId,
+            techId: techCode,
           );
 
       state = const AsyncValue.data(null);

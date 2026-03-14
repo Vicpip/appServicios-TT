@@ -1,4 +1,4 @@
-import 'dart:io';
+import 'dart:io' as io;
 import 'package:image_picker/image_picker.dart';
 import 'package:industrial_service_reports/features/reports/providers/file_storage_provider.dart';
 
@@ -25,7 +25,7 @@ class ImageCaptureService {
 
       if (xFile == null) return null;
 
-      final File file = File(xFile.path);
+      final io.File file = io.File(xFile.path);
       return await _processAndSave(file);
     } catch (e) {
       return null;
@@ -45,7 +45,7 @@ class ImageCaptureService {
 
       if (xFile == null) return null;
 
-      final File file = File(xFile.path);
+      final io.File file = io.File(xFile.path);
       return await _processAndSave(file);
     } catch (e) {
       return null;
@@ -66,7 +66,7 @@ class ImageCaptureService {
 
       final List<String> savedPaths = [];
       for (final XFile xFile in xFiles) {
-        final File file = File(xFile.path);
+        final io.File file = io.File(xFile.path);
         final String? savedPath = await _processAndSave(file);
         if (savedPath != null) {
           savedPaths.add(savedPath);
@@ -80,7 +80,7 @@ class ImageCaptureService {
 
   /// Procesa y guarda la imagen en almacenamiento local.
   /// Intenta reducir la calidad si el archivo supera 2MB.
-  static Future<String?> _processAndSave(File imageFile) async {
+  static Future<String?> _processAndSave(io.File imageFile) async {
     try {
       // Verificar tamaño
       final int fileSize = await imageFile.length();
@@ -95,8 +95,8 @@ class ImageCaptureService {
         );
 
         // Si la re-compresión no es posible, usar el archivo original
-        final File fileToSave = recompressed != null
-            ? File(recompressed.path)
+        final io.File fileToSave = recompressed != null
+            ? io.File(recompressed.path)
             : imageFile;
 
         return await FileStorageProvider.savePhoto(fileToSave);

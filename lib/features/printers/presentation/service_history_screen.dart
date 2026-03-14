@@ -1,4 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
+import 'package:industrial_service_reports/core/router/app_routes.dart';
+import 'package:industrial_service_reports/core/router/route_args.dart';
 import 'package:industrial_service_reports/data/local/app_database.dart';
 
 class ServiceHistoryScreen extends StatefulWidget {
@@ -33,6 +36,7 @@ class _ServiceHistoryScreenState extends State<ServiceHistoryScreen> {
 
   List<_ServiceHistoryItem> _history = <_ServiceHistoryItem>[];
   _ServiceType? _selectedFilter;
+  bool _sortAscending = false;
 
   @override
   void initState() {
@@ -67,9 +71,15 @@ class _ServiceHistoryScreenState extends State<ServiceHistoryScreen> {
       // Mapear tipo de servicio a enum
       final _ServiceType serviceType = _parseServiceType(report.serviceType);
 
+      // Código legible del reporte
+      final String displayReportId =
+          report.code ?? 'R-${report.id.substring(0, 8).toUpperCase()}';
+
       items.add(_ServiceHistoryItem(
         dateText: _formatDate(report.serviceDate),
-        reportId: '#REP-${report.id.substring(0, 8).toUpperCase()}',
+        serviceDate: report.serviceDate,
+        reportId: displayReportId,
+        reportDbId: report.id,
         technician: technicianName,
         notes: report.notes ?? 'Sin notas',
         counterText: '${report.linearInchesCounter} in',
@@ -77,8 +87,6 @@ class _ServiceHistoryScreenState extends State<ServiceHistoryScreen> {
       ));
     }
 
-    // Ordenar por fecha descendente
-    items.sort((a, b) => b.dateText.compareTo(a.dateText));
     return items;
   }
 
@@ -100,12 +108,20 @@ class _ServiceHistoryScreenState extends State<ServiceHistoryScreen> {
   }
 
   List<_ServiceHistoryItem> get _filteredHistory {
-    if (_selectedFilter == null) {
-      return _history;
+    List<_ServiceHistoryItem> result = _history;
+    if (_selectedFilter != null) {
+      result = result
+          .where((_ServiceHistoryItem item) => item.type == _selectedFilter)
+          .toList();
     }
-    return _history
-        .where((_ServiceHistoryItem item) => item.type == _selectedFilter)
-        .toList();
+    if (_sortAscending) {
+      result = List<_ServiceHistoryItem>.from(result)
+        ..sort((a, b) => a.serviceDate.compareTo(b.serviceDate));
+    } else {
+      result = List<_ServiceHistoryItem>.from(result)
+        ..sort((a, b) => b.serviceDate.compareTo(a.serviceDate));
+    }
+    return result;
   }
 
   @override
@@ -179,9 +195,9 @@ class _ServiceHistoryScreenState extends State<ServiceHistoryScreen> {
                   Column(
                     crossAxisAlignment: CrossAxisAlignment.end,
                     children: <Widget>[
-                      const Text(
-                        'Total: 12 servicios',
-                        style: TextStyle(
+                      Text(
+                        'Total: ${_history.length} servicio${_history.length == 1 ? '' : 's'}',
+                        style: const TextStyle(
                           color: _mutedText,
                           fontSize: 12,
                           fontWeight: FontWeight.w700,
@@ -336,12 +352,12 @@ class _ServiceHistoryScreenState extends State<ServiceHistoryScreen> {
                                       Align(
                                         alignment: Alignment.centerRight,
                                         child: TextButton(
-                                          onPressed: () => _showSnackBar(
-                                            context,
-                                            'Abriendo PDF de ${item.reportId} (mock)',
+                                          onPressed: () => context.pushNamed(
+                                            AppRoutes.reportView,
+                                            extra: ReportViewArgs(reportId: item.reportDbId),
                                           ),
                                           child: const Text(
-                                            'Ver PDF',
+                                            'Ver Reporte',
                                             style: TextStyle(
                                               color: _accentBlue,
                                               fontWeight: FontWeight.w800,
@@ -366,91 +382,153 @@ class _ServiceHistoryScreenState extends State<ServiceHistoryScreen> {
   }
 
   Future<void> _openFilterSheet() async {
-    final _ServiceType? result = await showModalBottomSheet<_ServiceType?>(
+    final _FilterResult? result = await showModalBottomSheet<_FilterResult>(
       context: context,
       backgroundColor: _headerBg,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
       ),
-      builder: (BuildContext context) {
-        return SafeArea(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: <Widget>[
-              const SizedBox(height: 8),
-              const Text(
-                'Filtrar por tipo de servicio',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontSize: 16,
-                  fontWeight: FontWeight.w800,
-                ),
-              ),
-              const SizedBox(height: 6),
-              ListTile(
-                leading: Icon(
-                  Icons.filter_alt_outlined,
-                  color: _selectedFilter == null ? _accentBlue : _mutedText,
-                ),
-                title: const Text(
-                  'Todos',
-                  style: TextStyle(color: Colors.white),
-                ),
-                trailing: Icon(
-                  _selectedFilter == null
-                      ? Icons.check_circle_rounded
-                      : Icons.circle_outlined,
-                  color:
-                      _selectedFilter == null ? _accentBlue : const Color(0xFF6D7B90),
-                ),
-                onTap: () => Navigator.of(context).pop(null),
-              ),
-              ..._ServiceType.values.map(( _ServiceType type) {
-                final bool selected = _selectedFilter == type;
-                final _TimelineStyle style = _styleFor(type);
-                return ListTile(
-                  leading: Container(
-                    width: 24,
-                    height: 24,
-                    decoration: BoxDecoration(
-                      color: style.iconBg,
-                      shape: BoxShape.circle,
-                      border: Border.all(color: style.iconBorder),
-                    ),
-                    child: Icon(
-                      style.icon,
-                      size: 14,
-                      color: style.iconFg,
+      builder: (BuildContext sheetContext) {
+        _ServiceType? localFilter = _selectedFilter;
+        bool localSortAscending = _sortAscending;
+
+        return StatefulBuilder(
+          builder: (BuildContext ctx, StateSetter setModalState) {
+            return SafeArea(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: <Widget>[
+                  const SizedBox(height: 8),
+                  const Text(
+                    'Filtrar por tipo de servicio',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 16,
+                      fontWeight: FontWeight.w800,
                     ),
                   ),
-                  title: Text(
-                    type.label,
-                    style: const TextStyle(color: Colors.white),
+                  const SizedBox(height: 6),
+                  ListTile(
+                    leading: Icon(
+                      Icons.filter_alt_outlined,
+                      color: localFilter == null ? _accentBlue : _mutedText,
+                    ),
+                    title: const Text(
+                      'Todos',
+                      style: TextStyle(color: Colors.white),
+                    ),
+                    trailing: Icon(
+                      localFilter == null
+                          ? Icons.check_circle_rounded
+                          : Icons.circle_outlined,
+                      color:
+                          localFilter == null ? _accentBlue : const Color(0xFF6D7B90),
+                    ),
+                    onTap: () => setModalState(() => localFilter = null),
                   ),
-                  trailing: Icon(
-                    selected
-                        ? Icons.check_circle_rounded
-                        : Icons.circle_outlined,
-                    color: selected ? _accentBlue : const Color(0xFF6D7B90),
+                  ..._ServiceType.values.map((_ServiceType type) {
+                    final bool selected = localFilter == type;
+                    final _TimelineStyle style = _styleFor(type);
+                    return ListTile(
+                      leading: Container(
+                        width: 24,
+                        height: 24,
+                        decoration: BoxDecoration(
+                          color: style.iconBg,
+                          shape: BoxShape.circle,
+                          border: Border.all(color: style.iconBorder),
+                        ),
+                        child: Icon(
+                          style.icon,
+                          size: 14,
+                          color: style.iconFg,
+                        ),
+                      ),
+                      title: Text(
+                        type.label,
+                        style: const TextStyle(color: Colors.white),
+                      ),
+                      trailing: Icon(
+                        selected
+                            ? Icons.check_circle_rounded
+                            : Icons.circle_outlined,
+                        color: selected ? _accentBlue : const Color(0xFF6D7B90),
+                      ),
+                      onTap: () => setModalState(() => localFilter = type),
+                    );
+                  }),
+                  const Divider(color: Color(0xFF2A3342), height: 1),
+                  const SizedBox(height: 6),
+                  const Padding(
+                    padding: EdgeInsets.symmetric(horizontal: 16),
+                    child: Align(
+                      alignment: Alignment.centerLeft,
+                      child: Text(
+                        'ORDEN',
+                        style: TextStyle(
+                          color: Colors.white54,
+                          fontSize: 11,
+                          fontWeight: FontWeight.w800,
+                          letterSpacing: 0.8,
+                        ),
+                      ),
+                    ),
                   ),
-                  onTap: () => Navigator.of(context).pop(type),
-                );
-              }),
-              const SizedBox(height: 8),
-            ],
-          ),
+                  ListTile(
+                    title: const Text(
+                      'Más reciente primero',
+                      style: TextStyle(color: Colors.white),
+                    ),
+                    trailing: Icon(
+                      !localSortAscending
+                          ? Icons.check_circle_rounded
+                          : Icons.circle_outlined,
+                      color: !localSortAscending ? _accentBlue : const Color(0xFF6D7B90),
+                    ),
+                    onTap: () => setModalState(() => localSortAscending = false),
+                  ),
+                  ListTile(
+                    title: const Text(
+                      'Más antiguo primero',
+                      style: TextStyle(color: Colors.white),
+                    ),
+                    trailing: Icon(
+                      localSortAscending
+                          ? Icons.check_circle_rounded
+                          : Icons.circle_outlined,
+                      color: localSortAscending ? _accentBlue : const Color(0xFF6D7B90),
+                    ),
+                    onTap: () => setModalState(() => localSortAscending = true),
+                  ),
+                  const SizedBox(height: 8),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                    child: SizedBox(
+                      width: double.infinity,
+                      child: FilledButton(
+                        onPressed: () => Navigator.of(ctx).pop(
+                          _FilterResult(type: localFilter, sortAscending: localSortAscending),
+                        ),
+                        child: const Text('Aplicar'),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                ],
+              ),
+            );
+          },
         );
       },
     );
 
     if (!mounted) return;
-    setState(() {
-      _selectedFilter = result;
-    });
-    _showSnackBar(
-      context,
-      'Filtro activo: ${_selectedFilter?.label ?? 'Todos'}',
-    );
+    if (result != null) {
+      setState(() {
+        _selectedFilter = result.type;
+        _sortAscending = result.sortAscending;
+      });
+    }
   }
 
   _TimelineStyle _styleFor(_ServiceType type) {
@@ -486,15 +564,12 @@ class _ServiceHistoryScreenState extends State<ServiceHistoryScreen> {
     }
   }
 
-  static void _showSnackBar(BuildContext context, String message) {
-    ScaffoldMessenger.of(context).hideCurrentSnackBar();
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message),
-        behavior: SnackBarBehavior.floating,
-      ),
-    );
-  }
+}
+
+class _FilterResult {
+  _FilterResult({required this.type, required this.sortAscending});
+  final _ServiceType? type;
+  final bool sortAscending;
 }
 
 enum _ServiceType {
@@ -511,7 +586,9 @@ enum _ServiceType {
 class _ServiceHistoryItem {
   const _ServiceHistoryItem({
     required this.dateText,
+    required this.serviceDate,
     required this.reportId,
+    required this.reportDbId,
     required this.technician,
     required this.notes,
     required this.counterText,
@@ -519,7 +596,9 @@ class _ServiceHistoryItem {
   });
 
   final String dateText;
+  final DateTime serviceDate;
   final String reportId;
+  final String reportDbId;
   final String technician;
   final String notes;
   final String counterText;

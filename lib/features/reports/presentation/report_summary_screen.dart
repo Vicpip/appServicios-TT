@@ -1,4 +1,4 @@
-import 'dart:io';
+import 'dart:io' as io;
 
 import 'package:drift/drift.dart' show OrderingTerm, innerJoin;
 import 'package:fl_chart/fl_chart.dart';
@@ -757,7 +757,7 @@ class _EvidenceCard extends StatelessWidget {
                     return ClipRRect(
                       borderRadius: BorderRadius.circular(8),
                       child: Image.file(
-                        File(photoPaths[index]),
+                        io.File(photoPaths[index]),
                         fit: BoxFit.cover,
                         errorBuilder: (_, __, ___) => Container(
                           color: AppPalette.surfaceDarkHighlight,

@@ -1,5 +1,5 @@
 import 'dart:convert';
-import 'dart:io';
+import 'dart:io' as io;
 import 'dart:typed_data';
 
 import 'package:drift/drift.dart' show Value;
@@ -11,7 +11,6 @@ import 'package:industrial_service_reports/data/local/app_database.dart';
 import 'package:industrial_service_reports/data/local/local_database.dart';
 import 'package:industrial_service_reports/features/auth/providers/session_provider.dart';
 import 'package:industrial_service_reports/features/reports/providers/capture_provider.dart';
-import 'package:industrial_service_reports/features/reports/providers/file_storage_provider.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:signature/signature.dart';
 import 'package:uuid/uuid.dart';
@@ -276,6 +275,13 @@ class _SignatureScreenState extends ConsumerState<SignatureScreen> {
       // Serializar rutas de fotos como JSON
       final String photoPathsJson = jsonEncode(captureState.photoPaths);
 
+      // Generar código legible para el reporte
+      final int reportCount = await (localDatabase.select(localDatabase.reports))
+          .get()
+          .then((List<Report> l) => l.length);
+      final String reportCode =
+          'R-${(reportCount + 1).toString().padLeft(3, '0')}';
+
       // Insertar reporte en DB
       final String reportId = const Uuid().v4();
       await localDatabase.into(localDatabase.reports).insert(
@@ -284,7 +290,7 @@ class _SignatureScreenState extends ConsumerState<SignatureScreen> {
               printerId: printerId,
               techId: techId,
               serviceType: captureState.selectedServiceType,
-              status: 'Draft',
+              status: 'Signed',
               serviceDate: DateTime.now(),
               linearInchesCounter: counterValue,
               technicalCheckboxes: captureState.checkValues,
@@ -297,6 +303,31 @@ class _SignatureScreenState extends ConsumerState<SignatureScreen> {
               photoPaths: Value(photoPathsJson),
               photoCount: Value(captureState.photoPaths.length),
               signatureImagePath: Value(signatureImagePath),
+              code: Value(reportCode),
+            ),
+          );
+
+      // Encolar para sincronización
+      await localDatabase.into(localDatabase.syncQueue).insert(
+            SyncQueueCompanion.insert(
+              id: const Uuid().v4(),
+              methodHttp: 'POST',
+              endpointDestino: '/api/reports',
+              payloadJson: jsonEncode(<String, dynamic>{
+                'id': reportId,
+                'printerId': printerId,
+                'techId': techId,
+                'serviceType': captureState.selectedServiceType,
+                'status': 'Signed',
+                'serviceDate': DateTime.now().toIso8601String(),
+                'linearInchesCounter': counterValue,
+                'technicalCheckboxes': captureState.checkValues,
+                'notes': captureState.notes,
+                'signatureName': _signerNameController.text.trim(),
+                'signatureRole': _signerRoleController.text.trim(),
+              }),
+              entityType: 'report',
+              entityId: reportId,
             ),
           );
 
@@ -348,17 +379,17 @@ class _SignatureScreenState extends ConsumerState<SignatureScreen> {
           await _signatureController.toPngBytes();
       if (signatureBytes == null) return null;
 
-      final Directory appDir = await getApplicationDocumentsDirectory();
+      final io.Directory appDir = await getApplicationDocumentsDirectory();
       final String signaturesDir =
           '${appDir.path}/reports/signatures';
-      final Directory dir = Directory(signaturesDir);
+      final io.Directory dir = io.Directory(signaturesDir);
       if (!await dir.exists()) {
         await dir.create(recursive: true);
       }
 
       final String signatureId = const Uuid().v4();
       final String filePath = '$signaturesDir/signature_$signatureId.png';
-      final File file = File(filePath);
+      final io.File file = io.File(filePath);
       await file.writeAsBytes(signatureBytes);
 
       return filePath;

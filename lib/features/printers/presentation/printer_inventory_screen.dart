@@ -103,6 +103,7 @@ class _PrinterInventoryScreenState
         area: areaName,
         contact: contact,
         status: status,
+        printerId: printer.id,
       ));
     }
 
@@ -254,7 +255,10 @@ class _PrinterInventoryScreenState
                       cardBg: _cardBg,
                       blueSoft: _blueSoft,
                       orangeSoft: _orangeSoft,
-                      onCreateReport: () => context.pushNamed(AppRoutes.capture),
+                      onCreateReport: () => context.pushNamed(
+                        AppRoutes.capture,
+                        extra: CaptureArgs(printerId: item.printerId),
+                      ),
                       onViewDetail: () => context.pushNamed(
                         AppRoutes.printerDetail,
                         pathParameters: <String, String>{
@@ -264,6 +268,7 @@ class _PrinterInventoryScreenState
                           serialNumber: item.serialNumber,
                           model: item.model,
                           client: item.client,
+                          printerId: item.printerId,
                         ),
                       ),
                     );
@@ -675,6 +680,7 @@ class _InventoryPrinter {
     required this.area,
     required this.contact,
     required this.status,
+    required this.printerId,
   });
 
   final String serialNumber;
@@ -685,4 +691,5 @@ class _InventoryPrinter {
   final String area;
   final String contact;
   final _InventoryStatus status;
+  final String printerId;
 }

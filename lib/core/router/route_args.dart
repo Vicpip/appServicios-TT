@@ -21,22 +21,31 @@ class PrinterDetailArgs {
     required this.model,
     required this.client,
     required this.serialNumber,
+    required this.printerId,
   });
   final String model;
   final String client;
   final String serialNumber;
+  final String printerId;
 }
 
 class ServiceHistoryArgs {
   const ServiceHistoryArgs({
     required this.model,
     required this.serialNumber,
+    required this.printerId,
   });
   final String model;
   final String serialNumber;
+  final String printerId;
 }
 
 class CaptureArgs {
   const CaptureArgs({this.printerId});
   final String? printerId;
+}
+
+class ReportViewArgs {
+  const ReportViewArgs({required this.reportId});
+  final String reportId;
 }

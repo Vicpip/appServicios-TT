@@ -1,4 +1,4 @@
-import 'dart:io';
+import 'dart:io' as io;
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
@@ -716,7 +716,7 @@ class _PhotoThumbnail extends StatelessWidget {
         ClipRRect(
           borderRadius: BorderRadius.circular(8),
           child: Image.file(
-            File(filePath),
+            io.File(filePath),
             width: double.infinity,
             height: double.infinity,
             fit: BoxFit.cover,

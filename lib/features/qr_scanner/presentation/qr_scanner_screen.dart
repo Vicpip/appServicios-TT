@@ -328,6 +328,7 @@ class _QrScannerScreenState extends State<QrScannerScreen>
     final ThemeData theme = Theme.of(context);
 
     return Scaffold(
+      resizeToAvoidBottomInset: false,
       appBar: AppBar(
         title: const Text('Identificar Impresora'),
         actions: <Widget>[

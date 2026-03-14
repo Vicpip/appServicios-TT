@@ -1,13 +1,13 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-enum ClientFilter { activePolicy, noPolicy, risk }
+enum ClientFilter { all, activePolicy, noPolicy, risk }
 
 @immutable
 class ClientListState {
   const ClientListState({
     this.searchQuery = '',
-    this.selectedFilter = ClientFilter.activePolicy,
+    this.selectedFilter = ClientFilter.all,
   });
 
   final String searchQuery;

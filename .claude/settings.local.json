@@ -5,7 +5,21 @@
       "Bash(flutter analyze)",
       "Bash(flutter analyze --no-fatal-infos)",
       "Bash(xargs ls -la)",
-      "Bash(flutter pub run build_runner build --delete-conflicting-outputs)"
+      "Bash(flutter pub run build_runner build --delete-conflicting-outputs)",
+      "Bash(flutter build apk --release)",
+      "Bash(xargs grep -l \"_mock\\\\|static const List\")",
+      "Bash(xargs head -200)",
+      "Bash(flutter analyze lib/features/policies/presentation/policy_dashboard_screen.dart)",
+      "Bash(timeout 120 flutter build apk --debug)",
+      "Bash(flutter analyze lib/features/policies/presentation/policy_dashboard_screen.dart lib/features/printers/presentation/printer_inventory_screen.dart lib/features/printers/presentation/quick_add_printer_screen.dart lib/features/printers/presentation/service_history_screen.dart lib/features/sync/presentation/sync_history_screen.dart)",
+      "Bash(flutter build apk --debug)",
+      "Bash(flutter analyze lib/features/printers/presentation/quick_add_printer_screen.dart)",
+      "Bash(xargs grep:*)",
+      "Bash(find /c/Users/Victor/Documents/app/.claude/worktrees/eloquent-tesla/lib -name \"*.dart\" -type f -exec grep -l \"session_provider\\\\|SessionState\\\\|session\" {})",
+      "Bash(flutter analyze:*)",
+      "Bash(flutter build:*)",
+      "Bash(copy \"C:\\\\Users\\\\Victor\\\\Documents\\\\app\\\\.claude\\\\worktrees\\\\eloquent-tesla\\\\build\\\\app\\\\outputs\\\\flutter-apk\\\\app-debug.apk\" \"C:\\\\Users\\\\Victor\\\\Desktop\\\\app-sprint1-final.apk\")",
+      "Bash(copy \"C:\\\\Users\\\\Victor\\\\Documents\\\\app\\\\.claude\\\\worktrees\\\\eloquent-tesla\\\\build\\\\app\\\\outputs\\\\flutter-apk\\\\app-debug.apk\" \"C:\\\\Users\\\\Victor\\\\Desktop\\\\servicios_mainpc_v3.apk\")"
     ]
   }
 }

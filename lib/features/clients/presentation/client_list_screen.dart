@@ -50,9 +50,9 @@ class _ClientListScreenState extends ConsumerState<ClientListScreen> {
     final DateTime now = DateTime.now();
 
     final List<Client> allClients = await db.select(db.clients).get();
-    final List<Client> clients =
-        allClients.where((c) => c.isActive).toList()
-          ..sort((a, b) => a.name.compareTo(b.name));
+    // Load all clients (both active and inactive) for the "Todos" filter
+    final List<Client> clients = List<Client>.from(allClients)
+        ..sort((a, b) => a.name.compareTo(b.name));
 
     final List<_ClientItem> items = <_ClientItem>[];
     for (final Client client in clients) {
@@ -92,6 +92,7 @@ class _ClientListScreenState extends ConsumerState<ClientListScreen> {
         zebraUnits: zebraUnits,
         policies: activePolicies.length,
         status: status,
+        isActive: client.isActive,
       ));
     }
     return items;
@@ -166,6 +167,16 @@ class _ClientListScreenState extends ConsumerState<ClientListScreen> {
                 scrollDirection: Axis.horizontal,
                 child: Row(
                   children: <Widget>[
+                    _FilterChip(
+                      label: 'Todos',
+                      selected: listState.selectedFilter == ClientFilter.all,
+                      selectedColor: const Color(0xFF366B9C),
+                      selectedBorderColor: const Color(0xFF5A9FD4),
+                      onTap: () => ref
+                          .read(clientListProvider.notifier)
+                          .setFilter(ClientFilter.all),
+                    ),
+                    const SizedBox(width: 8),
                     _FilterChip(
                       label: 'Con Poliza Activa',
                       selected: listState.selectedFilter ==
@@ -242,6 +253,7 @@ class _ClientListScreenState extends ConsumerState<ClientListScreen> {
 
     return _clients.where((_ClientItem client) {
       final bool matchesFilter = switch (listState.selectedFilter) {
+        ClientFilter.all => true,
         ClientFilter.activePolicy => client.policies > 0,
         ClientFilter.noPolicy => client.status == _ClientStatus.noPolicy,
         ClientFilter.risk => client.status == _ClientStatus.risk,
@@ -508,6 +520,7 @@ class _ClientItem {
     required this.zebraUnits,
     required this.policies,
     required this.status,
+    required this.isActive,
   });
 
   final int displayId;
@@ -516,6 +529,7 @@ class _ClientItem {
   final int zebraUnits;
   final int policies;
   final _ClientStatus status;
+  final bool isActive;
 }
 
 class _StatusStyle {

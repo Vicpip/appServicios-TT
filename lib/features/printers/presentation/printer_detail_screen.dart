@@ -1,21 +1,115 @@
+import 'package:drift/drift.dart' show OrderingTerm, OrderingMode;
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:industrial_service_reports/core/router/app_routes.dart';
 import 'package:industrial_service_reports/core/router/route_args.dart';
 import 'package:industrial_service_reports/core/theme/app_palette.dart';
+import 'package:industrial_service_reports/data/local/app_database.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 
-class PrinterDetailScreen extends StatelessWidget {
+enum _PrinterStatus { ok, needsAttention, noHistory }
+
+class PrinterDetailScreen extends StatefulWidget {
   const PrinterDetailScreen({
     super.key,
     required this.serialNumber,
     required this.model,
     required this.client,
+    required this.printerId,
+    required this.database,
   });
 
   final String serialNumber;
   final String model;
   final String client;
+  final String printerId;
+  final AppDatabase database;
+
+  @override
+  State<PrinterDetailScreen> createState() => _PrinterDetailScreenState();
+}
+
+class _PrinterDetailScreenState extends State<PrinterDetailScreen> {
+  String? _plantName;
+  String? _areaName;
+  Report? _lastService;
+  String? _technicianName;
+  String? _printerCode;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadPrinterDetails();
+  }
+
+  Future<void> _loadPrinterDetails() async {
+    try {
+      // Obtener datos de la impresora
+      final Printer? printer = await (widget.database.select(widget.database.printers)
+            ..where((p) => p.id.equals(widget.printerId)))
+          .getSingleOrNull();
+
+      if (printer != null) {
+        // Obtener planta
+        final Plant? plant = await (widget.database.select(widget.database.plants)
+              ..where((p) => p.id.equals(printer.plantId)))
+            .getSingleOrNull();
+
+        // Obtener área
+        final Area? area = await (widget.database.select(widget.database.areas)
+              ..where((a) => a.id.equals(printer.areaId)))
+            .getSingleOrNull();
+
+        // Obtener último reporte
+        final List<Report> reports = await (widget.database.select(widget.database.reports)
+              ..where((r) => r.printerId.equals(widget.printerId))
+              ..orderBy([(r) => OrderingTerm(expression: r.serviceDate, mode: OrderingMode.desc)])
+              ..limit(1))
+            .get();
+
+        Report? lastReport;
+        String? techName;
+        if (reports.isNotEmpty) {
+          final Report report = reports.first;
+          lastReport = report;
+          // Obtener nombre del técnico
+          final User? technician = await (widget.database.select(widget.database.users)
+                ..where((u) => u.id.equals(report.techId)))
+              .getSingleOrNull();
+          techName = technician?.name;
+        }
+
+        if (mounted) {
+          setState(() {
+            _plantName = plant?.name;
+            _areaName = area?.name;
+            _lastService = lastReport;
+            _technicianName = techName;
+            _printerCode = printer.code;
+          });
+        }
+      }
+    } catch (_) {
+      // Handle error silently
+    }
+  }
+
+  _PrinterStatus _computeStatus() {
+    if (_lastService == null) return _PrinterStatus.noHistory;
+    final Map<String, dynamic> checkboxes = _lastService!.technicalCheckboxes;
+    const List<String> damageItems = <String>[
+      'Rodillo dañado',
+      'Cabezal dañado',
+      'Sensor ribbon dañado',
+      'Sensor papel dañado',
+    ];
+    for (final String item in damageItems) {
+      if (checkboxes[item] == true) {
+        return _PrinterStatus.needsAttention;
+      }
+    }
+    return _PrinterStatus.ok;
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -28,12 +122,17 @@ class PrinterDetailScreen extends StatelessWidget {
     const Color successText = Color(0xFF33E98A);
     const Color warningBg = Color(0xFF4A3A12);
     const Color warningText = Color(0xFFFFD166);
-    final bool isHealthy = serialNumber.hashCode.isEven;
+    const Color noHistoryBg = Color(0xFF242E3D);
+
+    final _PrinterStatus printerStatus = _computeStatus();
     final String displayModel =
-        model.toLowerCase().contains('zebra') ? model : 'Zebra $model';
-    const String lastServiceType = 'Preventivo';
+        widget.model.toLowerCase().contains('zebra') ? widget.model : 'Zebra ${widget.model}';
+    final String lastServiceType = _lastService?.serviceType ?? 'Preventivo';
     final _ServiceTypeVisual lastServiceVisual =
         _serviceTypeVisual(lastServiceType);
+    final String lastServiceDate = _lastService != null ? _formatDate(_lastService!.serviceDate) : 'Sin registros';
+    final String counter = _lastService?.linearInchesCounter.toString() ?? '0';
+    final String displayCode = _printerCode ?? widget.printerId.substring(0, 8);
 
     return Scaffold(
       backgroundColor: screenBg,
@@ -99,11 +198,20 @@ class PrinterDetailScreen extends StatelessWidget {
                             ),
                           ),
                           Text(
-                            'S/N: $serialNumber',
+                            'S/N: ${widget.serialNumber}',
                             style: const TextStyle(
                               color: infoBlue,
                               fontSize: 14,
                               fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            'Código: $displayCode',
+                            style: const TextStyle(
+                              color: textMuted,
+                              fontSize: 13,
+                              fontWeight: FontWeight.w700,
                             ),
                           ),
                           const SizedBox(height: 8),
@@ -150,7 +258,11 @@ class PrinterDetailScreen extends StatelessWidget {
                     Row(
                       children: <Widget>[
                         Text(
-                          isHealthy ? 'Correcta' : 'Atencion',
+                          printerStatus == _PrinterStatus.ok
+                              ? 'Correcta'
+                              : printerStatus == _PrinterStatus.needsAttention
+                                  ? 'Atencion'
+                                  : 'Sin historial',
                           style: const TextStyle(
                             color: Colors.white,
                             fontSize: 32,
@@ -164,12 +276,18 @@ class PrinterDetailScreen extends StatelessWidget {
                             vertical: 6,
                           ),
                           decoration: BoxDecoration(
-                            color: isHealthy ? successBg : warningBg,
+                            color: printerStatus == _PrinterStatus.ok
+                                ? successBg
+                                : printerStatus == _PrinterStatus.needsAttention
+                                    ? warningBg
+                                    : noHistoryBg,
                             borderRadius: BorderRadius.circular(14),
                             border: Border.all(
-                              color: isHealthy
+                              color: printerStatus == _PrinterStatus.ok
                                   ? successText.withValues(alpha: 0.45)
-                                  : warningText.withValues(alpha: 0.45),
+                                  : printerStatus == _PrinterStatus.needsAttention
+                                      ? warningText.withValues(alpha: 0.45)
+                                      : Colors.white54.withValues(alpha: 0.3),
                             ),
                           ),
                           child: Row(
@@ -177,13 +295,25 @@ class PrinterDetailScreen extends StatelessWidget {
                               Icon(
                                 Icons.circle_rounded,
                                 size: 9,
-                                color: isHealthy ? successText : warningText,
+                                color: printerStatus == _PrinterStatus.ok
+                                    ? successText
+                                    : printerStatus == _PrinterStatus.needsAttention
+                                        ? warningText
+                                        : Colors.white54,
                               ),
                               const SizedBox(width: 6),
                               Text(
-                                isHealthy ? 'EN LINEA' : 'ATENCION',
+                                printerStatus == _PrinterStatus.ok
+                                    ? 'EN LINEA'
+                                    : printerStatus == _PrinterStatus.needsAttention
+                                        ? 'ATENCION'
+                                        : 'SIN HISTORIAL',
                                 style: TextStyle(
-                                  color: isHealthy ? successText : warningText,
+                                  color: printerStatus == _PrinterStatus.ok
+                                      ? successText
+                                      : printerStatus == _PrinterStatus.needsAttention
+                                          ? warningText
+                                          : Colors.white54,
                                   fontWeight: FontWeight.w800,
                                   fontSize: 11,
                                   letterSpacing: 0.4,
@@ -224,7 +354,7 @@ class PrinterDetailScreen extends StatelessWidget {
                         const SizedBox(width: 8),
                         Expanded(
                           child: Text(
-                            client,
+                            widget.client,
                             style: const TextStyle(
                               color: Colors.white,
                               fontSize: 16,
@@ -235,26 +365,26 @@ class PrinterDetailScreen extends StatelessWidget {
                       ],
                     ),
                     const SizedBox(height: 12),
-                    const Row(
+                    Row(
                       children: <Widget>[
-                        Icon(Icons.location_on_outlined, size: 16, color: Color(0xFFA4B6CE)),
-                        SizedBox(width: 8),
+                        const Icon(Icons.location_on_outlined, size: 16, color: Color(0xFFA4B6CE)),
+                        const SizedBox(width: 8),
                         Expanded(
                           child: Text(
-                            'Planta A',
-                            style: TextStyle(
+                            _plantName ?? 'Planta desconocida',
+                            style: const TextStyle(
                               color: Colors.white70,
                               fontWeight: FontWeight.w700,
                             ),
                           ),
                         ),
-                        SizedBox(width: 12),
-                        Icon(Icons.grid_view_rounded, size: 16, color: Color(0xFFA4B6CE)),
-                        SizedBox(width: 8),
+                        const SizedBox(width: 12),
+                        const Icon(Icons.grid_view_rounded, size: 16, color: Color(0xFFA4B6CE)),
+                        const SizedBox(width: 8),
                         Expanded(
                           child: Text(
-                            'Linea Ensamble 4',
-                            style: TextStyle(
+                            _areaName ?? 'Area desconocida',
+                            style: const TextStyle(
                               color: Colors.white70,
                               fontWeight: FontWeight.w700,
                             ),
@@ -308,9 +438,9 @@ class PrinterDetailScreen extends StatelessWidget {
                                 ],
                               ),
                               const SizedBox(height: 4),
-                              const Text(
-                                '05 de Noviembre, 2023',
-                                style: TextStyle(
+                              Text(
+                                lastServiceDate,
+                                style: const TextStyle(
                                   color: Color(0xFF8FA3BE),
                                   fontSize: 12,
                                   fontWeight: FontWeight.w600,
@@ -322,8 +452,8 @@ class PrinterDetailScreen extends StatelessWidget {
                         const SizedBox(width: 10),
                         Column(
                           crossAxisAlignment: CrossAxisAlignment.end,
-                          children: const <Widget>[
-                            Text(
+                          children: <Widget>[
+                            const Text(
                               'CONTADOR',
                               style: TextStyle(
                                 color: textMuted,
@@ -332,11 +462,11 @@ class PrinterDetailScreen extends StatelessWidget {
                                 letterSpacing: 0.7,
                               ),
                             ),
-                            SizedBox(height: 3),
+                            const SizedBox(height: 3),
                             Text(
-                              '145,000\nin',
+                              '$counter\nin',
                               textAlign: TextAlign.right,
-                              style: TextStyle(
+                              style: const TextStyle(
                                 color: infoBlue,
                                 fontWeight: FontWeight.w900,
                                 fontSize: 18,
@@ -362,13 +492,13 @@ class PrinterDetailScreen extends StatelessWidget {
                           ),
                         ),
                         const SizedBox(width: 10),
-                        const Expanded(
+                        Expanded(
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: <Widget>[
                               Text(
-                                'Ing. John Doe',
-                                style: TextStyle(
+                                _technicianName ?? 'Sin registros',
+                                style: const TextStyle(
                                   color: Colors.white,
                                   fontWeight: FontWeight.w700,
                                 ),
@@ -384,7 +514,22 @@ class PrinterDetailScreen extends StatelessWidget {
                           ),
                         ),
                         TextButton(
-                          onPressed: () => _showMockSnack(context, 'Abrira el ultimo reporte'),
+                          onPressed: () {
+                            if (_lastService != null) {
+                              context.pushNamed(
+                                AppRoutes.reportView,
+                                extra: ReportViewArgs(reportId: _lastService!.id),
+                              );
+                            } else {
+                              ScaffoldMessenger.of(context).hideCurrentSnackBar();
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
+                                  content: Text('Esta impresora no tiene reportes aún'),
+                                  behavior: SnackBarBehavior.floating,
+                                ),
+                              );
+                            }
+                          },
                           child: const Text(
                             'VER REPORTE',
                             style: TextStyle(
@@ -421,7 +566,10 @@ class PrinterDetailScreen extends StatelessWidget {
                   height: 50,
                   width: double.infinity,
                   child: FilledButton.icon(
-                    onPressed: () => context.pushNamed(AppRoutes.capture),
+                    onPressed: () => context.pushNamed(
+                      AppRoutes.capture,
+                      extra: CaptureArgs(printerId: widget.printerId),
+                    ),
                     icon: const Icon(Icons.playlist_add_check_circle_rounded),
                     style: FilledButton.styleFrom(
                       backgroundColor: AppPalette.primary,
@@ -443,7 +591,7 @@ class PrinterDetailScreen extends StatelessWidget {
                       child: SizedBox(
                         height: 44,
                         child: FilledButton.tonalIcon(
-                          onPressed: () => _showQrDialog(context, serialNumber, model),
+                          onPressed: () => _showQrDialog(context, widget.serialNumber, widget.model),
                           icon: const Icon(Icons.qr_code_2_rounded, size: 18),
                           style: FilledButton.styleFrom(
                             backgroundColor: const Color(0xFF242E3D),
@@ -461,11 +609,12 @@ class PrinterDetailScreen extends StatelessWidget {
                           onPressed: () => context.pushNamed(
                             AppRoutes.serviceHistory,
                             pathParameters: <String, String>{
-                              'serialNumber': serialNumber,
+                              'serialNumber': widget.serialNumber,
                             },
                             extra: ServiceHistoryArgs(
-                              model: model,
-                              serialNumber: serialNumber,
+                              model: widget.model,
+                              serialNumber: widget.serialNumber,
+                              printerId: widget.printerId,
                             ),
                           ),
                           icon: const Icon(Icons.history_rounded, size: 18),
@@ -485,6 +634,14 @@ class PrinterDetailScreen extends StatelessWidget {
         ),
       ),
     );
+  }
+
+  String _formatDate(DateTime date) {
+    final List<String> monthNames = <String>[
+      'Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun',
+      'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'
+    ];
+    return '${date.day.toString().padLeft(2, '0')} de ${monthNames[date.month - 1]}, ${date.year}';
   }
 
   static void _showQrDialog(
@@ -579,16 +736,6 @@ class PrinterDetailScreen extends StatelessWidget {
           ),
         );
       },
-    );
-  }
-
-  static void _showMockSnack(BuildContext context, String message) {
-    ScaffoldMessenger.of(context).hideCurrentSnackBar();
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message),
-        behavior: SnackBarBehavior.floating,
-      ),
     );
   }
 

@@ -35,15 +35,13 @@ class _QuickAddPrinterScreenState extends State<QuickAddPrinterScreen> {
 
   List<String> _clientOptions = <String>[];
   List<String> _plantOptions = <String>[];
-  List<String> _areaOptions = <String>[];
 
   late Map<String, String> _clientMap; // nombre -> id
   late Map<String, String> _plantMap; // nombre -> id
-  late Map<String, String> _areaMap;  // nombre -> id
 
   String? _selectedClient;
   String? _selectedPlant;
-  String? _selectedArea;
+  final TextEditingController _areaController = TextEditingController();
   bool _isSaving = false;
   bool _loading = true;
 
@@ -57,7 +55,6 @@ class _QuickAddPrinterScreenState extends State<QuickAddPrinterScreen> {
     try {
       await _loadClients();
       await _loadPlants();
-      await _loadAreas();
       if (mounted) setState(() => _loading = false);
     } catch (_) {
       if (mounted) setState(() => _loading = false);
@@ -104,29 +101,12 @@ class _QuickAddPrinterScreenState extends State<QuickAddPrinterScreen> {
     }
   }
 
-  Future<void> _loadAreas() async {
-    final List<Area> areas = await widget.database.select(widget.database.areas).get();
-    final Map<String, String> map = <String, String>{};
-    final List<String> options = <String>[];
-
-    for (final Area area in areas) {
-      map[area.name] = area.id;
-      options.add(area.name);
-    }
-
-    if (mounted) {
-      setState(() {
-        _areaMap = map;
-        _areaOptions = options..sort();
-      });
-    }
-  }
-
   @override
   void dispose() {
     _serialController.dispose();
     _modelController.dispose();
     _modelFocusNode.dispose();
+    _areaController.dispose();
     super.dispose();
   }
 
@@ -202,19 +182,15 @@ class _QuickAddPrinterScreenState extends State<QuickAddPrinterScreen> {
                           },
                         ),
                         const SizedBox(height: 12),
-                        DropdownButtonFormField<String>(
-                          initialValue: _selectedArea,
-                          items: _buildItems(_areaOptions),
+                        TextFormField(
+                          controller: _areaController,
+                          textInputAction: TextInputAction.next,
                           decoration: const InputDecoration(
                             labelText: 'Area',
+                            hintText: 'Ejemplo: Línea de Empaque',
                             prefixIcon: Icon(Icons.place_rounded),
                           ),
-                          validator: _requiredDropdownValidator,
-                          onChanged: (String? value) {
-                            setState(() {
-                              _selectedArea = value;
-                            });
-                          },
+                          validator: _requiredTextValidator,
                         ),
                       ],
                     ),
@@ -382,7 +358,7 @@ class _QuickAddPrinterScreenState extends State<QuickAddPrinterScreen> {
     final String modelInput = _modelController.text.trim();
     final String clientName = _selectedClient!.trim();
     final String plantName = _selectedPlant!.trim();
-    final String areaName = _selectedArea!.trim();
+    final String areaName = _areaController.text.trim();
 
     setState(() {
       _isSaving = true;
@@ -394,12 +370,17 @@ class _QuickAddPrinterScreenState extends State<QuickAddPrinterScreen> {
 
       final String? clientId = _clientMap[clientName];
       final String? plantId = _plantMap[plantName];
-      final String? areaId = _areaMap[areaName];
 
-      if (clientId == null || plantId == null || areaId == null) {
+      if (clientId == null || plantId == null) {
         _showErrorSnackBar('Datos incompletos en la base de datos');
         return;
       }
+
+      // Busca área existente por nombre; si no existe, genera un ID nuevo
+      final Area? existingArea = await (widget.database.select(widget.database.areas)
+            ..where((a) => a.name.equals(areaName)))
+          .getSingleOrNull();
+      final String areaId = existingArea?.id ?? _uuid.v4();
 
       await widget.database.transaction(() async {
         await widget.database.into(widget.database.clients).insertOnConflictUpdate(
@@ -428,6 +409,14 @@ class _QuickAddPrinterScreenState extends State<QuickAddPrinterScreen> {
 
         final String modelId = await _resolveModelId(modelInput);
 
+        // Generar código legible para la impresora
+        final int printerCount =
+            await (widget.database.select(widget.database.printers))
+                .get()
+                .then((List<Printer> l) => l.length);
+        final String printerCode =
+            'I-${(printerCount + 1).toString().padLeft(3, '0')}';
+
         await widget.database.into(widget.database.printers).insert(
               PrintersCompanion.insert(
                 id: printerId,
@@ -438,6 +427,7 @@ class _QuickAddPrinterScreenState extends State<QuickAddPrinterScreen> {
                 areaId: areaId,
                 modelId: modelId,
                 isActive: const drift.Value(true),
+                code: drift.Value(printerCode),
               ),
             );
       });
