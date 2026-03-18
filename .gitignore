@@ -10,3 +10,19 @@ coverage/
 
 # Generated files
 lib/data/local/app_database.g.dart
+
+# Admin web
+admin-web/node_modules/
+admin-web/dist/
+
+# Server
+server/venv/
+server/__pycache__/
+server/**/__pycache__/
+server/uploads/
+server/*.db
+
+# Agents/skills (machine-specific)
+.claude/agents/
+.claude/skills/
+.claude/commands/

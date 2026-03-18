@@ -19,7 +19,18 @@
       "Bash(flutter analyze:*)",
       "Bash(flutter build:*)",
       "Bash(copy \"C:\\\\Users\\\\Victor\\\\Documents\\\\app\\\\.claude\\\\worktrees\\\\eloquent-tesla\\\\build\\\\app\\\\outputs\\\\flutter-apk\\\\app-debug.apk\" \"C:\\\\Users\\\\Victor\\\\Desktop\\\\app-sprint1-final.apk\")",
-      "Bash(copy \"C:\\\\Users\\\\Victor\\\\Documents\\\\app\\\\.claude\\\\worktrees\\\\eloquent-tesla\\\\build\\\\app\\\\outputs\\\\flutter-apk\\\\app-debug.apk\" \"C:\\\\Users\\\\Victor\\\\Desktop\\\\servicios_mainpc_v3.apk\")"
+      "Bash(copy \"C:\\\\Users\\\\Victor\\\\Documents\\\\app\\\\.claude\\\\worktrees\\\\eloquent-tesla\\\\build\\\\app\\\\outputs\\\\flutter-apk\\\\app-debug.apk\" \"C:\\\\Users\\\\Victor\\\\Desktop\\\\servicios_mainpc_v3.apk\")",
+      "Bash(mkdir:*)",
+      "Bash(python3:*)",
+      "Bash(py:*)",
+      "Bash(cd:*)",
+      "Bash(cp \"C:\\\\Users\\\\Victor\\\\.claude\\\\plans\\\\serene-wobbling-frog.md\" \"C:\\\\Users\\\\Victor\\\\Documents\\\\app\\\\.claude\\\\worktrees\\\\eloquent-tesla\\\\.claude\\\\context\\\\project-status.md\")",
+      "Bash(cp \"C:\\\\Users\\\\Victor\\\\.claude\\\\plans\\\\sprint2-plan.md\" \"C:\\\\Users\\\\Victor\\\\Documents\\\\app\\\\.claude\\\\worktrees\\\\eloquent-tesla\\\\.claude\\\\context\\\\sprint2-plan.md\")",
+      "Bash(ls:*)",
+      "Bash(for f:*)",
+      "Bash(do echo:*)",
+      "Read(//c/Users/Victor/Documents/app/.claude/worktrees/eloquent-tesla/**)",
+      "Bash(done)"
     ]
   }
 }

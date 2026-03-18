@@ -325,11 +325,49 @@ class _SignatureScreenState extends ConsumerState<SignatureScreen> {
                 'notes': captureState.notes,
                 'signatureName': _signerNameController.text.trim(),
                 'signatureRole': _signerRoleController.text.trim(),
+                'photoPaths': captureState.photoPaths,
+                'signatureImagePath': signatureImagePath,
+                'photoCount': captureState.photoPaths.length,
+                'code': reportCode,
               }),
               entityType: 'report',
               entityId: reportId,
             ),
           );
+
+      // Encolar fotos
+      for (final String photoPath in captureState.photoPaths) {
+        await localDatabase.into(localDatabase.syncQueue).insert(
+          SyncQueueCompanion.insert(
+            id: const Uuid().v4(),
+            methodHttp: 'POST',
+            endpointDestino: '/api/files',
+            payloadJson: jsonEncode(<String, dynamic>{
+              'localPath': photoPath,
+              'fileCategory': 'photo',
+            }),
+            entityType: 'file',
+            entityId: reportId,
+          ),
+        );
+      }
+
+      // Encolar firma
+      if (signatureImagePath != null) {
+        await localDatabase.into(localDatabase.syncQueue).insert(
+          SyncQueueCompanion.insert(
+            id: const Uuid().v4(),
+            methodHttp: 'POST',
+            endpointDestino: '/api/files',
+            payloadJson: jsonEncode(<String, dynamic>{
+              'localPath': signatureImagePath,
+              'fileCategory': 'signature',
+            }),
+            entityType: 'signature',
+            entityId: reportId,
+          ),
+        );
+      }
 
       // Resetear estado de captura
       ref.read(captureProvider.notifier).resetCapture();
