@@ -1,8 +1,10 @@
+import 'package:drift/drift.dart' as drift;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:industrial_service_reports/core/router/app_routes.dart';
 import 'package:industrial_service_reports/core/router/route_args.dart';
+import 'package:industrial_service_reports/core/theme/app_palette.dart';
 import 'package:industrial_service_reports/data/local/app_database.dart';
 import 'package:industrial_service_reports/features/printers/providers/printer_inventory_provider.dart';
 
@@ -26,71 +28,102 @@ class PrinterInventoryScreen extends ConsumerStatefulWidget {
 
 class _PrinterInventoryScreenState
     extends ConsumerState<PrinterInventoryScreen> {
-  static const Color _screenBg = Color(0xFF0D1117);
-  static const Color _cardBg = Color(0xFF161B22);
-  static const Color _blueSoft = Color(0xFF8EC5FF);
-  static const Color _bronzeSoft = Color(0xFFC7A86B);
-  static const Color _orangeSoft = Color(0xFFF1A85A);
-
   final TextEditingController _searchController = TextEditingController();
+  List<_InventoryPrinter> _printers = <_InventoryPrinter>[];
+  bool _loading = true;
 
-  static const List<_InventoryPrinter> _mockPrinters = <_InventoryPrinter>[
-    _InventoryPrinter(
-      serialNumber: 'Z7J214500982',
-      model: 'ZT411',
-      dpi: 300,
-      client: 'Logistics Corp MX',
-      plant: 'Planta Norte',
-      area: 'Linea de Empaque A4',
-      contact: 'Juan Perez',
-      status: _InventoryStatus.inPolicy,
-    ),
-    _InventoryPrinter(
-      serialNumber: 'X5T338100214',
-      model: 'ZT610',
-      dpi: 600,
-      client: 'Beautyge Mexico',
-      plant: 'Sede Principal',
-      area: 'Empaque Final B2',
-      contact: 'Daniela Rios',
-      status: _InventoryStatus.noPolicy,
-    ),
-    _InventoryPrinter(
-      serialNumber: 'Q9M119430778',
-      model: 'ZD421',
-      dpi: 203,
-      client: 'Norte Industrial Group',
-      plant: 'Planta Sur',
-      area: 'Linea A1',
-      contact: 'Mariana Soto',
-      status: _InventoryStatus.inPolicy,
-    ),
-    _InventoryPrinter(
-      serialNumber: 'M2R446900531',
-      model: 'ZT231',
-      dpi: 300,
-      client: 'Empaques del Centro',
-      plant: 'Nave 2',
-      area: 'Recepcion de Material',
-      contact: 'Luis Torres',
-      status: _InventoryStatus.noPolicy,
-    ),
-    _InventoryPrinter(
-      serialNumber: 'B4K802200667',
-      model: 'ZT410',
-      dpi: 203,
-      client: 'Global Trade Operations',
-      plant: 'Monterrey Hub',
-      area: 'Linea C3',
-      contact: 'Paola Nunez',
-      status: _InventoryStatus.inPolicy,
-    ),
-  ];
+  @override
+  void initState() {
+    super.initState();
+    _loadPrinters();
+  }
 
   @override
   void dispose() {
     _searchController.dispose();
     super.dispose();
+  }
+
+  Future<void> _loadPrinters() async {
+    try {
+      final AppDatabase db = widget.database;
+      final List<_InventoryPrinter> results = <_InventoryPrinter>[];
+
+      final joinedResults = await (db.select(db.printers)
+            ..where((p) => p.isActive.isValue(true)))
+          .join(<drift.Join>[
+            drift.innerJoin(
+              db.catalogModels,
+              db.catalogModels.id.equalsExp(db.printers.modelId),
+            ),
+            drift.innerJoin(
+              db.clients,
+              db.clients.id.equalsExp(db.printers.clientId),
+            ),
+            drift.innerJoin(
+              db.plants,
+              db.plants.id.equalsExp(db.printers.plantId),
+            ),
+            drift.innerJoin(
+              db.areas,
+              db.areas.id.equalsExp(db.printers.areaId),
+            ),
+          ])
+          .get();
+
+      for (final row in joinedResults) {
+        final Printer printer = row.readTable(db.printers);
+        final CatalogModel model = row.readTable(db.catalogModels);
+        final Client client = row.readTable(db.clients);
+        final Plant plant = row.readTable(db.plants);
+        final Area area = row.readTable(db.areas);
+
+        final bool hasPolicy = await _checkActivePolicy(printer.id);
+
+        results.add(_InventoryPrinter(
+          printerId: printer.id,
+          serialNumber: printer.serialNumber,
+          model: model.modelName,
+          dpi: model.dpi,
+          client: client.name,
+          plant: plant.name,
+          area: area.name,
+          contact: plant.contactName ?? '',
+          status: hasPolicy ? _InventoryStatus.inPolicy : _InventoryStatus.noPolicy,
+        ));
+      }
+
+      if (mounted) {
+        setState(() {
+          _printers = results;
+          _loading = false;
+        });
+      }
+    } catch (_) {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  Future<bool> _checkActivePolicy(String printerId) async {
+    try {
+      final List<PolicyPrinter> policyPrinters =
+          await (widget.database.select(widget.database.policyPrinters)
+                ..where((pp) => pp.printerId.equals(printerId)))
+              .get();
+      if (policyPrinters.isEmpty) return false;
+
+      final List<String> policyIds =
+          policyPrinters.map((pp) => pp.policyId).toList();
+      final DateTime now = DateTime.now();
+      final List<Policy> activePolicies =
+          await (widget.database.select(widget.database.policies)
+                ..where(
+                    (p) => p.id.isIn(policyIds) & p.endDate.isBiggerOrEqualValue(now)))
+              .get();
+      return activePolicies.isNotEmpty;
+    } catch (_) {
+      return false;
+    }
   }
 
   @override
@@ -100,9 +133,9 @@ class _PrinterInventoryScreenState
     final List<_InventoryPrinter> results = _filteredResults(inventoryState);
 
     return Scaffold(
-      backgroundColor: _screenBg,
+      backgroundColor: AppPalette.backgroundDark,
       appBar: AppBar(
-        backgroundColor: _screenBg,
+        backgroundColor: AppPalette.backgroundDark,
         title: Row(
           children: const <Widget>[
             Icon(Icons.print_rounded, size: 22),
@@ -118,9 +151,9 @@ class _PrinterInventoryScreenState
             children: <Widget>[
               Container(
                 decoration: BoxDecoration(
-                  color: const Color(0xFF0F1722),
+                  color: AppPalette.surfaceDark,
                   borderRadius: BorderRadius.circular(26),
-                  border: Border.all(color: const Color(0xFF1F2937)),
+                  border: Border.all(color: AppPalette.surfaceDarkHighlight),
                 ),
                 child: TextField(
                   controller: _searchController,
@@ -193,61 +226,76 @@ class _PrinterInventoryScreenState
                 _buildEntityFilterChips(inventoryState),
               ],
               const SizedBox(height: 10),
-              Row(
-                children: <Widget>[
-                  Text(
-                    'RESULTADOS (${results.length})',
-                    style: const TextStyle(
-                      color: _bronzeSoft,
-                      fontSize: 13,
-                      fontWeight: FontWeight.w700,
-                      letterSpacing: 1.1,
-                      fontFamily: 'monospace',
-                    ),
-                  ),
-                  const Spacer(),
-                  SizedBox(
-                    height: 34,
-                    child: FilledButton.icon(
-                      onPressed: () => context.pushNamed(AppRoutes.quickAddPrinter),
-                      icon: const Icon(Icons.add_rounded, size: 18),
-                      label: const Text(
-                        'Agregar Impresora',
-                        style: TextStyle(
-                            fontSize: 12, fontWeight: FontWeight.w800),
+              if (_loading)
+                const Expanded(
+                  child: Center(child: CircularProgressIndicator()),
+                )
+              else ...<Widget>[
+                Row(
+                  children: <Widget>[
+                    Text(
+                      'RESULTADOS (${results.length})',
+                      style: const TextStyle(
+                        color: Colors.white60,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w700,
+                        letterSpacing: 1.1,
                       ),
                     ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 8),
-              Expanded(
-                child: ListView.separated(
-                  itemCount: results.length,
-                  separatorBuilder: (_, __) => const SizedBox(height: 10),
-                  itemBuilder: (BuildContext context, int index) {
-                    final _InventoryPrinter item = results[index];
-                    return _InventoryPrinterCard(
-                      printer: item,
-                      cardBg: _cardBg,
-                      blueSoft: _blueSoft,
-                      orangeSoft: _orangeSoft,
-                      onCreateReport: () => context.pushNamed(AppRoutes.capture),
-                      onViewDetail: () => context.pushNamed(
-                        AppRoutes.printerDetail,
-                        pathParameters: <String, String>{
-                          'serialNumber': item.serialNumber,
-                        },
-                        extra: PrinterDetailArgs(
-                          serialNumber: item.serialNumber,
-                          model: item.model,
-                          client: item.client,
+                    const Spacer(),
+                    SizedBox(
+                      height: 34,
+                      child: FilledButton.icon(
+                        onPressed: () =>
+                            context.pushNamed(AppRoutes.quickAddPrinter),
+                        icon: const Icon(Icons.add_rounded, size: 18),
+                        label: const Text(
+                          'Agregar Impresora',
+                          style: TextStyle(
+                              fontSize: 12, fontWeight: FontWeight.w800),
                         ),
                       ),
-                    );
-                  },
+                    ),
+                  ],
                 ),
-              ),
+                const SizedBox(height: 8),
+                Expanded(
+                  child: results.isEmpty
+                      ? const Center(
+                          child: Text(
+                            'No hay impresoras para el filtro actual',
+                            style: TextStyle(color: Colors.white70),
+                          ),
+                        )
+                      : ListView.separated(
+                          itemCount: results.length,
+                          separatorBuilder: (_, __) =>
+                              const SizedBox(height: 10),
+                          itemBuilder: (BuildContext context, int index) {
+                            final _InventoryPrinter item = results[index];
+                            return _InventoryPrinterCard(
+                              printer: item,
+                              onCreateReport: () => context.pushNamed(
+                                AppRoutes.capture,
+                                extra: CaptureArgs(printerId: item.printerId),
+                              ),
+                              onViewDetail: () => context.pushNamed(
+                                AppRoutes.printerDetail,
+                                pathParameters: <String, String>{
+                                  'serialNumber': item.serialNumber,
+                                },
+                                extra: PrinterDetailArgs(
+                                  printerId: item.printerId,
+                                  serialNumber: item.serialNumber,
+                                  model: item.model,
+                                  client: item.client,
+                                ),
+                              ),
+                            );
+                          },
+                        ),
+                ),
+              ],
             ],
           ),
         ),
@@ -283,7 +331,7 @@ class _PrinterInventoryScreenState
           p.contact.toLowerCase().contains(query);
     }
 
-    return _mockPrinters
+    return _printers
         .where((_InventoryPrinter p) =>
             matchesEntityFilter(p) && matchesQuery(p))
         .toList();
@@ -291,17 +339,17 @@ class _PrinterInventoryScreenState
 
   Widget _buildEntityFilterChips(PrinterInventoryState state) {
     final List<String> values = switch (state.selectedFilter) {
-      PrinterFilter.byClient => _mockPrinters
+      PrinterFilter.byClient => _printers
           .map((_InventoryPrinter p) => p.client)
           .toSet()
           .toList()
         ..sort(),
-      PrinterFilter.byPlant => _mockPrinters
+      PrinterFilter.byPlant => _printers
           .map((_InventoryPrinter p) => p.plant)
           .toSet()
           .toList()
         ..sort(),
-      PrinterFilter.byContact => _mockPrinters
+      PrinterFilter.byContact => _printers
           .map((_InventoryPrinter p) => p.contact)
           .toSet()
           .toList()
@@ -330,9 +378,9 @@ class _PrinterInventoryScreenState
                   .read(printerInventoryProvider.notifier)
                   .setContactFilter(null);
             },
-            selectedColor: const Color(0xFF2D3D52),
-            backgroundColor: const Color(0xFF1A2029),
-            side: const BorderSide(color: Color(0xFF2A3342)),
+            selectedColor: AppPalette.primary,
+            backgroundColor: AppPalette.surfaceDark,
+            side: const BorderSide(color: AppPalette.surfaceDarkHighlight),
             labelStyle: const TextStyle(
               color: Colors.white,
               fontWeight: FontWeight.w700,
@@ -369,9 +417,13 @@ class _PrinterInventoryScreenState
                       break;
                   }
                 },
-                selectedColor: const Color(0xFF2D3D52),
-                backgroundColor: const Color(0xFF1A2029),
-                side: const BorderSide(color: Color(0xFF2A3342)),
+                selectedColor: AppPalette.primary,
+                backgroundColor: AppPalette.surfaceDark,
+                side: BorderSide(
+                  color: selected
+                      ? AppPalette.primary
+                      : AppPalette.surfaceDarkHighlight,
+                ),
                 labelStyle: const TextStyle(
                   color: Colors.white,
                   fontWeight: FontWeight.w700,
@@ -402,10 +454,10 @@ class _InventoryChip extends StatelessWidget {
       label: Text(label),
       selected: selected,
       onSelected: (_) => onTap(),
-      selectedColor: const Color(0xFF136DEC),
-      backgroundColor: const Color(0xFF1A2029),
+      selectedColor: AppPalette.primary,
+      backgroundColor: AppPalette.surfaceDark,
       side: BorderSide(
-        color: selected ? const Color(0xFF136DEC) : const Color(0xFF2A3342),
+        color: selected ? AppPalette.primary : AppPalette.surfaceDarkHighlight,
       ),
       labelStyle: const TextStyle(
         color: Colors.white,
@@ -418,17 +470,11 @@ class _InventoryChip extends StatelessWidget {
 class _InventoryPrinterCard extends StatelessWidget {
   const _InventoryPrinterCard({
     required this.printer,
-    required this.cardBg,
-    required this.blueSoft,
-    required this.orangeSoft,
     required this.onCreateReport,
     required this.onViewDetail,
   });
 
   final _InventoryPrinter printer;
-  final Color cardBg;
-  final Color blueSoft;
-  final Color orangeSoft;
   final VoidCallback onCreateReport;
   final VoidCallback onViewDetail;
 
@@ -442,9 +488,9 @@ class _InventoryPrinterCard extends StatelessWidget {
 
     return Container(
       decoration: BoxDecoration(
-        color: cardBg,
+        color: AppPalette.surfaceDark,
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: const Color(0xFF26303E)),
+        border: Border.all(color: AppPalette.surfaceDarkHighlight),
       ),
       child: Padding(
         padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
@@ -517,7 +563,7 @@ class _InventoryPrinterCard extends StatelessWidget {
                   child: _DetailPair(
                     label: 'MODELO / DPI',
                     value: '${printer.model} (${printer.dpi} dpi)',
-                    valueColor: blueSoft,
+                    valueColor: AppPalette.accentBlue,
                   ),
                 ),
                 const SizedBox(width: 12),
@@ -537,14 +583,14 @@ class _InventoryPrinterCard extends StatelessWidget {
                 Icon(
                   Icons.location_on_outlined,
                   size: 18,
-                  color: hasPolicy ? Colors.white70 : orangeSoft,
+                  color: hasPolicy ? Colors.white70 : const Color(0xFFF1A85A),
                 ),
                 const SizedBox(width: 6),
                 Expanded(
                   child: Text(
                     '${printer.plant} - ${printer.area}',
                     style: TextStyle(
-                      color: hasPolicy ? Colors.white : orangeSoft,
+                      color: hasPolicy ? Colors.white : const Color(0xFFF1A85A),
                       fontWeight: FontWeight.w600,
                     ),
                   ),
@@ -561,7 +607,7 @@ class _InventoryPrinterCard extends StatelessWidget {
                       onPressed: onCreateReport,
                       icon: const Icon(Icons.note_alt_rounded, size: 18),
                       style: FilledButton.styleFrom(
-                        backgroundColor: const Color(0xFF136DEC),
+                        backgroundColor: AppPalette.primary,
                         foregroundColor: Colors.white,
                       ),
                       label: const Text(
@@ -582,7 +628,7 @@ class _InventoryPrinterCard extends StatelessWidget {
                       onPressed: onViewDetail,
                       icon: const Icon(Icons.visibility_outlined, size: 18),
                       style: FilledButton.styleFrom(
-                        backgroundColor: const Color(0xFF2A3342),
+                        backgroundColor: AppPalette.surfaceDarkHighlight,
                         foregroundColor: Colors.white,
                       ),
                       label: const Text(
@@ -645,6 +691,7 @@ class _DetailPair extends StatelessWidget {
 @immutable
 class _InventoryPrinter {
   const _InventoryPrinter({
+    required this.printerId,
     required this.serialNumber,
     required this.model,
     required this.dpi,
@@ -655,6 +702,7 @@ class _InventoryPrinter {
     required this.status,
   });
 
+  final String printerId;
   final String serialNumber;
   final String model;
   final int dpi;

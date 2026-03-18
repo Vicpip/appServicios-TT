@@ -11,9 +11,11 @@ class QuickAddPrinterScreen extends StatefulWidget {
   const QuickAddPrinterScreen({
     super.key,
     required this.database,
+    this.initialClientId,
   });
 
   final AppDatabase database;
+  final String? initialClientId;
 
   @override
   State<QuickAddPrinterScreen> createState() => _QuickAddPrinterScreenState();
@@ -26,55 +28,86 @@ class _QuickAddPrinterScreenState extends State<QuickAddPrinterScreen> {
     'ZD421 - 203dpi',
     '105SL Plus',
   ];
-  static const Map<String, String> _mockClientIds = <String, String>{
-    'Beautyge Mexico': '10000000-0000-0000-0000-000000000001',
-    'Generic Client': '10000000-0000-0000-0000-000000000002',
-  };
-  static const Map<String, String> _mockPlantIds = <String, String>{
-    'Nave 1': '20000000-0000-0000-0000-000000000001',
-    'Nave 2': '20000000-0000-0000-0000-000000000002',
-    'Principal': '20000000-0000-0000-0000-000000000003',
-  };
-  static const Map<String, String> _mockAreaIds = <String, String>{
-    'Linea de Empaque': '30000000-0000-0000-0000-000000000001',
-    'Almacen': '30000000-0000-0000-0000-000000000002',
-    'Recibo': '30000000-0000-0000-0000-000000000003',
-  };
-
-  static const List<String> _clientOptions = <String>[
-    'Beautyge Mexico',
-    'Generic Client',
-  ];
-
-  static const List<String> _plantOptions = <String>[
-    'Nave 1',
-    'Nave 2',
-    'Principal',
-  ];
-
-  static const List<String> _areaOptions = <String>[
-    'Linea de Empaque',
-    'Almacen',
-    'Recibo',
-  ];
 
   final GlobalKey<FormState> _formKey = GlobalKey<FormState>();
   final Uuid _uuid = const Uuid();
   final TextEditingController _serialController = TextEditingController();
   final TextEditingController _modelController = TextEditingController();
+  final TextEditingController _areaController = TextEditingController();
   final FocusNode _modelFocusNode = FocusNode();
+  final FocusNode _areaFocusNode = FocusNode();
 
-  String? _selectedClient;
-  String? _selectedPlant;
-  String? _selectedArea;
+  List<Client> _clients = <Client>[];
+  List<Plant> _plants = <Plant>[];
+  List<Area> _areas = <Area>[];
+  Client? _selectedClientObj;
+  Plant? _selectedPlantObj;
   bool _isSaving = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadClients();
+  }
 
   @override
   void dispose() {
     _serialController.dispose();
     _modelController.dispose();
+    _areaController.dispose();
     _modelFocusNode.dispose();
+    _areaFocusNode.dispose();
     super.dispose();
+  }
+
+  Future<void> _loadClients() async {
+    final List<Client> clients = await (widget.database.select(widget.database.clients)
+          ..where((c) => c.isActive.isValue(true)))
+        .get();
+
+    if (!mounted) return;
+
+    if (widget.initialClientId != null) {
+      final Client? preselected = clients
+          .where((c) => c.id == widget.initialClientId)
+          .firstOrNull;
+      if (preselected != null) {
+        setState(() {
+          _clients = clients;
+          _selectedClientObj = preselected;
+        });
+        await _loadPlants(preselected.id);
+        return;
+      }
+    }
+
+    setState(() => _clients = clients);
+  }
+
+  Future<void> _loadPlants(String clientId) async {
+    final List<Plant> plants = await (widget.database.select(widget.database.plants)
+          ..where((p) => p.clientId.equals(clientId)))
+        .get();
+
+    if (!mounted) return;
+    setState(() {
+      _plants = plants;
+      _selectedPlantObj = null;
+      _areas = <Area>[];
+    });
+    _areaController.clear();
+  }
+
+  Future<void> _loadAreas(String plantId) async {
+    final List<Area> areas = await (widget.database.select(widget.database.areas)
+          ..where((a) => a.plantId.equals(plantId)))
+        .get();
+
+    if (!mounted) return;
+    setState(() {
+      _areas = areas;
+    });
+    _areaController.clear();
   }
 
   @override
@@ -119,50 +152,61 @@ class _QuickAddPrinterScreenState extends State<QuickAddPrinterScreen> {
                         const SizedBox(height: 12),
                         _buildModelAutocompleteField(),
                         const SizedBox(height: 12),
-                        DropdownButtonFormField<String>(
-                          initialValue: _selectedClient,
-                          items: _buildItems(_clientOptions),
+                        DropdownButtonFormField<Client>(
+                          value: _selectedClientObj,
+                          items: _clients
+                              .map((Client c) => DropdownMenuItem<Client>(
+                                    value: c,
+                                    child: Text(c.name),
+                                  ))
+                              .toList(),
                           decoration: const InputDecoration(
                             labelText: 'Cliente',
                             prefixIcon: Icon(Icons.business_rounded),
                           ),
-                          validator: _requiredDropdownValidator,
-                          onChanged: (String? value) {
+                          validator: (Client? v) =>
+                              v == null ? 'Campo obligatorio' : null,
+                          onChanged: (Client? value) async {
                             setState(() {
-                              _selectedClient = value;
+                              _selectedClientObj = value;
+                              _plants = <Plant>[];
+                              _areas = <Area>[];
+                              _selectedPlantObj = null;
                             });
+                            _areaController.clear();
+                            if (value != null) {
+                              await _loadPlants(value.id);
+                            }
                           },
                         ),
                         const SizedBox(height: 12),
-                        DropdownButtonFormField<String>(
-                          initialValue: _selectedPlant,
-                          items: _buildItems(_plantOptions),
+                        DropdownButtonFormField<Plant>(
+                          value: _selectedPlantObj,
+                          items: _plants
+                              .map((Plant p) => DropdownMenuItem<Plant>(
+                                    value: p,
+                                    child: Text(p.name),
+                                  ))
+                              .toList(),
                           decoration: const InputDecoration(
                             labelText: 'Planta',
                             prefixIcon: Icon(Icons.factory_rounded),
                           ),
-                          validator: _requiredDropdownValidator,
-                          onChanged: (String? value) {
+                          validator: (Plant? v) =>
+                              v == null ? 'Campo obligatorio' : null,
+                          onChanged: (Plant? value) async {
                             setState(() {
-                              _selectedPlant = value;
+                              _selectedPlantObj = value;
+                              _areas = <Area>[];
                             });
+                            _areaController.clear();
+                            if (value != null) {
+                              await _loadAreas(value.id);
+                            }
                           },
                         ),
                         const SizedBox(height: 12),
-                        DropdownButtonFormField<String>(
-                          initialValue: _selectedArea,
-                          items: _buildItems(_areaOptions),
-                          decoration: const InputDecoration(
-                            labelText: 'Area',
-                            prefixIcon: Icon(Icons.place_rounded),
-                          ),
-                          validator: _requiredDropdownValidator,
-                          onChanged: (String? value) {
-                            setState(() {
-                              _selectedArea = value;
-                            });
-                          },
-                        ),
+                        _buildAreaAutocompleteField(),
                       ],
                     ),
                   ),
@@ -202,25 +246,7 @@ class _QuickAddPrinterScreenState extends State<QuickAddPrinterScreen> {
     );
   }
 
-  List<DropdownMenuItem<String>> _buildItems(List<String> options) {
-    return options
-        .map(
-          (String option) => DropdownMenuItem<String>(
-            value: option,
-            child: Text(option),
-          ),
-        )
-        .toList();
-  }
-
   String? _requiredTextValidator(String? value) {
-    if ((value ?? '').trim().isEmpty) {
-      return 'Campo obligatorio';
-    }
-    return null;
-  }
-
-  String? _requiredDropdownValidator(String? value) {
     if ((value ?? '').trim().isEmpty) {
       return 'Campo obligatorio';
     }
@@ -236,7 +262,6 @@ class _QuickAddPrinterScreenState extends State<QuickAddPrinterScreen> {
         if (query.isEmpty) {
           return _modelOptions;
         }
-
         return _modelOptions.where(
           (String option) => option.toLowerCase().contains(query),
         );
@@ -327,62 +352,31 @@ class _QuickAddPrinterScreenState extends State<QuickAddPrinterScreen> {
 
     final String serialNumber = _serialController.text.trim();
     final String modelInput = _modelController.text.trim();
-    final String clientName = _selectedClient!.trim();
-    final String plantName = _selectedPlant!.trim();
-    final String areaName = _selectedArea!.trim();
 
-    setState(() {
-      _isSaving = true;
-    });
+    setState(() => _isSaving = true);
 
     try {
       final String printerId = _uuid.v4();
       final String qrUuid = _uuid.v4();
 
-      final String clientId = _mockClientIds[clientName]!;
-      final String plantId = _mockPlantIds[plantName]!;
-      final String areaId = _mockAreaIds[areaName]!;
+      final String clientId = _selectedClientObj!.id;
+      final String plantId = _selectedPlantObj!.id;
+      final String areaId = await _resolveAreaId(_areaController.text.trim(), plantId);
 
-      await widget.database.transaction(() async {
-        await widget.database.into(widget.database.clients).insertOnConflictUpdate(
-              ClientsCompanion(
-                id: drift.Value(clientId),
-                name: drift.Value(clientName),
-                isActive: const drift.Value(true),
-              ),
-            );
+      final String modelId = await _resolveModelId(modelInput);
 
-        await widget.database.into(widget.database.plants).insertOnConflictUpdate(
-              PlantsCompanion(
-                id: drift.Value(plantId),
-                clientId: drift.Value(clientId),
-                name: drift.Value(plantName),
-              ),
-            );
-
-        await widget.database.into(widget.database.areas).insertOnConflictUpdate(
-              AreasCompanion(
-                id: drift.Value(areaId),
-                plantId: drift.Value(plantId),
-                name: drift.Value(areaName),
-              ),
-            );
-
-        final String modelId = await _resolveModelId(modelInput);
-
-        await widget.database.into(widget.database.printers).insert(
-              PrintersCompanion.insert(
-                id: printerId,
-                qrUuid: qrUuid,
-                serialNumber: serialNumber,
-                clientId: clientId,
-                plantId: plantId,
-                areaId: areaId,
-                modelId: modelId,
-                isActive: const drift.Value(true),
-              ),
-            );
-      });
+      await widget.database.into(widget.database.printers).insert(
+            PrintersCompanion.insert(
+              id: printerId,
+              qrUuid: qrUuid,
+              serialNumber: serialNumber,
+              clientId: clientId,
+              plantId: plantId,
+              areaId: areaId,
+              modelId: modelId,
+              isActive: const drift.Value(true),
+            ),
+          );
 
       if (!mounted) return;
 
@@ -410,16 +404,110 @@ class _QuickAddPrinterScreenState extends State<QuickAddPrinterScreen> {
       }
     } finally {
       if (mounted) {
-        setState(() {
-          _isSaving = false;
-        });
+        setState(() => _isSaving = false);
       }
     }
   }
 
+  Future<String> _resolveAreaId(String areaName, String plantId) async {
+    final existing = await (widget.database.select(widget.database.areas)
+          ..where((a) => a.plantId.equals(plantId) & a.name.equals(areaName)))
+        .getSingleOrNull();
+    if (existing != null) return existing.id;
+
+    final String areaId = _uuid.v4();
+    await widget.database.into(widget.database.areas).insert(
+          AreasCompanion.insert(id: areaId, plantId: plantId, name: areaName),
+        );
+    return areaId;
+  }
+
+  Widget _buildAreaAutocompleteField() {
+    return RawAutocomplete<String>(
+      textEditingController: _areaController,
+      focusNode: _areaFocusNode,
+      optionsBuilder: (TextEditingValue textEditingValue) {
+        final String query = textEditingValue.text.trim().toLowerCase();
+        final Iterable<String> names = _areas.map((Area a) => a.name);
+        if (query.isEmpty) return names;
+        return names.where((String n) => n.toLowerCase().contains(query));
+      },
+      onSelected: (String selectedOption) {
+        _areaController.text = selectedOption;
+      },
+      fieldViewBuilder: (
+        BuildContext context,
+        TextEditingController textEditingController,
+        FocusNode focusNode,
+        VoidCallback onFieldSubmitted,
+      ) {
+        return TextFormField(
+          controller: textEditingController,
+          focusNode: focusNode,
+          textInputAction: TextInputAction.next,
+          decoration: const InputDecoration(
+            labelText: 'Área',
+            hintText: 'Escribe o selecciona un área',
+            prefixIcon: Icon(Icons.place_rounded),
+          ),
+          validator: _requiredTextValidator,
+          onEditingComplete: () {
+            onFieldSubmitted();
+            focusNode.unfocus();
+          },
+        );
+      },
+      optionsViewBuilder: (
+        BuildContext context,
+        AutocompleteOnSelected<String> onSelected,
+        Iterable<String> options,
+      ) {
+        if (options.isEmpty) return const SizedBox.shrink();
+        return Align(
+          alignment: Alignment.topLeft,
+          child: Material(
+            color: Colors.transparent,
+            child: Container(
+              margin: const EdgeInsets.only(top: 6),
+              constraints: const BoxConstraints(maxHeight: 200, maxWidth: 828),
+              decoration: BoxDecoration(
+                color: AppPalette.surfaceDark,
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: AppPalette.surfaceDarkHighlight),
+              ),
+              child: ListView.builder(
+                padding: EdgeInsets.zero,
+                shrinkWrap: true,
+                itemCount: options.length,
+                itemBuilder: (BuildContext context, int index) {
+                  final String option = options.elementAt(index);
+                  return InkWell(
+                    onTap: () => onSelected(option),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 11,
+                      ),
+                      child: Text(
+                        option,
+                        style: const TextStyle(
+                          color: AppPalette.backgroundLight,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
   Future<String> _resolveModelId(String modelInput) async {
-    final ({String modelName, int dpi}) parsedModel =
-        _parseModelAndDpi(modelInput);
+    final ({String modelName, int dpi}) parsedModel = _parseModelAndDpi(modelInput);
 
     final existingModel = await (widget.database.select(widget.database.catalogModels)
           ..where(

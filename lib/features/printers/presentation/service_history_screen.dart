@@ -1,13 +1,17 @@
+import 'package:drift/drift.dart' as drift;
 import 'package:flutter/material.dart';
+import 'package:industrial_service_reports/data/local/app_database.dart';
 
 class ServiceHistoryScreen extends StatefulWidget {
   const ServiceHistoryScreen({
     super.key,
+    required this.database,
     required this.printerId,
     required this.model,
     required this.serialNumber,
   });
 
+  final AppDatabase database;
   final String printerId;
   final String model;
   final String serialNumber;
@@ -28,62 +32,98 @@ class _ServiceHistoryScreenState extends State<ServiceHistoryScreen> {
   static const Color _infoPillBorder = Color(0xFF2C3748);
   static const Color _accentBlue = Color(0xFF69AFFF);
 
-  static const List<_ServiceHistoryItem> _mockHistory = <_ServiceHistoryItem>[
-    _ServiceHistoryItem(
-      dateText: '12 Ago 2025',
-      reportId: '#REP-1042',
-      technician: 'Ing. Carlos M.',
-      notes:
-          'Se limpio sensor de ribbon, se ajusto presion de cabezal y se valido impresion continua sin errores.',
-      counterText: '1,450,200 in',
-      type: _ServiceType.preventivo,
-    ),
-    _ServiceHistoryItem(
-      dateText: '03 Jul 2025',
-      reportId: '#REP-1018',
-      technician: 'Ing. Laura R.',
-      notes:
-          'Correctivo por atasco recurrente en salida. Se reemplazo rodillo y se recalibraron sensores.',
-      counterText: '1,420,950 in',
-      type: _ServiceType.correctivo,
-    ),
-    _ServiceHistoryItem(
-      dateText: '22 May 2025',
-      reportId: '#REP-0986',
-      technician: 'Ing. Carlos M.',
-      notes:
-          'Diagnostico de fallas intermitentes en sensor de papel y pruebas de validacion con diferentes materiales.',
-      counterText: '1,398,410 in',
-      type: _ServiceType.diagnostico,
-    ),
-    _ServiceHistoryItem(
-      dateText: '09 Abr 2025',
-      reportId: '#REP-0943',
-      technician: 'Ing. Fernanda T.',
-      notes:
-          'Instalacion inicial en linea de produccion, calibracion de parametros y pruebas de rendimiento.',
-      counterText: '1,372,080 in',
-      type: _ServiceType.instalacion,
-    ),
-    _ServiceHistoryItem(
-      dateText: '18 Feb 2025',
-      reportId: '#REP-0891',
-      technician: 'Ing. Omar V.',
-      notes:
-          'Servicio preventivo de rutina. Se ejecutaron pruebas de impresion y verificacion de componentes.',
-      counterText: '1,340,300 in',
-      type: _ServiceType.preventivo,
-    ),
-  ];
-
+  List<_ServiceHistoryItem> _history = <_ServiceHistoryItem>[];
+  bool _loading = true;
   _ServiceType? _selectedFilter;
 
-  List<_ServiceHistoryItem> get _filteredHistory {
-    if (_selectedFilter == null) {
-      return _mockHistory;
+  @override
+  void initState() {
+    super.initState();
+    _loadHistory();
+  }
+
+  Future<void> _loadHistory() async {
+    try {
+      final db = widget.database;
+
+      final List<Report> reports = await (db.select(db.reports)
+            ..where((r) => r.printerId.equals(widget.printerId))
+            ..orderBy(<drift.OrderingTerm Function(Reports)>[
+              (r) => drift.OrderingTerm.desc(r.serviceDate),
+            ]))
+          .get();
+
+      final List<_ServiceHistoryItem> items = <_ServiceHistoryItem>[];
+
+      for (final Report report in reports) {
+        String techName = 'Sin datos';
+        final List<User> techRows = await (db.select(db.users)
+              ..where((u) => u.id.equals(report.techId)))
+            .get();
+        if (techRows.isNotEmpty) {
+          techName = techRows.first.name;
+        }
+
+        items.add(_ServiceHistoryItem(
+          dateText: _fmtDate(report.serviceDate),
+          reportId: '#${report.id.substring(0, 8).toUpperCase()}',
+          technician: techName,
+          notes: report.notes?.isNotEmpty == true
+              ? report.notes!
+              : 'Sin notas',
+          counterText: _fmtCounter(report.linearInchesCounter),
+          type: _typeFromString(report.serviceType),
+        ));
+      }
+
+      if (mounted) {
+        setState(() {
+          _history = items;
+          _loading = false;
+        });
+      }
+    } catch (_) {
+      if (mounted) setState(() => _loading = false);
     }
-    return _mockHistory
-        .where((_ServiceHistoryItem item) => item.type == _selectedFilter)
+  }
+
+  String _fmtDate(DateTime d) {
+    const List<String> meses = <String>[
+      'Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun',
+      'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic',
+    ];
+    return '${d.day.toString().padLeft(2, '0')} ${meses[d.month - 1]} ${d.year}';
+  }
+
+  String _fmtCounter(int v) {
+    final String s = v.toString();
+    final StringBuffer buf = StringBuffer();
+    int count = 0;
+    for (int i = s.length - 1; i >= 0; i--) {
+      if (count > 0 && count % 3 == 0) buf.write(',');
+      buf.write(s[i]);
+      count++;
+    }
+    return '${buf.toString().split('').reversed.join()} in';
+  }
+
+  _ServiceType _typeFromString(String s) {
+    switch (s.toLowerCase()) {
+      case 'correctivo':
+        return _ServiceType.correctivo;
+      case 'diagnostico':
+        return _ServiceType.diagnostico;
+      case 'instalacion':
+        return _ServiceType.instalacion;
+      default:
+        return _ServiceType.preventivo;
+    }
+  }
+
+  List<_ServiceHistoryItem> get _filteredHistory {
+    if (_selectedFilter == null) return _history;
+    return _history
+        .where((_ServiceHistoryItem i) => i.type == _selectedFilter)
         .toList();
   }
 
@@ -110,6 +150,7 @@ class _ServiceHistoryScreenState extends State<ServiceHistoryScreen> {
       body: SafeArea(
         child: Column(
           children: <Widget>[
+            // ── Header ──
             Container(
               margin: const EdgeInsets.fromLTRB(14, 10, 14, 12),
               padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
@@ -158,9 +199,9 @@ class _ServiceHistoryScreenState extends State<ServiceHistoryScreen> {
                   Column(
                     crossAxisAlignment: CrossAxisAlignment.end,
                     children: <Widget>[
-                      const Text(
-                        'Total: 12 servicios',
-                        style: TextStyle(
+                      Text(
+                        'Total: ${_history.length} servicios',
+                        style: const TextStyle(
                           color: _mutedText,
                           fontSize: 12,
                           fontWeight: FontWeight.w700,
@@ -180,163 +221,176 @@ class _ServiceHistoryScreenState extends State<ServiceHistoryScreen> {
                 ],
               ),
             ),
-            Expanded(
-              child: visibleItems.isEmpty
-                  ? const Center(
-                      child: Text(
-                        'No hay servicios para este filtro',
-                        style: TextStyle(
-                          color: Colors.white70,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    )
-                  : ListView.builder(
-                      padding: const EdgeInsets.fromLTRB(14, 0, 14, 18),
-                      itemCount: visibleItems.length,
-                      itemBuilder: (BuildContext context, int index) {
-                        final _ServiceHistoryItem item = visibleItems[index];
-                        final bool isLast = index == visibleItems.length - 1;
-                        final _TimelineStyle style = _styleFor(item.type);
 
-                        return Padding(
-                          padding: const EdgeInsets.only(bottom: 12),
-                          child: Row(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: <Widget>[
-                              SizedBox(
-                                width: 34,
-                                child: Column(
-                                  children: <Widget>[
-                                    Container(
-                                      width: 26,
-                                      height: 26,
-                                      decoration: BoxDecoration(
-                                        color: style.iconBg,
-                                        shape: BoxShape.circle,
-                                        border:
-                                            Border.all(color: style.iconBorder),
-                                      ),
-                                      child: Icon(
-                                        style.icon,
-                                        size: 15,
-                                        color: style.iconFg,
-                                      ),
+            // ── Lista ──
+            Expanded(
+              child: _loading
+                  ? const Center(child: CircularProgressIndicator())
+                  : visibleItems.isEmpty
+                      ? Center(
+                          child: Text(
+                            _history.isEmpty
+                                ? 'Sin historial de servicios'
+                                : 'No hay servicios para este filtro',
+                            style: const TextStyle(
+                              color: Colors.white70,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        )
+                      : ListView.builder(
+                          padding: const EdgeInsets.fromLTRB(14, 0, 14, 18),
+                          itemCount: visibleItems.length,
+                          itemBuilder: (BuildContext context, int index) {
+                            final _ServiceHistoryItem item =
+                                visibleItems[index];
+                            final bool isLast =
+                                index == visibleItems.length - 1;
+                            final _TimelineStyle style = _styleFor(item.type);
+
+                            return Padding(
+                              padding: const EdgeInsets.only(bottom: 12),
+                              child: Row(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: <Widget>[
+                                  SizedBox(
+                                    width: 34,
+                                    child: Column(
+                                      children: <Widget>[
+                                        Container(
+                                          width: 26,
+                                          height: 26,
+                                          decoration: BoxDecoration(
+                                            color: style.iconBg,
+                                            shape: BoxShape.circle,
+                                            border: Border.all(
+                                                color: style.iconBorder),
+                                          ),
+                                          child: Icon(
+                                            style.icon,
+                                            size: 15,
+                                            color: style.iconFg,
+                                          ),
+                                        ),
+                                        if (!isLast)
+                                          Container(
+                                            width: 2,
+                                            height: 148,
+                                            margin: const EdgeInsets.only(
+                                                top: 4),
+                                            color: _lineColor,
+                                          ),
+                                      ],
                                     ),
-                                    if (!isLast)
-                                      Container(
-                                        width: 2,
-                                        height: 132,
-                                        margin: const EdgeInsets.only(top: 4),
-                                        color: _lineColor,
-                                      ),
-                                  ],
-                                ),
-                              ),
-                              const SizedBox(width: 10),
-                              Expanded(
-                                child: Container(
-                                  padding:
-                                      const EdgeInsets.fromLTRB(12, 10, 12, 10),
-                                  decoration: BoxDecoration(
-                                    color: _cardBg,
-                                    borderRadius: BorderRadius.circular(12),
-                                    border: Border.all(color: _cardBorder),
                                   ),
-                                  child: Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: <Widget>[
-                                      Row(
+                                  const SizedBox(width: 10),
+                                  Expanded(
+                                    child: Container(
+                                      padding: const EdgeInsets.fromLTRB(
+                                          12, 10, 12, 10),
+                                      decoration: BoxDecoration(
+                                        color: _cardBg,
+                                        borderRadius:
+                                            BorderRadius.circular(12),
+                                        border:
+                                            Border.all(color: _cardBorder),
+                                      ),
+                                      child: Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
                                         children: <Widget>[
-                                          Text(
-                                            item.dateText,
-                                            style: const TextStyle(
-                                              color: Colors.white70,
-                                              fontSize: 13,
-                                              fontWeight: FontWeight.w700,
+                                          Row(
+                                            children: <Widget>[
+                                              Text(
+                                                item.dateText,
+                                                style: const TextStyle(
+                                                  color: Colors.white70,
+                                                  fontSize: 13,
+                                                  fontWeight: FontWeight.w700,
+                                                ),
+                                              ),
+                                              const Spacer(),
+                                              Text(
+                                                item.reportId,
+                                                style: const TextStyle(
+                                                  color: _accentBlue,
+                                                  fontSize: 14,
+                                                  fontWeight: FontWeight.w800,
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                          const SizedBox(height: 4),
+                                          Container(
+                                            padding: const EdgeInsets.symmetric(
+                                                horizontal: 8, vertical: 3),
+                                            decoration: BoxDecoration(
+                                              color: style.iconBg,
+                                              borderRadius:
+                                                  BorderRadius.circular(6),
+                                              border: Border.all(
+                                                  color: style.iconBorder),
+                                            ),
+                                            child: Text(
+                                              item.type.label,
+                                              style: TextStyle(
+                                                color: style.iconFg,
+                                                fontSize: 11,
+                                                fontWeight: FontWeight.w800,
+                                              ),
                                             ),
                                           ),
-                                          const Spacer(),
+                                          const SizedBox(height: 6),
                                           Text(
-                                            item.reportId,
+                                            item.technician,
                                             style: const TextStyle(
-                                              color: _accentBlue,
-                                              fontSize: 14,
-                                              fontWeight: FontWeight.w800,
+                                              color: _mutedText,
+                                              fontSize: 13,
+                                              fontWeight: FontWeight.w600,
+                                            ),
+                                          ),
+                                          const SizedBox(height: 8),
+                                          Text(
+                                            item.notes,
+                                            maxLines: 2,
+                                            overflow: TextOverflow.ellipsis,
+                                            style: const TextStyle(
+                                              color: Colors.white,
+                                              fontSize: 13,
+                                              height: 1.35,
+                                            ),
+                                          ),
+                                          const SizedBox(height: 10),
+                                          Container(
+                                            padding: const EdgeInsets.symmetric(
+                                              horizontal: 10,
+                                              vertical: 7,
+                                            ),
+                                            decoration: BoxDecoration(
+                                              color: _infoPillBg,
+                                              borderRadius:
+                                                  BorderRadius.circular(8),
+                                              border: Border.all(
+                                                  color: _infoPillBorder),
+                                            ),
+                                            child: Text(
+                                              'Contador: ${item.counterText}',
+                                              style: const TextStyle(
+                                                color: Colors.white70,
+                                                fontSize: 12,
+                                                fontWeight: FontWeight.w700,
+                                              ),
                                             ),
                                           ),
                                         ],
                                       ),
-                                      const SizedBox(height: 6),
-                                      Text(
-                                        item.technician,
-                                        style: const TextStyle(
-                                          color: _mutedText,
-                                          fontSize: 13,
-                                          fontWeight: FontWeight.w600,
-                                        ),
-                                      ),
-                                      const SizedBox(height: 8),
-                                      Text(
-                                        item.notes,
-                                        maxLines: 2,
-                                        overflow: TextOverflow.ellipsis,
-                                        style: const TextStyle(
-                                          color: Colors.white,
-                                          fontSize: 13,
-                                          height: 1.35,
-                                        ),
-                                      ),
-                                      const SizedBox(height: 10),
-                                      Container(
-                                        padding: const EdgeInsets.symmetric(
-                                          horizontal: 10,
-                                          vertical: 7,
-                                        ),
-                                        decoration: BoxDecoration(
-                                          color: _infoPillBg,
-                                          borderRadius:
-                                              BorderRadius.circular(8),
-                                          border: Border.all(
-                                            color: _infoPillBorder,
-                                          ),
-                                        ),
-                                        child: Text(
-                                          'Contador: ${item.counterText}',
-                                          style: const TextStyle(
-                                            color: Colors.white70,
-                                            fontSize: 12,
-                                            fontWeight: FontWeight.w700,
-                                          ),
-                                        ),
-                                      ),
-                                      const SizedBox(height: 6),
-                                      Align(
-                                        alignment: Alignment.centerRight,
-                                        child: TextButton(
-                                          onPressed: () => _showSnackBar(
-                                            context,
-                                            'Abriendo PDF de ${item.reportId} (mock)',
-                                          ),
-                                          child: const Text(
-                                            'Ver PDF',
-                                            style: TextStyle(
-                                              color: _accentBlue,
-                                              fontWeight: FontWeight.w800,
-                                            ),
-                                          ),
-                                        ),
-                                      ),
-                                    ],
+                                    ),
                                   ),
-                                ),
+                                ],
                               ),
-                            ],
-                          ),
-                        );
-                      },
-                    ),
+                            );
+                          },
+                        ),
             ),
           ],
         ),
@@ -371,20 +425,19 @@ class _ServiceHistoryScreenState extends State<ServiceHistoryScreen> {
                   Icons.filter_alt_outlined,
                   color: _selectedFilter == null ? _accentBlue : _mutedText,
                 ),
-                title: const Text(
-                  'Todos',
-                  style: TextStyle(color: Colors.white),
-                ),
+                title: const Text('Todos',
+                    style: TextStyle(color: Colors.white)),
                 trailing: Icon(
                   _selectedFilter == null
                       ? Icons.check_circle_rounded
                       : Icons.circle_outlined,
-                  color:
-                      _selectedFilter == null ? _accentBlue : const Color(0xFF6D7B90),
+                  color: _selectedFilter == null
+                      ? _accentBlue
+                      : const Color(0xFF6D7B90),
                 ),
                 onTap: () => Navigator.of(context).pop(null),
               ),
-              ..._ServiceType.values.map(( _ServiceType type) {
+              ..._ServiceType.values.map((_ServiceType type) {
                 final bool selected = _selectedFilter == type;
                 final _TimelineStyle style = _styleFor(type);
                 return ListTile(
@@ -396,21 +449,17 @@ class _ServiceHistoryScreenState extends State<ServiceHistoryScreen> {
                       shape: BoxShape.circle,
                       border: Border.all(color: style.iconBorder),
                     ),
-                    child: Icon(
-                      style.icon,
-                      size: 14,
-                      color: style.iconFg,
-                    ),
+                    child: Icon(style.icon, size: 14, color: style.iconFg),
                   ),
-                  title: Text(
-                    type.label,
-                    style: const TextStyle(color: Colors.white),
-                  ),
+                  title: Text(type.label,
+                      style: const TextStyle(color: Colors.white)),
                   trailing: Icon(
                     selected
                         ? Icons.check_circle_rounded
                         : Icons.circle_outlined,
-                    color: selected ? _accentBlue : const Color(0xFF6D7B90),
+                    color: selected
+                        ? _accentBlue
+                        : const Color(0xFF6D7B90),
                   ),
                   onTap: () => Navigator.of(context).pop(type),
                 );
@@ -423,13 +472,7 @@ class _ServiceHistoryScreenState extends State<ServiceHistoryScreen> {
     );
 
     if (!mounted) return;
-    setState(() {
-      _selectedFilter = result;
-    });
-    _showSnackBar(
-      context,
-      'Filtro activo: ${_selectedFilter?.label ?? 'Todos'}',
-    );
+    setState(() => _selectedFilter = result);
   }
 
   _TimelineStyle _styleFor(_ServiceType type) {
@@ -464,17 +507,9 @@ class _ServiceHistoryScreenState extends State<ServiceHistoryScreen> {
         );
     }
   }
-
-  static void _showSnackBar(BuildContext context, String message) {
-    ScaffoldMessenger.of(context).hideCurrentSnackBar();
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message),
-        behavior: SnackBarBehavior.floating,
-      ),
-    );
-  }
 }
+
+// ── Modelos ────────────────────────────────────────────────────────────────────
 
 enum _ServiceType {
   preventivo('Preventivo'),

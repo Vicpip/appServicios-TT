@@ -21,24 +21,6 @@ class ClientDetailScreen extends StatefulWidget {
 }
 
 class _ClientDetailScreenState extends State<ClientDetailScreen> {
-  static const List<_PrinterMockItem> _mockPrinters = <_PrinterMockItem>[
-    _PrinterMockItem(
-      model: 'Zebra ZT411',
-      serialNumber: '52J194200122',
-      status: _PrinterStatus.active,
-    ),
-    _PrinterMockItem(
-      model: 'Zebra ZT610',
-      serialNumber: '99J882310245',
-      status: _PrinterStatus.active,
-    ),
-    _PrinterMockItem(
-      model: 'Zebra ZD421',
-      serialNumber: '71K009830711',
-      status: _PrinterStatus.maintenance,
-    ),
-  ];
-
   bool _isDeleting = false;
 
   @override
@@ -134,7 +116,8 @@ class _ClientDetailScreenState extends State<ClientDetailScreen> {
                     children: <Widget>[
                       _PrintersTab(
                         database: widget.database,
-                        printers: _mockPrinters,
+                        clientId: widget.client.id,
+                        clientName: widget.client.name,
                       ),
                       const _EmptyTab(
                         icon: Icons.assignment_outlined,
@@ -460,48 +443,86 @@ class _CorporateInfoCard extends StatelessWidget {
 class _PrintersTab extends StatelessWidget {
   const _PrintersTab({
     required this.database,
-    required this.printers,
+    required this.clientId,
+    required this.clientName,
   });
 
   final AppDatabase database;
-  final List<_PrinterMockItem> printers;
+  final String clientId;
+  final String clientName;
 
   @override
   Widget build(BuildContext context) {
-    final int total = printers.length;
+    return StreamBuilder<List<drift.TypedResult>>(
+      stream: (database.select(database.printers)
+            ..where((p) => p.clientId.equals(clientId) & p.isActive.isValue(true)))
+          .join(<drift.Join>[
+            drift.innerJoin(
+              database.catalogModels,
+              database.catalogModels.id.equalsExp(database.printers.modelId),
+            ),
+          ])
+          .watch(),
+      builder: (BuildContext context, AsyncSnapshot<List<drift.TypedResult>> snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Center(child: CircularProgressIndicator());
+        }
 
-    return Column(
-      children: <Widget>[
-        Row(
+        final List<drift.TypedResult> results = snapshot.data ?? <drift.TypedResult>[];
+        final int total = results.length;
+
+        return Column(
           children: <Widget>[
-            Text(
-              'EQUIPOS REGISTRADOS ($total)',
-              style: const TextStyle(
-                color: Colors.white60,
-                fontWeight: FontWeight.w800,
-                letterSpacing: 1.1,
-                fontSize: 12,
+            Row(
+              children: <Widget>[
+                Text(
+                  'EQUIPOS REGISTRADOS ($total)',
+                  style: const TextStyle(
+                    color: Colors.white60,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: 1.1,
+                    fontSize: 12,
+                  ),
+                ),
+                const Spacer(),
+                FilledButton.icon(
+                  onPressed: () => context.pushNamed(
+                    AppRoutes.quickAddPrinter,
+                    extra: QuickAddPrinterArgs(initialClientId: clientId),
+                  ),
+                  icon: const Icon(Icons.add_rounded, size: 18),
+                  label: const Text('Nueva'),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            if (results.isEmpty)
+              const Expanded(
+                child: _EmptyTab(
+                  icon: Icons.print_outlined,
+                  message: 'No hay impresoras registradas aun',
+                ),
+              )
+            else
+              Expanded(
+                child: ListView.separated(
+                  itemCount: results.length,
+                  separatorBuilder: (_, __) => const SizedBox(height: 8),
+                  itemBuilder: (BuildContext context, int index) {
+                    final drift.TypedResult result = results[index];
+                    final Printer printer = result.readTable(database.printers);
+                    final CatalogModel model = result.readTable(database.catalogModels);
+                    return _PrinterCard(
+                      printer: printer,
+                      model: model,
+                      clientName: clientName,
+                    );
+                  },
+                ),
               ),
-            ),
-            const Spacer(),
-            FilledButton.icon(
-              onPressed: () => context.pushNamed(AppRoutes.quickAddPrinter),
-              icon: const Icon(Icons.add_rounded, size: 18),
-              label: const Text('Nueva'),
-            ),
           ],
-        ),
-        const SizedBox(height: 8),
-        Expanded(
-          child: ListView.separated(
-            itemCount: printers.length,
-            separatorBuilder: (_, __) => const SizedBox(height: 8),
-            itemBuilder: (BuildContext context, int index) {
-              return _PrinterCard(printer: printers[index]);
-            },
-          ),
-        ),
-      ],
+        );
+      },
     );
   }
 }
@@ -509,21 +530,16 @@ class _PrintersTab extends StatelessWidget {
 class _PrinterCard extends StatelessWidget {
   const _PrinterCard({
     required this.printer,
+    required this.model,
+    required this.clientName,
   });
 
-  final _PrinterMockItem printer;
+  final Printer printer;
+  final CatalogModel model;
+  final String clientName;
 
   @override
   Widget build(BuildContext context) {
-    final bool isActive = printer.status == _PrinterStatus.active;
-    final Color statusBg = isActive
-        ? AppPalette.successDark.withValues(alpha: 0.35)
-        : AppPalette.surfaceDarkHighlight.withValues(alpha: 0.55);
-    final Color statusBorder = isActive
-        ? AppPalette.success.withValues(alpha: 0.35)
-        : Colors.white24;
-    final Color statusText = isActive ? AppPalette.success : Colors.white54;
-
     return Card(
       color: AppPalette.surfaceDark,
       shape: RoundedRectangleBorder(
@@ -558,7 +574,7 @@ class _PrinterCard extends StatelessWidget {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: <Widget>[
                       Text(
-                        printer.model,
+                        '${model.modelName} - ${model.dpi}dpi',
                         style: const TextStyle(
                           color: AppPalette.backgroundLight,
                           fontWeight: FontWeight.w800,
@@ -580,14 +596,14 @@ class _PrinterCard extends StatelessWidget {
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 4),
                   decoration: BoxDecoration(
-                    color: statusBg,
+                    color: AppPalette.successDark.withValues(alpha: 0.35),
                     borderRadius: BorderRadius.circular(6),
-                    border: Border.all(color: statusBorder),
+                    border: Border.all(color: AppPalette.success.withValues(alpha: 0.35)),
                   ),
-                  child: Text(
-                    isActive ? 'ACTIVO' : 'MANTENIMIENTO',
+                  child: const Text(
+                    'ACTIVO',
                     style: TextStyle(
-                      color: statusText,
+                      color: AppPalette.success,
                       fontSize: 10,
                       fontWeight: FontWeight.w800,
                       height: 1,
@@ -603,35 +619,30 @@ class _PrinterCard extends StatelessWidget {
                   child: SizedBox(
                     height: 34,
                     child: ElevatedButton(
-                    onPressed: () {
-                      ScaffoldMessenger.of(context).hideCurrentSnackBar();
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(
-                          content: Text('Detalle de impresora en construccion'),
-                          behavior: SnackBarBehavior.floating,
+                      onPressed: () => context.pushNamed(
+                        AppRoutes.printerDetail,
+                        pathParameters: <String, String>{
+                          'serialNumber': printer.serialNumber,
+                        },
+                        extra: PrinterDetailArgs(
+                          printerId: printer.id,
+                          serialNumber: printer.serialNumber,
+                          model: model.modelName,
+                          client: clientName,
                         ),
-                      );
-                    },
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFF2A3342),
-                      foregroundColor: const Color(0xFFDCE3EF),
-                      elevation: 0,
-                      visualDensity: VisualDensity.compact,
-                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 10,
-                        vertical: 7,
                       ),
-                      textStyle: const TextStyle(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w700,
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFF2A3342),
+                        foregroundColor: const Color(0xFFDCE3EF),
+                        elevation: 0,
+                        visualDensity: VisualDensity.compact,
+                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+                        textStyle: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                       ),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(8),
-                      ),
+                      child: const Text('Ver Detalles'),
                     ),
-                    child: const Text('Ver Detalles'),
-                  ),
                   ),
                 ),
                 const SizedBox(width: 10),
@@ -639,27 +650,22 @@ class _PrinterCard extends StatelessWidget {
                   child: SizedBox(
                     height: 34,
                     child: ElevatedButton(
-                    onPressed: () => context.pushNamed(AppRoutes.capture),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: AppPalette.primary,
-                      foregroundColor: AppPalette.backgroundLight,
-                      elevation: 0,
-                      visualDensity: VisualDensity.compact,
-                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 10,
-                        vertical: 7,
+                      onPressed: () => context.pushNamed(
+                        AppRoutes.capture,
+                        extra: CaptureArgs(printerId: printer.id),
                       ),
-                      textStyle: const TextStyle(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w800,
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppPalette.primary,
+                        foregroundColor: AppPalette.backgroundLight,
+                        elevation: 0,
+                        visualDensity: VisualDensity.compact,
+                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+                        textStyle: const TextStyle(fontSize: 13, fontWeight: FontWeight.w800),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                       ),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(8),
-                      ),
+                      child: const Text('📝 Reporte'),
                     ),
-                    child: const Text('📝 Reporte'),
-                  ),
                   ),
                 ),
               ],
@@ -702,19 +708,3 @@ class _EmptyTab extends StatelessWidget {
   }
 }
 
-enum _PrinterStatus {
-  active,
-  maintenance,
-}
-
-class _PrinterMockItem {
-  const _PrinterMockItem({
-    required this.model,
-    required this.serialNumber,
-    required this.status,
-  });
-
-  final String model;
-  final String serialNumber;
-  final _PrinterStatus status;
-}

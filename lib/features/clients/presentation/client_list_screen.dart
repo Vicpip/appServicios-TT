@@ -167,6 +167,16 @@ class _ClientListScreenState extends ConsumerState<ClientListScreen> {
                 child: Row(
                   children: <Widget>[
                     _FilterChip(
+                      label: 'Todos',
+                      selected: listState.selectedFilter == ClientFilter.all,
+                      selectedColor: AppPalette.surfaceDarkHighlight,
+                      selectedBorderColor: AppPalette.backgroundLight,
+                      onTap: () => ref
+                          .read(clientListProvider.notifier)
+                          .setFilter(ClientFilter.all),
+                    ),
+                    const SizedBox(width: 8),
+                    _FilterChip(
                       label: 'Con Poliza Activa',
                       selected: listState.selectedFilter ==
                           ClientFilter.activePolicy,
@@ -242,6 +252,7 @@ class _ClientListScreenState extends ConsumerState<ClientListScreen> {
 
     return _clients.where((_ClientItem client) {
       final bool matchesFilter = switch (listState.selectedFilter) {
+        ClientFilter.all => true,
         ClientFilter.activePolicy => client.policies > 0,
         ClientFilter.noPolicy => client.status == _ClientStatus.noPolicy,
         ClientFilter.risk => client.status == _ClientStatus.risk,

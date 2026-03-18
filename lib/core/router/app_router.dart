@@ -92,6 +92,8 @@ final routerProvider = Provider<GoRouter>((ref) {
         builder: (_, state) {
           final PrinterDetailArgs args = state.extra! as PrinterDetailArgs;
           return PrinterDetailScreen(
+            database: localDatabase,
+            printerId: args.printerId,
             serialNumber: args.serialNumber,
             model: args.model,
             client: args.client,
@@ -104,10 +106,9 @@ final routerProvider = Provider<GoRouter>((ref) {
             builder: (_, state) {
               final ServiceHistoryArgs args =
                   state.extra! as ServiceHistoryArgs;
-              final String printerId =
-                  state.pathParameters['serialNumber'] ?? '';
               return ServiceHistoryScreen(
-                printerId: printerId,
+                database: localDatabase,
+                printerId: args.printerId,
                 model: args.model,
                 serialNumber: args.serialNumber,
               );
@@ -124,7 +125,13 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: '/printer-add',
         name: AppRoutes.quickAddPrinter,
-        builder: (_, __) => QuickAddPrinterScreen(database: localDatabase),
+        builder: (_, state) {
+          final QuickAddPrinterArgs? args = state.extra as QuickAddPrinterArgs?;
+          return QuickAddPrinterScreen(
+            database: localDatabase,
+            initialClientId: args?.initialClientId,
+          );
+        },
       ),
       GoRoute(
         path: '/capture',

@@ -1,5 +1,9 @@
+import 'package:drift/drift.dart' as drift;
 import 'package:flutter/material.dart';
 import 'package:industrial_service_reports/core/theme/app_palette.dart';
+import 'package:industrial_service_reports/data/local/app_database.dart';
+import 'package:industrial_service_reports/data/local/local_database.dart';
+import 'package:uuid/uuid.dart';
 
 enum _PolicyFilter {
   all,
@@ -17,6 +21,7 @@ enum PolicyStatus {
 @immutable
 class PolicySummary {
   const PolicySummary({
+    required this.policyId,
     required this.folio,
     required this.clientName,
     required this.startDate,
@@ -25,6 +30,7 @@ class PolicySummary {
     required this.status,
   });
 
+  final String policyId;
   final String folio;
   final String clientName;
   final String startDate;
@@ -41,51 +47,16 @@ class PolicyDashboardScreen extends StatefulWidget {
 }
 
 class _PolicyDashboardScreenState extends State<PolicyDashboardScreen> {
-  static const List<PolicySummary> _mockPolicies = <PolicySummary>[
-    PolicySummary(
-      folio: 'POL-2026-001',
-      clientName: 'Logística Global S.A.',
-      startDate: '01 Ene 2026',
-      endDate: '31 Dic 2026',
-      coveredPrinters: 15,
-      status: PolicyStatus.active,
-    ),
-    PolicySummary(
-      folio: 'POL-2025-118',
-      clientName: 'Beautyge Mexico',
-      startDate: '01 Jul 2025',
-      endDate: '15 Mar 2026',
-      coveredPrinters: 9,
-      status: PolicyStatus.expiring,
-    ),
-    PolicySummary(
-      folio: 'POL-2024-077',
-      clientName: 'Empaques del Centro',
-      startDate: '01 Ene 2024',
-      endDate: '31 Dic 2025',
-      coveredPrinters: 6,
-      status: PolicyStatus.expired,
-    ),
-    PolicySummary(
-      folio: 'POL-2026-014',
-      clientName: 'Norte Industrial Group',
-      startDate: '01 Feb 2026',
-      endDate: '31 Ene 2027',
-      coveredPrinters: 20,
-      status: PolicyStatus.active,
-    ),
-    PolicySummary(
-      folio: 'POL-2025-132',
-      clientName: 'Global Trade Operations',
-      startDate: '15 Ago 2025',
-      endDate: '30 Abr 2026',
-      coveredPrinters: 12,
-      status: PolicyStatus.expiring,
-    ),
-  ];
-
   final TextEditingController _searchController = TextEditingController();
   _PolicyFilter _selectedFilter = _PolicyFilter.all;
+  List<PolicySummary> _policies = <PolicySummary>[];
+  bool _loading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadPolicies();
+  }
 
   @override
   void dispose() {
@@ -93,10 +64,69 @@ class _PolicyDashboardScreenState extends State<PolicyDashboardScreen> {
     super.dispose();
   }
 
+  Future<void> _loadPolicies() async {
+    try {
+      final AppDatabase db = localDatabase;
+      final DateTime now = DateTime.now();
+      final DateTime soonThreshold = now.add(const Duration(days: 30));
+
+      final List<Policy> allPolicies = await db.select(db.policies).get();
+      final List<PolicySummary> summaries = <PolicySummary>[];
+
+      for (final Policy policy in allPolicies) {
+        final Client? client = await (db.select(db.clients)
+              ..where((c) => c.id.equals(policy.clientId)))
+            .getSingleOrNull();
+
+        final int coveredPrinters = await (db.select(db.policyPrinters)
+              ..where((pp) => pp.policyId.equals(policy.id)))
+            .get()
+            .then((list) => list.length);
+
+        final PolicyStatus status;
+        if (policy.endDate.isBefore(now)) {
+          status = PolicyStatus.expired;
+        } else if (policy.endDate.isBefore(soonThreshold)) {
+          status = PolicyStatus.expiring;
+        } else {
+          status = PolicyStatus.active;
+        }
+
+        summaries.add(PolicySummary(
+          policyId: policy.id,
+          folio: policy.folio,
+          clientName: client?.name ?? 'Cliente desconocido',
+          startDate: _formatDate(policy.startDate),
+          endDate: _formatDate(policy.endDate),
+          coveredPrinters: coveredPrinters,
+          status: status,
+        ));
+      }
+
+      if (mounted) {
+        setState(() {
+          _policies = summaries;
+          _loading = false;
+        });
+      }
+    } catch (_) {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  String _formatDate(DateTime date) {
+    const List<String> months = <String>[
+      'Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun',
+      'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic',
+    ];
+    final String day = date.day.toString().padLeft(2, '0');
+    return '$day ${months[date.month - 1]} ${date.year}';
+  }
+
   List<PolicySummary> _filteredPolicies() {
     final String query = _searchController.text.trim().toLowerCase();
 
-    return _mockPolicies.where((PolicySummary policy) {
+    return _policies.where((PolicySummary policy) {
       final bool matchesFilter = switch (_selectedFilter) {
         _PolicyFilter.all => true,
         _PolicyFilter.active => policy.status == PolicyStatus.active,
@@ -221,7 +251,9 @@ class _PolicyDashboardScreenState extends State<PolicyDashboardScreen> {
               ),
               const SizedBox(height: 12),
               Expanded(
-                child: policies.isEmpty
+                child: _loading
+                    ? const Center(child: CircularProgressIndicator())
+                    : policies.isEmpty
                     ? const Center(
                         child: Text(
                           'No hay pólizas para el filtro actual',
@@ -247,12 +279,15 @@ class _PolicyDashboardScreenState extends State<PolicyDashboardScreen> {
       floatingActionButton: FloatingActionButton.large(
         backgroundColor: AppPalette.primary,
         foregroundColor: AppPalette.backgroundLight,
-        onPressed: () {
-          Navigator.of(context).push(
-            MaterialPageRoute<void>(
-              builder: (_) => const AddPolicyScreen(),
+        onPressed: () async {
+          final bool? result = await Navigator.of(context).push<bool>(
+            MaterialPageRoute<bool>(
+              builder: (_) => AddPolicyScreen(database: localDatabase),
             ),
           );
+          if (result == true) {
+            _loadPolicies();
+          }
         },
         child: const Icon(Icons.add_rounded, size: 34),
       ),
@@ -352,7 +387,10 @@ class _PolicyCard extends StatelessWidget {
         onTap: () {
           Navigator.of(context).push(
             MaterialPageRoute<void>(
-              builder: (_) => PolicyDetailScreen(policy: policy),
+              builder: (_) => PolicyDetailScreen(
+            policy: policy,
+            database: localDatabase,
+          ),
             ),
           );
         },
@@ -508,26 +546,16 @@ class _PolicyStatusStyle {
 class AddPolicyScreen extends StatefulWidget {
   const AddPolicyScreen({
     super.key,
-    this.policy,
+    required this.database,
   });
 
-  final PolicySummary? policy;
-
-  bool get isEditMode => policy != null;
+  final AppDatabase database;
 
   @override
   State<AddPolicyScreen> createState() => _AddPolicyScreenState();
 }
 
 class _AddPolicyScreenState extends State<AddPolicyScreen> {
-  static const List<String> _clientOptions = <String>[
-    'Logística Global S.A.',
-    'Beautyge Mexico',
-    'Empaques del Centro',
-    'Norte Industrial Group',
-    'Global Trade Operations',
-  ];
-
   static const List<String> _coverageOptions = <String>[
     'Básica',
     'Extendida',
@@ -546,22 +574,25 @@ class _AddPolicyScreenState extends State<AddPolicyScreen> {
   final TextEditingController _folioController = TextEditingController();
   final TextEditingController _startDateController = TextEditingController();
   final TextEditingController _endDateController = TextEditingController();
+  final Uuid _uuid = const Uuid();
 
-  String? _selectedClient;
+  List<Client> _clients = <Client>[];
+  List<_PrinterOption> _availablePrinters = <_PrinterOption>[];
+  final Set<String> _selectedPrinterIds = <String>{};
+
+  Client? _selectedClientObj;
   String? _selectedCoverage;
   String? _selectedFrequency;
   DateTime? _startDate;
   DateTime? _endDate;
-
-  final List<_PolicyPrinterItem> _selectedPrinters = <_PolicyPrinterItem>[
-    const _PolicyPrinterItem(model: 'Zebra ZT411', serial: '52J194200122'),
-    const _PolicyPrinterItem(model: 'Zebra ZD421', serial: '21C203301045'),
-  ];
+  bool _isSaving = false;
 
   @override
   void initState() {
     super.initState();
-    _initializeForm();
+    _selectedCoverage = _coverageOptions[1];
+    _selectedFrequency = _frequencyOptions[2];
+    _loadClients();
   }
 
   @override
@@ -572,45 +603,51 @@ class _AddPolicyScreenState extends State<AddPolicyScreen> {
     super.dispose();
   }
 
-  void _initializeForm() {
-    if (!widget.isEditMode) {
-      _folioController.text = 'POL-2026-001';
-      _selectedClient = _clientOptions.first;
-      _selectedCoverage = _coverageOptions[1];
-      _selectedFrequency = _frequencyOptions[2];
-      _startDate = DateTime(2026, 1, 1);
-      _endDate = DateTime(2026, 12, 31);
-      _startDateController.text = _formatDate(_startDate);
-      _endDateController.text = _formatDate(_endDate);
-      return;
+  Future<void> _loadClients() async {
+    final List<Client> clients = await (widget.database.select(widget.database.clients)
+          ..where((c) => c.isActive.isValue(true)))
+        .get();
+    if (mounted) setState(() => _clients = clients);
+  }
+
+  Future<void> _loadPrintersForClient(String clientId) async {
+    final List<_PrinterOption> options = <_PrinterOption>[];
+    final results = await (widget.database.select(widget.database.printers)
+          ..where(
+            (p) => p.clientId.equals(clientId) & p.isActive.isValue(true),
+          ))
+        .join(<drift.Join>[
+          drift.innerJoin(
+            widget.database.catalogModels,
+            widget.database.catalogModels.id
+                .equalsExp(widget.database.printers.modelId),
+          ),
+        ])
+        .get();
+
+    for (final r in results) {
+      final Printer printer = r.readTable(widget.database.printers);
+      final CatalogModel model = r.readTable(widget.database.catalogModels);
+      options.add(_PrinterOption(
+        printerId: printer.id,
+        label: '${model.modelName} - ${model.dpi}dpi',
+        serial: printer.serialNumber,
+      ));
     }
 
-    final PolicySummary policy = widget.policy!;
-    _folioController.text = policy.folio;
-    _selectedClient = policy.clientName;
-    _selectedCoverage = 'Extendida';
-    _selectedFrequency = _frequencyOptions[2];
-    _startDateController.text = policy.startDate;
-    _endDateController.text = policy.endDate;
+    if (mounted) {
+      setState(() {
+        _availablePrinters = options;
+        _selectedPrinterIds.clear();
+      });
+    }
   }
 
   @override
   Widget build(BuildContext context) {
-    final String title = widget.isEditMode
-        ? 'Editar Póliza de Mantenimiento'
-        : 'Nueva Póliza de Mantenimiento';
-
     return Scaffold(
       appBar: AppBar(
-        title: Text(title),
-        actions: <Widget>[
-          if (widget.isEditMode)
-            IconButton(
-              tooltip: 'Eliminar póliza',
-              onPressed: _confirmDelete,
-              icon: const Icon(Icons.delete_outline_rounded, color: Color(0xFFE57373)),
-            ),
-        ],
+        title: const Text('Nueva Póliza de Mantenimiento'),
       ),
       body: SafeArea(
         child: Form(
@@ -637,25 +674,29 @@ class _AddPolicyScreenState extends State<AddPolicyScreen> {
                             validator: _requiredValidator,
                           ),
                           const SizedBox(height: 12),
-                          DropdownButtonFormField<String>(
-                            initialValue: _selectedClient,
+                          DropdownButtonFormField<Client>(
+                            value: _selectedClientObj,
                             decoration: const InputDecoration(
                               labelText: 'Cliente',
                               prefixIcon: Icon(Icons.business_rounded),
                             ),
-                            items: _clientOptions
+                            items: _clients
                                 .map(
-                                  (String client) => DropdownMenuItem<String>(
-                                    value: client,
-                                    child: Text(client),
+                                  (Client c) => DropdownMenuItem<Client>(
+                                    value: c,
+                                    child: Text(c.name),
                                   ),
                                 )
                                 .toList(),
-                            validator: _requiredDropdownValidator,
-                            onChanged: (String? value) {
+                            validator: (Client? v) =>
+                                v == null ? 'Seleccione una opción' : null,
+                            onChanged: (Client? value) async {
                               setState(() {
-                                _selectedClient = value;
+                                _selectedClientObj = value;
                               });
+                              if (value != null) {
+                                await _loadPrintersForClient(value.id);
+                              }
                             },
                           ),
                           const SizedBox(height: 12),
@@ -675,9 +716,7 @@ class _AddPolicyScreenState extends State<AddPolicyScreen> {
                                 .toList(),
                             validator: _requiredDropdownValidator,
                             onChanged: (String? value) {
-                              setState(() {
-                                _selectedCoverage = value;
-                              });
+                              setState(() => _selectedCoverage = value);
                             },
                           ),
                         ],
@@ -748,9 +787,7 @@ class _AddPolicyScreenState extends State<AddPolicyScreen> {
                                 .toList(),
                             validator: _requiredDropdownValidator,
                             onChanged: (String? value) {
-                              setState(() {
-                                _selectedFrequency = value;
-                              });
+                              setState(() => _selectedFrequency = value);
                             },
                           ),
                           const SizedBox(height: 8),
@@ -769,52 +806,52 @@ class _AddPolicyScreenState extends State<AddPolicyScreen> {
                     _SectionCard(
                       title: 'IMPRESORAS EN CONTRATO',
                       icon: Icons.print_rounded,
-                      action: SizedBox(
-                        height: 32,
-                        child: FilledButton.icon(
-                          onPressed: _onAddMockPrinter,
-                          icon: const Icon(Icons.add_rounded, size: 16),
-                          label: const Text(
-                            'Agregar Equipos',
-                            style: TextStyle(fontWeight: FontWeight.w800, fontSize: 12),
-                          ),
-                        ),
-                      ),
-                      child: Column(
-                        children: _selectedPrinters
-                            .map(
-                              (_PolicyPrinterItem printer) => ListTile(
-                                contentPadding: const EdgeInsets.symmetric(
-                                  horizontal: 4,
-                                  vertical: 2,
-                                ),
-                                leading: const Icon(
-                                  Icons.print_rounded,
-                                  color: AppPalette.accentBlue,
-                                ),
-                                title: Text(
-                                  printer.model,
-                                  style: const TextStyle(
-                                    color: AppPalette.backgroundLight,
-                                    fontWeight: FontWeight.w700,
-                                  ),
-                                ),
-                                subtitle: Text(
-                                  'S/N: ${printer.serial}',
-                                  style: const TextStyle(color: Colors.white70),
-                                ),
-                                trailing: IconButton(
-                                  tooltip: 'Quitar equipo',
-                                  onPressed: () => _removePrinter(printer),
-                                  icon: const Icon(
-                                    Icons.delete_outline_rounded,
-                                    color: Color(0xFFE57373),
-                                  ),
-                                ),
+                      child: _availablePrinters.isEmpty
+                          ? const Padding(
+                              padding: EdgeInsets.symmetric(vertical: 12),
+                              child: Text(
+                                'Selecciona un cliente para ver sus impresoras',
+                                style: TextStyle(color: Colors.white60),
                               ),
                             )
-                            .toList(),
-                      ),
+                          : Column(
+                              children: _availablePrinters
+                                  .map(
+                                    (_PrinterOption p) => CheckboxListTile(
+                                      value: _selectedPrinterIds.contains(p.printerId),
+                                      onChanged: (bool? checked) {
+                                        setState(() {
+                                          if (checked == true) {
+                                            _selectedPrinterIds.add(p.printerId);
+                                          } else {
+                                            _selectedPrinterIds.remove(p.printerId);
+                                          }
+                                        });
+                                      },
+                                      title: Text(
+                                        p.label,
+                                        style: const TextStyle(
+                                          color: AppPalette.backgroundLight,
+                                          fontWeight: FontWeight.w700,
+                                        ),
+                                      ),
+                                      subtitle: Text(
+                                        'S/N: ${p.serial}',
+                                        style: const TextStyle(color: Colors.white70),
+                                      ),
+                                      secondary: const Icon(
+                                        Icons.print_rounded,
+                                        color: AppPalette.accentBlue,
+                                      ),
+                                      controlAffinity: ListTileControlAffinity.trailing,
+                                      contentPadding: const EdgeInsets.symmetric(
+                                        horizontal: 4,
+                                        vertical: 2,
+                                      ),
+                                    ),
+                                  )
+                                  .toList(),
+                            ),
                     ),
                   ],
                 ),
@@ -835,10 +872,10 @@ class _AddPolicyScreenState extends State<AddPolicyScreen> {
             height: 52,
             width: double.infinity,
             child: FilledButton(
-              onPressed: _onSave,
-              child: const Text(
-                'GUARDAR POLIZA',
-                style: TextStyle(fontWeight: FontWeight.w800, fontSize: 16),
+              onPressed: _isSaving ? null : _onSave,
+              child: Text(
+                _isSaving ? 'Guardando...' : 'GUARDAR POLIZA',
+                style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 16),
               ),
             ),
           ),
@@ -898,52 +935,7 @@ class _AddPolicyScreenState extends State<AddPolicyScreen> {
     return '$day $month ${date.year}';
   }
 
-  void _removePrinter(_PolicyPrinterItem printer) {
-    setState(() {
-      _selectedPrinters.remove(printer);
-    });
-  }
-
-  void _onAddMockPrinter() {
-    ScaffoldMessenger.of(context).hideCurrentSnackBar();
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Selector de equipos (mock)'),
-        behavior: SnackBarBehavior.floating,
-      ),
-    );
-  }
-
-  Future<void> _confirmDelete() async {
-    final bool? confirmed = await showDialog<bool>(
-      context: context,
-      builder: (BuildContext context) {
-        return AlertDialog(
-          title: const Text('Eliminar Póliza'),
-          content: const Text('Esta acción eliminará la póliza seleccionada.'),
-          actions: <Widget>[
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(false),
-              child: const Text('Cancelar'),
-            ),
-            FilledButton(
-              onPressed: () => Navigator.of(context).pop(true),
-              style: FilledButton.styleFrom(
-                backgroundColor: Theme.of(context).colorScheme.error,
-                foregroundColor: Theme.of(context).colorScheme.onError,
-              ),
-              child: const Text('Eliminar'),
-            ),
-          ],
-        );
-      },
-    );
-
-    if (confirmed != true || !mounted) return;
-    Navigator.of(context).pop(true);
-  }
-
-  void _onSave() {
+  Future<void> _onSave() async {
     final bool valid = _formKey.currentState?.validate() ?? false;
     if (!valid) {
       ScaffoldMessenger.of(context).hideCurrentSnackBar();
@@ -957,14 +949,70 @@ class _AddPolicyScreenState extends State<AddPolicyScreen> {
       return;
     }
 
-    ScaffoldMessenger.of(context).hideCurrentSnackBar();
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Póliza guardada correctamente (mock)'),
-        behavior: SnackBarBehavior.floating,
-      ),
-    );
-    Navigator.of(context).pop(true);
+    if (_startDate == null || _endDate == null) {
+      ScaffoldMessenger.of(context).hideCurrentSnackBar();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: const Text('Selecciona las fechas de inicio y término'),
+          backgroundColor: Theme.of(context).colorScheme.error,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      return;
+    }
+
+    setState(() => _isSaving = true);
+
+    try {
+      final String policyId = _uuid.v4();
+
+      await widget.database.transaction(() async {
+        await widget.database.into(widget.database.policies).insert(
+              PoliciesCompanion.insert(
+                id: policyId,
+                clientId: _selectedClientObj!.id,
+                folio: _folioController.text.trim(),
+                startDate: _startDate!,
+                endDate: _endDate!,
+                coverageType: _selectedCoverage ?? 'Básica',
+                status: 'active',
+              ),
+            );
+
+        for (final String printerId in _selectedPrinterIds) {
+          await widget.database.into(widget.database.policyPrinters).insert(
+                PolicyPrintersCompanion.insert(
+                  id: _uuid.v4(),
+                  policyId: policyId,
+                  printerId: printerId,
+                ),
+              );
+        }
+      });
+
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).hideCurrentSnackBar();
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Póliza guardada correctamente'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      Navigator.of(context).pop(true);
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).hideCurrentSnackBar();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: const Text('No se pudo guardar la póliza'),
+          backgroundColor: Theme.of(context).colorScheme.error,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _isSaving = false);
+    }
   }
 }
 
@@ -1051,13 +1099,15 @@ class _DateField extends StatelessWidget {
 }
 
 @immutable
-class _PolicyPrinterItem {
-  const _PolicyPrinterItem({
-    required this.model,
+class _PrinterOption {
+  const _PrinterOption({
+    required this.printerId,
+    required this.label,
     required this.serial,
   });
 
-  final String model;
+  final String printerId;
+  final String label;
   final String serial;
 }
 
@@ -1067,74 +1117,122 @@ class PolicyDetailScreen extends StatefulWidget {
   const PolicyDetailScreen({
     super.key,
     required this.policy,
+    required this.database,
   });
 
   final PolicySummary policy;
+  final AppDatabase database;
 
   @override
   State<PolicyDetailScreen> createState() => _PolicyDetailScreenState();
 }
 
 class _PolicyDetailScreenState extends State<PolicyDetailScreen> {
-  late final List<_PolicyAsset> _parqueTotal;
-  late final List<_PolicyAsset> _misTareas;
-  late final List<_PolicyVisit> _visits;
+  List<_PolicyAsset> _parqueTotal = <_PolicyAsset>[];
+  List<_PolicyAsset> _misTareas = <_PolicyAsset>[];
+  List<_PolicyVisit> _visits = <_PolicyVisit>[];
+  bool _loading = true;
 
   @override
   void initState() {
     super.initState();
-    _parqueTotal = _buildParqueTotal();
-    _misTareas = _parqueTotal.where((_PolicyAsset item) => item.isMine).toList();
-    _visits = <_PolicyVisit>[
-      const _PolicyVisit(
-        title: 'Visita Q1',
-        status: _VisitStatus.completed,
-        dateLabel: '15 Mar 2026',
-      ),
-      const _PolicyVisit(
-        title: 'Visita Q2',
-        status: _VisitStatus.pending,
-        dateLabel: '15 Jun 2026',
-      ),
-      const _PolicyVisit(
-        title: 'Visita Q3',
-        status: _VisitStatus.scheduled,
-        dateLabel: '20 Sep 2026',
-      ),
-      const _PolicyVisit(
-        title: 'Visita Q4',
-        status: _VisitStatus.scheduled,
-        dateLabel: '10 Dic 2026',
-      ),
-    ];
+    _loadData();
   }
 
-  List<_PolicyAsset> _buildParqueTotal() {
-    const List<String> models = <String>[
-      'Zebra ZT411', 'Zebra ZD421', 'Zebra ZT610', 'Zebra ZT231',
-    ];
-    const List<String> plants = <String>[
-      'Planta Norte', 'Planta Sur', 'Principal', 'Nave 2',
-    ];
-    const List<String> areas = <String>[
-      'Línea de Empaque', 'Línea 3', 'Almacén', 'Recibo',
-    ];
-    const List<String> others = <String>[
-      'Pedro R.', 'Daniela M.', 'Mariana S.', 'Luis T.',
-    ];
+  Future<void> _loadData() async {
+    try {
+      final db = widget.database;
 
-    return List<_PolicyAsset>.generate(24, (int index) {
-      final bool isMine = index < 12;
-      final String serial = 'SN-${520000000000 + index}';
-      return _PolicyAsset(
-        model: models[index % models.length],
-        serial: serial,
-        plant: plants[index % plants.length],
-        area: areas[index % areas.length],
-        isMine: isMine,
-        assignedTo: isMine ? 'Tú' : others[index % others.length],
-      );
-    });
+      // Cargar impresoras de la póliza
+      final List<PolicyPrinter> policyPrinters = await (db
+              .select(db.policyPrinters)
+            ..where((pp) => pp.policyId.equals(widget.policy.policyId)))
+          .get();
+
+      final List<_PolicyAsset> assets = <_PolicyAsset>[];
+
+      for (final PolicyPrinter pp in policyPrinters) {
+        final rows = await (db.select(db.printers)
+              ..where((p) => p.id.equals(pp.printerId)))
+            .join(<drift.Join>[
+              drift.innerJoin(
+                db.catalogModels,
+                db.catalogModels.id.equalsExp(db.printers.modelId),
+              ),
+              drift.innerJoin(
+                db.plants,
+                db.plants.id.equalsExp(db.printers.plantId),
+              ),
+              drift.innerJoin(
+                db.areas,
+                db.areas.id.equalsExp(db.printers.areaId),
+              ),
+            ])
+            .get();
+
+        if (rows.isNotEmpty) {
+          final row = rows.first;
+          final catalogModel = row.readTable(db.catalogModels);
+          final plant = row.readTable(db.plants);
+          final area = row.readTable(db.areas);
+          final printer = row.readTable(db.printers);
+
+          assets.add(_PolicyAsset(
+            model: '${catalogModel.brand} ${catalogModel.modelName}',
+            serial: printer.serialNumber,
+            plant: plant.name,
+            area: area.name,
+            isMine: true,
+            assignedTo: 'Tú',
+          ));
+        }
+      }
+
+      // Cargar entregas para el calendario
+      final List<PolicyDelivery> deliveries = await (db
+              .select(db.policyDeliveries)
+            ..where((d) => d.policyId.equals(widget.policy.policyId))
+            ..orderBy(<drift.OrderingTerm Function(PolicyDeliveries)>[
+              (d) => drift.OrderingTerm.asc(d.deliveryDate),
+            ]))
+          .get();
+
+      final DateTime now = DateTime.now();
+      final List<_PolicyVisit> visits = deliveries
+          .asMap()
+          .entries
+          .map((MapEntry<int, PolicyDelivery> e) {
+            final PolicyDelivery d = e.value;
+            final _VisitStatus status = d.deliveryDate.isBefore(now)
+                ? _VisitStatus.completed
+                : _VisitStatus.scheduled;
+            return _PolicyVisit(
+              title: 'Entrega ${e.key + 1}',
+              status: status,
+              dateLabel: _fmtDate(d.deliveryDate),
+            );
+          })
+          .toList();
+
+      if (mounted) {
+        setState(() {
+          _parqueTotal = assets;
+          _misTareas = assets;
+          _visits = visits;
+          _loading = false;
+        });
+      }
+    } catch (_) {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  String _fmtDate(DateTime d) {
+    const List<String> meses = <String>[
+      'Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun',
+      'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic',
+    ];
+    return '${d.day.toString().padLeft(2, '0')} ${meses[d.month - 1]} ${d.year}';
   }
 
   _PolicyStatusStyle _statusStyle(PolicyStatus status) {
@@ -1218,7 +1316,7 @@ class _PolicyDetailScreenState extends State<PolicyDetailScreen> {
               if (value == 'edit') {
                 Navigator.of(context).push(
                   MaterialPageRoute<void>(
-                    builder: (_) => AddPolicyScreen(policy: widget.policy),
+                    builder: (_) => AddPolicyScreen(database: localDatabase),
                   ),
                 );
               }
@@ -1384,7 +1482,9 @@ class _PolicyDetailScreenState extends State<PolicyDetailScreen> {
                 ),
                 const SizedBox(height: 10),
                 Expanded(
-                  child: TabBarView(
+                  child: _loading
+                      ? const Center(child: CircularProgressIndicator())
+                      : TabBarView(
                     children: <Widget>[
                       _MyTasksTab(
                         tasks: _misTareas,
@@ -1405,6 +1505,7 @@ class _PolicyDetailScreenState extends State<PolicyDetailScreen> {
                     ],
                   ),
                 ),
+
               ],
             ),
           ),
@@ -1428,14 +1529,24 @@ class _MyTasksTab extends StatelessWidget {
     return Column(
       children: <Widget>[
         Expanded(
-          child: ListView.separated(
-            itemCount: tasks.length,
-            separatorBuilder: (_, __) => const SizedBox(height: 8),
-            itemBuilder: (BuildContext context, int index) {
-              final _PolicyAsset item = tasks[index];
-              return _TaskCard(item: item, showMineBadge: true);
-            },
-          ),
+          child: tasks.isEmpty
+              ? const Center(
+                  child: Text(
+                    'Sin equipos asignados',
+                    style: TextStyle(
+                      color: Colors.white54,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                )
+              : ListView.separated(
+                  itemCount: tasks.length,
+                  separatorBuilder: (_, __) => const SizedBox(height: 8),
+                  itemBuilder: (BuildContext context, int index) {
+                    final _PolicyAsset item = tasks[index];
+                    return _TaskCard(item: item, showMineBadge: true);
+                  },
+                ),
         ),
         const SizedBox(height: 10),
         SizedBox(
@@ -1661,6 +1772,14 @@ class _CalendarTab extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    if (visits.isEmpty) {
+      return const Center(
+        child: Text(
+          'Sin visitas registradas',
+          style: TextStyle(color: Colors.white54, fontWeight: FontWeight.w600),
+        ),
+      );
+    }
     return ListView.builder(
       itemCount: visits.length,
       itemBuilder: (BuildContext context, int index) {

@@ -18,10 +18,12 @@ class PrinterConfirmArgs {
 
 class PrinterDetailArgs {
   const PrinterDetailArgs({
+    required this.printerId,
     required this.model,
     required this.client,
     required this.serialNumber,
   });
+  final String printerId;
   final String model;
   final String client;
   final String serialNumber;
@@ -29,9 +31,11 @@ class PrinterDetailArgs {
 
 class ServiceHistoryArgs {
   const ServiceHistoryArgs({
+    required this.printerId,
     required this.model,
     required this.serialNumber,
   });
+  final String printerId;
   final String model;
   final String serialNumber;
 }
@@ -39,4 +43,9 @@ class ServiceHistoryArgs {
 class CaptureArgs {
   const CaptureArgs({this.printerId});
   final String? printerId;
+}
+
+class QuickAddPrinterArgs {
+  const QuickAddPrinterArgs({this.initialClientId});
+  final String? initialClientId;
 }

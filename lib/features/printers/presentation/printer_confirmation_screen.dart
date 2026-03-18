@@ -105,6 +105,7 @@ class _ConfirmationCard extends StatelessWidget {
                     'serialNumber': printer.serialNumber,
                   },
                   extra: PrinterDetailArgs(
+                    printerId: printer.printerId,
                     serialNumber: printer.serialNumber,
                     model: model,
                     client: printer.clientName,
