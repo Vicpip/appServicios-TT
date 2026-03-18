@@ -18,10 +18,8 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   static const Color _softText = Color(0xFFD7DCE3);
 
   final GlobalKey<FormState> _formKey = GlobalKey<FormState>();
-  final TextEditingController _userController =
-      TextEditingController(text: 'juan.perez@empresa.com');
-  final TextEditingController _pinController =
-      TextEditingController(text: '1234');
+  final TextEditingController _userController = TextEditingController();
+  final TextEditingController _pinController = TextEditingController();
 
   @override
   void dispose() {
@@ -149,18 +147,16 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                                   TextFormField(
                                     controller: _pinController,
                                     textInputAction: TextInputAction.done,
-                                    keyboardType: TextInputType.number,
                                     obscureText: true,
                                     style: const TextStyle(
                                       color: Colors.white,
                                       fontWeight: FontWeight.w700,
-                                      letterSpacing: 2,
                                     ),
                                     decoration: const InputDecoration(
-                                      labelText: 'PIN de Acceso (4 dígitos)',
+                                      labelText: 'Contraseña',
                                       prefixIcon: Icon(Icons.lock_rounded),
                                     ),
-                                    validator: _pinValidator,
+                                    validator: _requiredValidator,
                                     onFieldSubmitted: (_) => _onLoginPressed(),
                                   ),
                                   const SizedBox(height: 26),
@@ -199,14 +195,14 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                                       ScaffoldMessenger.of(context).showSnackBar(
                                         const SnackBar(
                                           content: Text(
-                                            'Contacta a soporte para restablecer tu PIN.',
+                                            'Contacta a soporte para restablecer tu contraseña.',
                                           ),
                                           behavior: SnackBarBehavior.floating,
                                         ),
                                       );
                                     },
                                     child: const Text(
-                                      '¿Olvidaste tu PIN? Contacta a soporte',
+                                      '¿Olvidaste tu contraseña? Contacta a soporte',
                                       textAlign: TextAlign.center,
                                       style: TextStyle(
                                         color: _mutedText,
@@ -300,23 +296,12 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     return null;
   }
 
-  String? _pinValidator(String? value) {
-    final String trimmed = (value ?? '').trim();
-    if (trimmed.isEmpty) {
-      return 'Campo obligatorio';
-    }
-    if (trimmed.length < 4) {
-      return 'Ingresa al menos 4 dígitos';
-    }
-    return null;
-  }
-
   Future<void> _onLoginPressed() async {
     final bool valid = _formKey.currentState?.validate() ?? false;
     if (!valid) return;
     await ref.read(authProvider.notifier).login(
-          identifier: _userController.text,
-          pin: _pinController.text,
+          email: _userController.text,
+          password: _pinController.text,
         );
   }
 

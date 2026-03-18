@@ -1,7 +1,11 @@
+import 'package:drift/drift.dart' show OrderingTerm;
 import 'package:flutter/material.dart';
+import 'package:industrial_service_reports/core/constants.dart';
 import 'package:industrial_service_reports/core/theme/app_palette.dart';
 import 'package:industrial_service_reports/data/local/app_database.dart';
+import 'package:industrial_service_reports/features/auth/services/auth_service.dart';
 import 'package:industrial_service_reports/features/sync/presentation/sync_history_screen.dart';
+import 'package:industrial_service_reports/features/sync/services/sync_service.dart';
 
 class SyncDashboardScreen extends StatefulWidget {
   const SyncDashboardScreen({super.key, required this.database});
@@ -14,9 +18,13 @@ class SyncDashboardScreen extends StatefulWidget {
 
 class _SyncDashboardScreenState extends State<SyncDashboardScreen> {
   bool _isSyncing = false;
+  String _progressMessage = '';
   int _pendingReports = 0;
   int _pendingFiles = 0;
   int _pendingSignatures = 0;
+  String? _lastReportError;
+  String? _lastFileError;
+  String? _lastSignatureError;
   bool _loading = true;
   DateTime? _lastSync;
 
@@ -27,10 +35,20 @@ class _SyncDashboardScreenState extends State<SyncDashboardScreen> {
   }
 
   Future<void> _loadSyncData() async {
-    // Count pending items in sync queue
+    // Fetch pending items (for counts) and any item with a recorded error
+    // (pending or failed) to surface the last failure message in the UI.
     final List<SyncQueueData> allPending =
         await (widget.database.select(widget.database.syncQueue)
               ..where((q) => q.estadoPeticion.equals('pending')))
+            .get();
+
+    final List<SyncQueueData> withErrors =
+        await (widget.database.select(widget.database.syncQueue)
+              ..where((q) => q.lastError.isNotNull())
+              ..where((q) => q.estadoPeticion.isIn(<String>['pending', 'failed']))
+              ..orderBy(<OrderingTerm Function(SyncQueue)>[
+                (q) => OrderingTerm.desc(q.updatedAt),
+              ]))
             .get();
 
     int reports = 0, files = 0, signatures = 0;
@@ -41,6 +59,18 @@ class _SyncDashboardScreenState extends State<SyncDashboardScreen> {
         files++;
       } else if (item.entityType == 'signature') {
         signatures++;
+      }
+    }
+
+    // Pick the most-recent error per entity type.
+    String? reportError, fileError, signatureError;
+    for (final SyncQueueData item in withErrors) {
+      if (item.entityType == 'report' && reportError == null) {
+        reportError = item.lastError;
+      } else if (item.entityType == 'file' && fileError == null) {
+        fileError = item.lastError;
+      } else if (item.entityType == 'signature' && signatureError == null) {
+        signatureError = item.lastError;
       }
     }
 
@@ -61,6 +91,9 @@ class _SyncDashboardScreenState extends State<SyncDashboardScreen> {
         _pendingReports = reports;
         _pendingFiles = files;
         _pendingSignatures = signatures;
+        _lastReportError = reportError;
+        _lastFileError = fileError;
+        _lastSignatureError = signatureError;
         _lastSync = lastSync;
         _loading = false;
       });
@@ -85,34 +118,134 @@ class _SyncDashboardScreenState extends State<SyncDashboardScreen> {
 
     setState(() {
       _isSyncing = true;
+      _progressMessage = 'Conectando al servidor…';
     });
 
-    await Future<void>.delayed(const Duration(seconds: 3));
+    try {
+      final SyncResult result = await SyncService(widget.database).runSync(
+        baseUrl: kServerBaseUrlDevice,
+        onProgress: (String msg) {
+          if (mounted) setState(() => _progressMessage = msg);
+        },
+      );
 
-    if (!mounted) return;
+      if (!mounted) return;
 
-    setState(() {
-      _isSyncing = false;
-    });
+      // Capture messenger before async gap
+      final ScaffoldMessengerState messenger = ScaffoldMessenger.of(context);
 
-    ScaffoldMessenger.of(context).hideCurrentSnackBar();
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Row(
-          children: <Widget>[
-            Icon(Icons.check_circle_rounded, color: AppPalette.success),
-            SizedBox(width: 10),
-            Text(
-              'Sincronización completada con éxito',
-              style: TextStyle(fontWeight: FontWeight.w700),
-            ),
-          ],
+      // Refresh pending counts after sync
+      await _loadSyncData();
+
+      setState(() {
+        _isSyncing = false;
+        _progressMessage = '';
+      });
+
+      final String message;
+      final Color bgColor;
+      final IconData iconData;
+      if (result.processed == 0) {
+        message = 'No hay elementos pendientes para sincronizar';
+        bgColor = AppPalette.surfaceDarkHighlight;
+        iconData = Icons.check_circle_rounded;
+      } else if (result.failed == 0) {
+        message =
+            'Completado: ${result.succeeded} enviado${result.succeeded != 1 ? 's' : ''}';
+        bgColor = AppPalette.successDark;
+        iconData = Icons.check_circle_rounded;
+      } else {
+        message =
+            '${result.succeeded} OK · ${result.failed} fallido${result.failed != 1 ? 's' : ''} (reintento automático)';
+        bgColor = AppPalette.warningDark;
+        iconData = Icons.warning_rounded;
+      }
+
+      messenger.hideCurrentSnackBar();
+      messenger.showSnackBar(
+        SnackBar(
+          content: Row(
+            children: <Widget>[
+              Icon(iconData,
+                  color: result.failed == 0
+                      ? AppPalette.success
+                      : AppPalette.warning),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  message,
+                  style: const TextStyle(fontWeight: FontWeight.w700),
+                ),
+              ),
+            ],
+          ),
+          backgroundColor: bgColor,
+          behavior: SnackBarBehavior.floating,
+          duration: const Duration(seconds: 4),
         ),
-        backgroundColor: AppPalette.successDark,
-        behavior: SnackBarBehavior.floating,
-        duration: Duration(seconds: 4),
-      ),
-    );
+      );
+    } on TokenExpiredException {
+      if (!mounted) return;
+
+      final ScaffoldMessengerState messenger = ScaffoldMessenger.of(context);
+
+      setState(() {
+        _isSyncing = false;
+        _progressMessage = '';
+      });
+
+      messenger.hideCurrentSnackBar();
+      messenger.showSnackBar(
+        SnackBar(
+          content: const Row(
+            children: <Widget>[
+              Icon(Icons.lock_clock_rounded, color: Colors.orangeAccent),
+              SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  'Sesión expirada — inicia sesión para sincronizar.\nPuedes seguir usando la app sin conexión.',
+                  style: TextStyle(fontWeight: FontWeight.w700),
+                ),
+              ),
+            ],
+          ),
+          backgroundColor: const Color(0xFF7C4D00),
+          behavior: SnackBarBehavior.floating,
+          duration: const Duration(seconds: 6),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+
+      // Capture messenger before setState (which may trigger rebuilds)
+      final ScaffoldMessengerState messenger = ScaffoldMessenger.of(context);
+
+      setState(() {
+        _isSyncing = false;
+        _progressMessage = '';
+      });
+
+      messenger.hideCurrentSnackBar();
+      messenger.showSnackBar(
+        SnackBar(
+          content: Row(
+            children: <Widget>[
+              const Icon(Icons.error_rounded, color: Colors.red),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  'Error de red: $e',
+                  style: const TextStyle(fontWeight: FontWeight.w700),
+                ),
+              ),
+            ],
+          ),
+          backgroundColor: Colors.red.shade900,
+          behavior: SnackBarBehavior.floating,
+          duration: const Duration(seconds: 5),
+        ),
+      );
+    }
   }
 
   @override
@@ -158,7 +291,9 @@ class _SyncDashboardScreenState extends State<SyncDashboardScreen> {
                           // ── Estado de conexión ────────────────────────────────
                           _NetworkStatusCard(
                             isSyncing: _isSyncing,
-                            lastSyncText: lastSyncText,
+                            lastSyncText: _isSyncing && _progressMessage.isNotEmpty
+                                ? _progressMessage
+                                : lastSyncText,
                           ),
                           const SizedBox(height: 20),
 
@@ -180,6 +315,7 @@ class _SyncDashboardScreenState extends State<SyncDashboardScreen> {
                                   label: 'Reportes de Servicio',
                                   count: _pendingReports,
                                   badge: _BadgeType.pending,
+                                  lastError: _lastReportError,
                                 ),
                                 const _Divider(),
                                 _SyncItem(
@@ -187,6 +323,7 @@ class _SyncDashboardScreenState extends State<SyncDashboardScreen> {
                                   label: 'Evidencias Fotográficas',
                                   count: _pendingFiles,
                                   badge: _BadgeType.pending,
+                                  lastError: _lastFileError,
                                 ),
                                 const _Divider(),
                                 _SyncItem(
@@ -194,6 +331,7 @@ class _SyncDashboardScreenState extends State<SyncDashboardScreen> {
                                   label: 'Firmas de Clientes',
                                   count: _pendingSignatures,
                                   badge: _BadgeType.pending,
+                                  lastError: _lastSignatureError,
                                 ),
                               ],
                             ),
@@ -364,35 +502,77 @@ class _SyncItem extends StatelessWidget {
     required this.label,
     required this.count,
     required this.badge,
+    this.lastError,
   });
 
   final IconData icon;
   final String label;
   final int count;
   final _BadgeType badge;
+  final String? lastError;
 
   @override
   Widget build(BuildContext context) {
-    return ListTile(
-      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-      leading: Container(
-        width: 40,
-        height: 40,
-        decoration: BoxDecoration(
-          color: AppPalette.surfaceDarkHighlight,
-          borderRadius: BorderRadius.circular(10),
-        ),
-        child: Icon(icon, size: 20, color: AppPalette.backgroundLight),
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Container(
+            width: 40,
+            height: 40,
+            decoration: BoxDecoration(
+              color: AppPalette.surfaceDarkHighlight,
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Icon(icon, size: 20, color: AppPalette.backgroundLight),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                Text(
+                  count > 0 ? '$label ($count)' : label,
+                  style: const TextStyle(
+                    color: AppPalette.backgroundLight,
+                    fontWeight: FontWeight.w700,
+                    fontSize: 15,
+                  ),
+                ),
+                if (lastError != null) ...<Widget>[
+                  const SizedBox(height: 4),
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: <Widget>[
+                      const Icon(
+                        Icons.error_outline_rounded,
+                        size: 13,
+                        color: Colors.orangeAccent,
+                      ),
+                      const SizedBox(width: 4),
+                      Expanded(
+                        child: Text(
+                          lastError!,
+                          style: const TextStyle(
+                            color: Colors.orangeAccent,
+                            fontSize: 11,
+                            fontWeight: FontWeight.w600,
+                          ),
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ],
+            ),
+          ),
+          const SizedBox(width: 8),
+          _Badge(type: badge),
+        ],
       ),
-      title: Text(
-        count > 0 ? '$label ($count)' : label,
-        style: const TextStyle(
-          color: AppPalette.backgroundLight,
-          fontWeight: FontWeight.w700,
-          fontSize: 15,
-        ),
-      ),
-      trailing: _Badge(type: badge),
     );
   }
 }

@@ -386,6 +386,9 @@ class SyncQueue extends Table {
   IntColumn get intentosFallidos =>
       integer().withDefault(const Constant(0))();
 
+  /// Last error message from the most recent failed attempt.
+  TextColumn get lastError => text().nullable()();
+
   DateTimeColumn get updatedAt => dateTime().nullable()();
 
   @override
@@ -420,7 +423,7 @@ class AppDatabase extends _$AppDatabase {
   AppDatabase([QueryExecutor? executor]) : super(executor ?? _openConnection());
 
   @override
-  int get schemaVersion => 5;
+  int get schemaVersion => 6;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -452,6 +455,11 @@ class AppDatabase extends _$AppDatabase {
             await migrator.addColumn(policies, policies.code);
             // Cola de sincronización
             await migrator.createTable(syncQueue);
+          }
+          if (from >= 5 && from < 6) {
+            // Only devices that already had sync_queue (v5) need this column.
+            // Devices upgrading from < 5 get it automatically via createTable.
+            await migrator.addColumn(syncQueue, syncQueue.lastError);
           }
         },
         beforeOpen: (OpeningDetails details) async {
