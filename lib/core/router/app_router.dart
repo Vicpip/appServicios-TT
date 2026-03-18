@@ -20,6 +20,7 @@ import 'package:industrial_service_reports/features/qr_scanner/presentation/qr_s
 import 'package:industrial_service_reports/features/reports/presentation/express_capture_screen.dart';
 import 'package:industrial_service_reports/features/reports/presentation/report_summary_screen.dart';
 import 'package:industrial_service_reports/features/signature/presentation/signature_screen.dart';
+import 'package:industrial_service_reports/features/reports/presentation/report_view_screen.dart';
 import 'package:industrial_service_reports/features/sync/presentation/sync_dashboard_screen.dart';
 
 final routerProvider = Provider<GoRouter>((ref) {
@@ -97,6 +98,8 @@ final routerProvider = Provider<GoRouter>((ref) {
             serialNumber: args.serialNumber,
             model: args.model,
             client: args.client,
+            printerId: args.printerId,
+            database: localDatabase,
           );
         },
         routes: <RouteBase>[
@@ -154,12 +157,20 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: '/policies',
         name: AppRoutes.policies,
-        builder: (_, __) => const PolicyDashboardScreen(),
+        builder: (_, __) => PolicyDashboardScreen(database: localDatabase),
       ),
       GoRoute(
         path: '/sync',
         name: AppRoutes.sync,
-        builder: (_, __) => const SyncDashboardScreen(),
+        builder: (_, __) => SyncDashboardScreen(database: localDatabase),
+      ),
+      GoRoute(
+        path: '/report-view',
+        name: AppRoutes.reportView,
+        builder: (_, state) {
+          final ReportViewArgs args = state.extra! as ReportViewArgs;
+          return ReportViewScreen(reportId: args.reportId, database: localDatabase);
+        },
       ),
     ],
   );

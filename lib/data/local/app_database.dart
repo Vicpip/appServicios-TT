@@ -34,6 +34,9 @@ class CheckboxMapConverter extends TypeConverter<Map<String, bool>, String> {
 class Users extends Table {
   TextColumn get id => text()();
 
+  /// Código legible: T-001, T-002, …
+  TextColumn get code => text().nullable()();
+
   TextColumn get name => text()();
 
   TextColumn get email => text().unique()();
@@ -41,6 +44,12 @@ class Users extends Table {
   TextColumn get role => text()();
 
   BoolColumn get isActive => boolean().withDefault(const Constant(true))();
+
+  /// Ruta local de la imagen de firma del técnico (PNG)
+  TextColumn get signaturePath => text().nullable()();
+
+  /// Timestamp de la última sincronización exitosa
+  DateTimeColumn get lastSyncAt => dateTime().nullable()();
 
   @override
   Set<Column> get primaryKey => {id};
@@ -104,6 +113,9 @@ class CatalogModels extends Table {
 
 class Printers extends Table {
   TextColumn get id => text()();
+
+  /// Código legible: I-001, I-002, …
+  TextColumn get code => text().nullable()();
 
   TextColumn get qrUuid => text()();
 
@@ -200,6 +212,20 @@ class Reports extends Table {
 
   TextColumn get supersedesReportId => text().nullable().references(Reports, #id)();
 
+  // Fotografía de evidencia
+  TextColumn get photoPaths => text().withDefault(const Constant('[]'))();
+  IntColumn get photoCount => integer().withDefault(const Constant(0))();
+
+  // Firma digital
+  TextColumn get signatureImagePath => text().nullable()();
+
+  // Bloque de reportes (para preventivos)
+  TextColumn get signatureBlockId => text().nullable()();
+  TextColumn get reportBlockStatus => text().nullable()();
+
+  /// Código legible: R-001, R-002, …
+  TextColumn get code => text().nullable()();
+
   DateTimeColumn get syncDate => dateTime().nullable()();
 
   DateTimeColumn get createdAt =>
@@ -237,6 +263,9 @@ class ReportParts extends Table {
 
 class Policies extends Table {
   TextColumn get id => text()();
+
+  /// Código legible: P-001, P-002, …
+  TextColumn get code => text().nullable()();
 
   TextColumn get clientId => text().references(Clients, #id)();
 
@@ -328,6 +357,41 @@ class EntityFiles extends Table {
   Set<Column> get primaryKey => {id};
 }
 
+/// Cola de sincronización — Sprint 1, sección 12.2
+class SyncQueue extends Table {
+  TextColumn get id => text()();
+
+  /// GET, POST, PUT
+  TextColumn get methodHttp => text()();
+
+  /// Ej: /api/reports, /api/printers
+  TextColumn get endpointDestino => text()();
+
+  /// JSON serializado del registro a sincronizar
+  TextColumn get payloadJson => text()();
+
+  /// 'report' | 'printer' | 'client' | 'file' | 'signature'
+  TextColumn get entityType => text()();
+
+  /// UUID del registro fuente en la BD local
+  TextColumn get entityId => text()();
+
+  DateTimeColumn get fechaCreacion =>
+      dateTime().withDefault(currentDateAndTime)();
+
+  /// 'pending' | 'in_progress' | 'synced' | 'failed'
+  TextColumn get estadoPeticion =>
+      text().withDefault(const Constant('pending'))();
+
+  IntColumn get intentosFallidos =>
+      integer().withDefault(const Constant(0))();
+
+  DateTimeColumn get updatedAt => dateTime().nullable()();
+
+  @override
+  Set<Column> get primaryKey => {id};
+}
+
 @DriftDatabase(
   tables: <Type>[
     Users,
@@ -349,13 +413,14 @@ class EntityFiles extends Table {
     CatalogParts,
     CatalogFailures,
     CatalogLabelTypes,
+    SyncQueue,
   ],
 )
 class AppDatabase extends _$AppDatabase {
   AppDatabase([QueryExecutor? executor]) : super(executor ?? _openConnection());
 
   @override
-  int get schemaVersion => 3;
+  int get schemaVersion => 5;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -369,6 +434,24 @@ class AppDatabase extends _$AppDatabase {
           if (from < 3) {
             await migrator.addColumn(plants, plants.contactName);
             await migrator.addColumn(plants, plants.phone);
+          }
+          if (from < 4) {
+            await migrator.addColumn(reports, reports.photoPaths);
+            await migrator.addColumn(reports, reports.photoCount);
+            await migrator.addColumn(reports, reports.signatureImagePath);
+            await migrator.addColumn(reports, reports.signatureBlockId);
+            await migrator.addColumn(reports, reports.reportBlockStatus);
+          }
+          if (from < 5) {
+            // IDs legibles
+            await migrator.addColumn(users, users.code);
+            await migrator.addColumn(users, users.signaturePath);
+            await migrator.addColumn(users, users.lastSyncAt);
+            await migrator.addColumn(printers, printers.code);
+            await migrator.addColumn(reports, reports.code);
+            await migrator.addColumn(policies, policies.code);
+            // Cola de sincronización
+            await migrator.createTable(syncQueue);
           }
         },
         beforeOpen: (OpeningDetails details) async {

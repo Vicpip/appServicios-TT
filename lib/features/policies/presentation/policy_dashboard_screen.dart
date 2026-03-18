@@ -1,8 +1,7 @@
-import 'package:drift/drift.dart' as drift;
+import 'package:drift/drift.dart' show Value;
 import 'package:flutter/material.dart';
 import 'package:industrial_service_reports/core/theme/app_palette.dart';
 import 'package:industrial_service_reports/data/local/app_database.dart';
-import 'package:industrial_service_reports/data/local/local_database.dart';
 import 'package:uuid/uuid.dart';
 
 enum _PolicyFilter {
@@ -21,26 +20,34 @@ enum PolicyStatus {
 @immutable
 class PolicySummary {
   const PolicySummary({
-    required this.policyId,
+    required this.id,
+    required this.clientId,
     required this.folio,
     required this.clientName,
     required this.startDate,
     required this.endDate,
+    required this.startDateRaw,
+    required this.endDateRaw,
     required this.coveredPrinters,
     required this.status,
   });
 
-  final String policyId;
+  final String id;
+  final String clientId;
   final String folio;
   final String clientName;
   final String startDate;
   final String endDate;
+  final DateTime startDateRaw;
+  final DateTime endDateRaw;
   final int coveredPrinters;
   final PolicyStatus status;
 }
 
 class PolicyDashboardScreen extends StatefulWidget {
-  const PolicyDashboardScreen({super.key});
+  const PolicyDashboardScreen({super.key, required this.database});
+
+  final AppDatabase database;
 
   @override
   State<PolicyDashboardScreen> createState() => _PolicyDashboardScreenState();
@@ -66,61 +73,66 @@ class _PolicyDashboardScreenState extends State<PolicyDashboardScreen> {
 
   Future<void> _loadPolicies() async {
     try {
-      final AppDatabase db = localDatabase;
-      final DateTime now = DateTime.now();
-      final DateTime soonThreshold = now.add(const Duration(days: 30));
-
-      final List<Policy> allPolicies = await db.select(db.policies).get();
-      final List<PolicySummary> summaries = <PolicySummary>[];
-
-      for (final Policy policy in allPolicies) {
-        final Client? client = await (db.select(db.clients)
-              ..where((c) => c.id.equals(policy.clientId)))
-            .getSingleOrNull();
-
-        final int coveredPrinters = await (db.select(db.policyPrinters)
-              ..where((pp) => pp.policyId.equals(policy.id)))
-            .get()
-            .then((list) => list.length);
-
-        final PolicyStatus status;
-        if (policy.endDate.isBefore(now)) {
-          status = PolicyStatus.expired;
-        } else if (policy.endDate.isBefore(soonThreshold)) {
-          status = PolicyStatus.expiring;
-        } else {
-          status = PolicyStatus.active;
-        }
-
-        summaries.add(PolicySummary(
-          policyId: policy.id,
-          folio: policy.folio,
-          clientName: client?.name ?? 'Cliente desconocido',
-          startDate: _formatDate(policy.startDate),
-          endDate: _formatDate(policy.endDate),
-          coveredPrinters: coveredPrinters,
-          status: status,
-        ));
-      }
-
-      if (mounted) {
-        setState(() {
-          _policies = summaries;
-          _loading = false;
-        });
-      }
+      final List<PolicySummary> policies = await _buildPolicySummaries();
+      if (mounted) setState(() { _policies = policies; _loading = false; });
     } catch (_) {
       if (mounted) setState(() => _loading = false);
     }
   }
 
+  Future<List<PolicySummary>> _buildPolicySummaries() async {
+    final AppDatabase db = widget.database;
+    final DateTime now = DateTime.now();
+
+    final List<Policy> allPolicies = await db.select(db.policies).get();
+    final List<PolicySummary> summaries = <PolicySummary>[];
+
+    for (final Policy policy in allPolicies) {
+      // Obtener nombre del cliente
+      final Client? client = await (db.select(db.clients)
+            ..where((c) => c.id.equals(policy.clientId)))
+          .getSingleOrNull();
+      final String clientName = client?.name ?? 'Cliente desconocido';
+
+      // Contar impresoras cubiertas por la póliza
+      final List<PolicyPrinter> policyPrinters = await (db.select(db.policyPrinters)
+            ..where((pp) => pp.policyId.equals(policy.id)))
+          .get();
+      final int coveredPrinters = policyPrinters.length;
+
+      // Determinar estado de la póliza
+      final PolicyStatus status;
+      if (now.isAfter(policy.endDate)) {
+        status = PolicyStatus.expired;
+      } else if (policy.endDate.difference(now).inDays < 30) {
+        status = PolicyStatus.expiring;
+      } else {
+        status = PolicyStatus.active;
+      }
+
+      summaries.add(PolicySummary(
+        id: policy.id,
+        clientId: policy.clientId,
+        folio: policy.folio,
+        clientName: clientName,
+        startDate: _formatDate(policy.startDate),
+        endDate: _formatDate(policy.endDate),
+        startDateRaw: policy.startDate,
+        endDateRaw: policy.endDate,
+        coveredPrinters: coveredPrinters,
+        status: status,
+      ));
+    }
+
+    return summaries;
+  }
+
   String _formatDate(DateTime date) {
-    const List<String> months = <String>[
+    final List<String> monthNames = <String>[
       'Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun',
-      'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic',
+      'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'
     ];
-    final String day = date.day.toString().padLeft(2, '0');
-    return '$day ${months[date.month - 1]} ${date.year}';
+    return '${date.day.toString().padLeft(2, '0')} ${monthNames[date.month - 1]} ${date.year}';
   }
 
   List<PolicySummary> _filteredPolicies() {
@@ -251,9 +263,7 @@ class _PolicyDashboardScreenState extends State<PolicyDashboardScreen> {
               ),
               const SizedBox(height: 12),
               Expanded(
-                child: _loading
-                    ? const Center(child: CircularProgressIndicator())
-                    : policies.isEmpty
+                child: policies.isEmpty
                     ? const Center(
                         child: Text(
                           'No hay pólizas para el filtro actual',
@@ -266,6 +276,7 @@ class _PolicyDashboardScreenState extends State<PolicyDashboardScreen> {
                         itemBuilder: (BuildContext context, int index) {
                           final PolicySummary policy = policies[index];
                           return _PolicyCard(
+                            database: widget.database,
                             policy: policy,
                             statusStyle: _styleFor(policy.status),
                           );
@@ -280,12 +291,12 @@ class _PolicyDashboardScreenState extends State<PolicyDashboardScreen> {
         backgroundColor: AppPalette.primary,
         foregroundColor: AppPalette.backgroundLight,
         onPressed: () async {
-          final bool? result = await Navigator.of(context).push<bool>(
+          final bool? saved = await Navigator.of(context).push<bool>(
             MaterialPageRoute<bool>(
-              builder: (_) => AddPolicyScreen(database: localDatabase),
+              builder: (_) => AddPolicyScreen(database: widget.database),
             ),
           );
-          if (result == true) {
+          if (saved == true && mounted) {
             _loadPolicies();
           }
         },
@@ -370,10 +381,12 @@ class _FilterChip extends StatelessWidget {
 
 class _PolicyCard extends StatelessWidget {
   const _PolicyCard({
+    required this.database,
     required this.policy,
     required this.statusStyle,
   });
 
+  final AppDatabase database;
   final PolicySummary policy;
   final _PolicyStatusStyle statusStyle;
 
@@ -387,10 +400,7 @@ class _PolicyCard extends StatelessWidget {
         onTap: () {
           Navigator.of(context).push(
             MaterialPageRoute<void>(
-              builder: (_) => PolicyDetailScreen(
-            policy: policy,
-            database: localDatabase,
-          ),
+              builder: (_) => PolicyDetailScreen(database: database, policy: policy),
             ),
           );
         },
@@ -547,9 +557,13 @@ class AddPolicyScreen extends StatefulWidget {
   const AddPolicyScreen({
     super.key,
     required this.database,
+    this.policy,
   });
 
   final AppDatabase database;
+  final PolicySummary? policy;
+
+  bool get isEditMode => policy != null;
 
   @override
   State<AddPolicyScreen> createState() => _AddPolicyScreenState();
@@ -574,24 +588,26 @@ class _AddPolicyScreenState extends State<AddPolicyScreen> {
   final TextEditingController _folioController = TextEditingController();
   final TextEditingController _startDateController = TextEditingController();
   final TextEditingController _endDateController = TextEditingController();
-  final Uuid _uuid = const Uuid();
 
+  // DB-loaded clients
   List<Client> _clients = <Client>[];
-  List<_PrinterOption> _availablePrinters = <_PrinterOption>[];
-  final Set<String> _selectedPrinterIds = <String>{};
+  bool _loadingClients = true;
 
-  Client? _selectedClientObj;
+  // Selected values
+  String? _selectedClientId;
   String? _selectedCoverage;
   String? _selectedFrequency;
   DateTime? _startDate;
   DateTime? _endDate;
-  bool _isSaving = false;
+
+  // Printers
+  final List<_PolicyPrinterItem> _selectedPrinters = <_PolicyPrinterItem>[];
+  List<_PolicyPrinterItem> _availablePrinters = <_PolicyPrinterItem>[];
+  bool _loadingPrinters = false;
 
   @override
   void initState() {
     super.initState();
-    _selectedCoverage = _coverageOptions[1];
-    _selectedFrequency = _frequencyOptions[2];
     _loadClients();
   }
 
@@ -604,50 +620,125 @@ class _AddPolicyScreenState extends State<AddPolicyScreen> {
   }
 
   Future<void> _loadClients() async {
-    final List<Client> clients = await (widget.database.select(widget.database.clients)
-          ..where((c) => c.isActive.isValue(true)))
-        .get();
-    if (mounted) setState(() => _clients = clients);
+    try {
+      final List<Client> clients = await (widget.database.select(widget.database.clients)
+            ..where((c) => c.isActive.equals(true)))
+          .get();
+      if (!mounted) return;
+      setState(() {
+        _clients = clients;
+        _loadingClients = false;
+      });
+      _initializeForm(clients);
+    } catch (_) {
+      if (mounted) setState(() => _loadingClients = false);
+    }
   }
 
-  Future<void> _loadPrintersForClient(String clientId) async {
-    final List<_PrinterOption> options = <_PrinterOption>[];
-    final results = await (widget.database.select(widget.database.printers)
-          ..where(
-            (p) => p.clientId.equals(clientId) & p.isActive.isValue(true),
-          ))
-        .join(<drift.Join>[
-          drift.innerJoin(
-            widget.database.catalogModels,
-            widget.database.catalogModels.id
-                .equalsExp(widget.database.printers.modelId),
-          ),
-        ])
-        .get();
+  Future<void> _loadPrintersForClient(String clientId, {String? existingPolicyId}) async {
+    if (mounted) setState(() => _loadingPrinters = true);
+    try {
+      final AppDatabase db = widget.database;
+      final List<Printer> printers = (await (db.select(db.printers)
+              ..where((p) => p.clientId.equals(clientId)))
+          .get())
+          .where((p) => p.isActive)
+          .toList();
 
-    for (final r in results) {
-      final Printer printer = r.readTable(widget.database.printers);
-      final CatalogModel model = r.readTable(widget.database.catalogModels);
-      options.add(_PrinterOption(
-        printerId: printer.id,
-        label: '${model.modelName} - ${model.dpi}dpi',
-        serial: printer.serialNumber,
-      ));
+      final List<_PolicyPrinterItem> items = <_PolicyPrinterItem>[];
+      for (final Printer printer in printers) {
+        final CatalogModel? model = await (db.select(db.catalogModels)
+              ..where((m) => m.id.equals(printer.modelId)))
+            .getSingleOrNull();
+        final String modelDisplay = model != null
+            ? '${model.brand} ${model.modelName}'
+            : 'Modelo desconocido';
+        items.add(_PolicyPrinterItem(
+          id: printer.id,
+          model: modelDisplay,
+          serial: printer.serialNumber,
+        ));
+      }
+
+      List<_PolicyPrinterItem> existing = <_PolicyPrinterItem>[];
+      if (existingPolicyId != null) {
+        final List<PolicyPrinter> policyPrinters = await (db.select(db.policyPrinters)
+              ..where((pp) => pp.policyId.equals(existingPolicyId)))
+            .get();
+        final Set<String> existingIds =
+            policyPrinters.map((pp) => pp.printerId).toSet();
+        existing = items.where((item) => existingIds.contains(item.id)).toList();
+      }
+
+      if (mounted) {
+        setState(() {
+          _availablePrinters = items;
+          if (existingPolicyId != null) {
+            _selectedPrinters
+              ..clear()
+              ..addAll(existing);
+          }
+          _loadingPrinters = false;
+        });
+      }
+    } catch (_) {
+      if (mounted) setState(() => _loadingPrinters = false);
+    }
+  }
+
+  void _initializeForm(List<Client> clients) {
+    if (!widget.isEditMode) {
+      final DateTime now = DateTime.now();
+      _folioController.text = 'POL-${now.year}-001';
+      _startDateController.text = _formatDate(DateTime(now.year, 1, 1));
+      _endDateController.text = _formatDate(DateTime(now.year, 12, 31));
+      setState(() {
+        _selectedCoverage = _coverageOptions[1];
+        _selectedFrequency = _frequencyOptions[2];
+        _startDate = DateTime(now.year, 1, 1);
+        _endDate = DateTime(now.year, 12, 31);
+        _selectedClientId = clients.isNotEmpty ? clients.first.id : null;
+      });
+      if (clients.isNotEmpty) {
+        _loadPrintersForClient(clients.first.id);
+      }
+      return;
     }
 
-    if (mounted) {
-      setState(() {
-        _availablePrinters = options;
-        _selectedPrinterIds.clear();
-      });
+    // Edit mode
+    final PolicySummary policy = widget.policy!;
+    _folioController.text = policy.folio;
+    _startDateController.text = policy.startDate;
+    _endDateController.text = policy.endDate;
+    setState(() {
+      _selectedClientId = policy.clientId;
+      _selectedCoverage = 'Extendida';
+      _selectedFrequency = _frequencyOptions[2];
+      _startDate = policy.startDateRaw;
+      _endDate = policy.endDateRaw;
+    });
+    if (policy.clientId.isNotEmpty) {
+      _loadPrintersForClient(policy.clientId, existingPolicyId: policy.id);
     }
   }
 
   @override
   Widget build(BuildContext context) {
+    final String title = widget.isEditMode
+        ? 'Editar Póliza de Mantenimiento'
+        : 'Nueva Póliza de Mantenimiento';
+
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Nueva Póliza de Mantenimiento'),
+        title: Text(title),
+        actions: <Widget>[
+          if (widget.isEditMode)
+            IconButton(
+              tooltip: 'Eliminar póliza',
+              onPressed: _confirmDelete,
+              icon: const Icon(Icons.delete_outline_rounded, color: Color(0xFFE57373)),
+            ),
+        ],
       ),
       body: SafeArea(
         child: Form(
@@ -674,31 +765,39 @@ class _AddPolicyScreenState extends State<AddPolicyScreen> {
                             validator: _requiredValidator,
                           ),
                           const SizedBox(height: 12),
-                          DropdownButtonFormField<Client>(
-                            value: _selectedClientObj,
-                            decoration: const InputDecoration(
-                              labelText: 'Cliente',
-                              prefixIcon: Icon(Icons.business_rounded),
+                          if (_loadingClients)
+                            const Padding(
+                              padding: EdgeInsets.symmetric(vertical: 12),
+                              child: Center(child: CircularProgressIndicator()),
+                            )
+                          else
+                            DropdownButtonFormField<String>(
+                              value: _selectedClientId,
+                              decoration: const InputDecoration(
+                                labelText: 'Cliente',
+                                prefixIcon: Icon(Icons.business_rounded),
+                              ),
+                              items: _clients
+                                  .map(
+                                    (Client client) => DropdownMenuItem<String>(
+                                      value: client.id,
+                                      child: Text(client.name),
+                                    ),
+                                  )
+                                  .toList(),
+                              validator: _requiredDropdownValidator,
+                              onChanged: (String? value) {
+                                if (value == _selectedClientId) return;
+                                setState(() {
+                                  _selectedClientId = value;
+                                  _selectedPrinters.clear();
+                                  _availablePrinters = <_PolicyPrinterItem>[];
+                                });
+                                if (value != null) {
+                                  _loadPrintersForClient(value);
+                                }
+                              },
                             ),
-                            items: _clients
-                                .map(
-                                  (Client c) => DropdownMenuItem<Client>(
-                                    value: c,
-                                    child: Text(c.name),
-                                  ),
-                                )
-                                .toList(),
-                            validator: (Client? v) =>
-                                v == null ? 'Seleccione una opción' : null,
-                            onChanged: (Client? value) async {
-                              setState(() {
-                                _selectedClientObj = value;
-                              });
-                              if (value != null) {
-                                await _loadPrintersForClient(value.id);
-                              }
-                            },
-                          ),
                           const SizedBox(height: 12),
                           DropdownButtonFormField<String>(
                             initialValue: _selectedCoverage,
@@ -716,7 +815,9 @@ class _AddPolicyScreenState extends State<AddPolicyScreen> {
                                 .toList(),
                             validator: _requiredDropdownValidator,
                             onChanged: (String? value) {
-                              setState(() => _selectedCoverage = value);
+                              setState(() {
+                                _selectedCoverage = value;
+                              });
                             },
                           ),
                         ],
@@ -787,7 +888,9 @@ class _AddPolicyScreenState extends State<AddPolicyScreen> {
                                 .toList(),
                             validator: _requiredDropdownValidator,
                             onChanged: (String? value) {
-                              setState(() => _selectedFrequency = value);
+                              setState(() {
+                                _selectedFrequency = value;
+                              });
                             },
                           ),
                           const SizedBox(height: 8),
@@ -806,52 +909,71 @@ class _AddPolicyScreenState extends State<AddPolicyScreen> {
                     _SectionCard(
                       title: 'IMPRESORAS EN CONTRATO',
                       icon: Icons.print_rounded,
-                      child: _availablePrinters.isEmpty
+                      action: SizedBox(
+                        height: 32,
+                        child: FilledButton.icon(
+                          onPressed: _onAddPrinter,
+                          icon: const Icon(Icons.add_rounded, size: 16),
+                          label: const Text(
+                            'Agregar Equipos',
+                            style: TextStyle(fontWeight: FontWeight.w800, fontSize: 12),
+                          ),
+                        ),
+                      ),
+                      child: _loadingPrinters
                           ? const Padding(
                               padding: EdgeInsets.symmetric(vertical: 12),
-                              child: Text(
-                                'Selecciona un cliente para ver sus impresoras',
-                                style: TextStyle(color: Colors.white60),
-                              ),
+                              child: Center(child: CircularProgressIndicator()),
                             )
-                          : Column(
-                              children: _availablePrinters
-                                  .map(
-                                    (_PrinterOption p) => CheckboxListTile(
-                                      value: _selectedPrinterIds.contains(p.printerId),
-                                      onChanged: (bool? checked) {
-                                        setState(() {
-                                          if (checked == true) {
-                                            _selectedPrinterIds.add(p.printerId);
-                                          } else {
-                                            _selectedPrinterIds.remove(p.printerId);
-                                          }
-                                        });
-                                      },
-                                      title: Text(
-                                        p.label,
-                                        style: const TextStyle(
-                                          color: AppPalette.backgroundLight,
-                                          fontWeight: FontWeight.w700,
-                                        ),
-                                      ),
-                                      subtitle: Text(
-                                        'S/N: ${p.serial}',
-                                        style: const TextStyle(color: Colors.white70),
-                                      ),
-                                      secondary: const Icon(
-                                        Icons.print_rounded,
-                                        color: AppPalette.accentBlue,
-                                      ),
-                                      controlAffinity: ListTileControlAffinity.trailing,
-                                      contentPadding: const EdgeInsets.symmetric(
-                                        horizontal: 4,
-                                        vertical: 2,
-                                      ),
+                          : _selectedPrinters.isEmpty
+                              ? const Padding(
+                                  padding: EdgeInsets.symmetric(vertical: 10),
+                                  child: Text(
+                                    'Sin equipos agregados. Selecciona un cliente y agrega impresoras.',
+                                    style: TextStyle(
+                                      color: Colors.white60,
+                                      fontSize: 13,
                                     ),
-                                  )
-                                  .toList(),
-                            ),
+                                  ),
+                                )
+                              : Column(
+                                  children: _selectedPrinters
+                                      .map(
+                                        (_PolicyPrinterItem printer) => ListTile(
+                                          contentPadding:
+                                              const EdgeInsets.symmetric(
+                                            horizontal: 4,
+                                            vertical: 2,
+                                          ),
+                                          leading: const Icon(
+                                            Icons.print_rounded,
+                                            color: AppPalette.accentBlue,
+                                          ),
+                                          title: Text(
+                                            printer.model,
+                                            style: const TextStyle(
+                                              color: AppPalette.backgroundLight,
+                                              fontWeight: FontWeight.w700,
+                                            ),
+                                          ),
+                                          subtitle: Text(
+                                            'S/N: ${printer.serial}',
+                                            style: const TextStyle(
+                                                color: Colors.white70),
+                                          ),
+                                          trailing: IconButton(
+                                            tooltip: 'Quitar equipo',
+                                            onPressed: () =>
+                                                _removePrinter(printer),
+                                            icon: const Icon(
+                                              Icons.delete_outline_rounded,
+                                              color: Color(0xFFE57373),
+                                            ),
+                                          ),
+                                        ),
+                                      )
+                                      .toList(),
+                                ),
                     ),
                   ],
                 ),
@@ -872,10 +994,10 @@ class _AddPolicyScreenState extends State<AddPolicyScreen> {
             height: 52,
             width: double.infinity,
             child: FilledButton(
-              onPressed: _isSaving ? null : _onSave,
-              child: Text(
-                _isSaving ? 'Guardando...' : 'GUARDAR POLIZA',
-                style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 16),
+              onPressed: _onSave,
+              child: const Text(
+                'GUARDAR POLIZA',
+                style: TextStyle(fontWeight: FontWeight.w800, fontSize: 16),
               ),
             ),
           ),
@@ -935,6 +1057,116 @@ class _AddPolicyScreenState extends State<AddPolicyScreen> {
     return '$day $month ${date.year}';
   }
 
+  void _removePrinter(_PolicyPrinterItem printer) {
+    setState(() {
+      _selectedPrinters.remove(printer);
+    });
+  }
+
+  Future<void> _onAddPrinter() async {
+    if (_selectedClientId == null) {
+      ScaffoldMessenger.of(context).hideCurrentSnackBar();
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Selecciona un cliente primero'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      return;
+    }
+
+    final Set<String> selectedIds =
+        _selectedPrinters.map((p) => p.id).toSet();
+    final List<_PolicyPrinterItem> available = _availablePrinters
+        .where((p) => !selectedIds.contains(p.id))
+        .toList();
+
+    if (available.isEmpty) {
+      ScaffoldMessenger.of(context).hideCurrentSnackBar();
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+              'No hay equipos disponibles (todos ya están en la póliza)'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      return;
+    }
+
+    final _PolicyPrinterItem? selected =
+        await showDialog<_PolicyPrinterItem>(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: const Text('Seleccionar Impresora'),
+          contentPadding: const EdgeInsets.fromLTRB(0, 16, 0, 0),
+          content: SizedBox(
+            width: double.maxFinite,
+            child: ListView.builder(
+              shrinkWrap: true,
+              itemCount: available.length,
+              itemBuilder: (BuildContext context, int index) {
+                final _PolicyPrinterItem printer = available[index];
+                return ListTile(
+                  leading: const Icon(
+                    Icons.print_rounded,
+                    color: AppPalette.accentBlue,
+                  ),
+                  title: Text(
+                    printer.model,
+                    style: const TextStyle(fontWeight: FontWeight.w700),
+                  ),
+                  subtitle: Text('S/N: ${printer.serial}'),
+                  onTap: () => Navigator.of(context).pop(printer),
+                );
+              },
+            ),
+          ),
+          actions: <Widget>[
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('Cancelar'),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (selected == null || !mounted) return;
+    setState(() {
+      _selectedPrinters.add(selected);
+    });
+  }
+
+  Future<void> _confirmDelete() async {
+    final bool? confirmed = await showDialog<bool>(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: const Text('Eliminar Póliza'),
+          content: const Text('Esta acción eliminará la póliza seleccionada.'),
+          actions: <Widget>[
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: const Text('Cancelar'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(context).pop(true),
+              style: FilledButton.styleFrom(
+                backgroundColor: Theme.of(context).colorScheme.error,
+                foregroundColor: Theme.of(context).colorScheme.onError,
+              ),
+              child: const Text('Eliminar'),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (confirmed != true || !mounted) return;
+    Navigator.of(context).pop(true);
+  }
+
   Future<void> _onSave() async {
     final bool valid = _formKey.currentState?.validate() ?? false;
     if (!valid) {
@@ -949,11 +1181,11 @@ class _AddPolicyScreenState extends State<AddPolicyScreen> {
       return;
     }
 
-    if (_startDate == null || _endDate == null) {
+    if (_selectedClientId == null) {
       ScaffoldMessenger.of(context).hideCurrentSnackBar();
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: const Text('Selecciona las fechas de inicio y término'),
+          content: const Text('Selecciona un cliente'),
           backgroundColor: Theme.of(context).colorScheme.error,
           behavior: SnackBarBehavior.floating,
         ),
@@ -961,57 +1193,92 @@ class _AddPolicyScreenState extends State<AddPolicyScreen> {
       return;
     }
 
-    setState(() => _isSaving = true);
-
-    try {
-      final String policyId = _uuid.v4();
-
-      await widget.database.transaction(() async {
-        await widget.database.into(widget.database.policies).insert(
-              PoliciesCompanion.insert(
-                id: policyId,
-                clientId: _selectedClientObj!.id,
-                folio: _folioController.text.trim(),
-                startDate: _startDate!,
-                endDate: _endDate!,
-                coverageType: _selectedCoverage ?? 'Básica',
-                status: 'active',
-              ),
-            );
-
-        for (final String printerId in _selectedPrinterIds) {
-          await widget.database.into(widget.database.policyPrinters).insert(
-                PolicyPrintersCompanion.insert(
-                  id: _uuid.v4(),
-                  policyId: policyId,
-                  printerId: printerId,
-                ),
-              );
-        }
-      });
-
-      if (!mounted) return;
-
-      ScaffoldMessenger.of(context).hideCurrentSnackBar();
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Póliza guardada correctamente'),
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
-      Navigator.of(context).pop(true);
-    } catch (_) {
-      if (!mounted) return;
+    if (_startDate == null || _endDate == null) {
       ScaffoldMessenger.of(context).hideCurrentSnackBar();
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: const Text('No se pudo guardar la póliza'),
+          content: const Text('Completa las fechas de la póliza'),
           backgroundColor: Theme.of(context).colorScheme.error,
           behavior: SnackBarBehavior.floating,
         ),
       );
-    } finally {
-      if (mounted) setState(() => _isSaving = false);
+      return;
+    }
+
+    try {
+      final AppDatabase db = widget.database;
+      const Uuid uuid = Uuid();
+
+      if (widget.isEditMode) {
+        final String policyId = widget.policy!.id;
+        await (db.update(db.policies)
+              ..where((p) => p.id.equals(policyId)))
+            .write(PoliciesCompanion(
+          clientId: Value(_selectedClientId!),
+          folio: Value(_folioController.text.trim()),
+          startDate: Value(_startDate!),
+          endDate: Value(_endDate!),
+          coverageType: Value(_selectedCoverage!),
+        ));
+
+        // Replace policy printers
+        await (db.delete(db.policyPrinters)
+              ..where((pp) => pp.policyId.equals(policyId)))
+            .go();
+        for (final _PolicyPrinterItem printer in _selectedPrinters) {
+          await db.into(db.policyPrinters).insert(
+            PolicyPrintersCompanion.insert(
+              id: uuid.v4(),
+              policyId: policyId,
+              printerId: printer.id,
+            ),
+          );
+        }
+      } else {
+        final String policyId = uuid.v4();
+        await db.into(db.policies).insert(
+          PoliciesCompanion.insert(
+            id: policyId,
+            clientId: _selectedClientId!,
+            folio: _folioController.text.trim(),
+            startDate: _startDate!,
+            endDate: _endDate!,
+            coverageType: _selectedCoverage!,
+            status: 'active',
+          ),
+        );
+        for (final _PolicyPrinterItem printer in _selectedPrinters) {
+          await db.into(db.policyPrinters).insert(
+            PolicyPrintersCompanion.insert(
+              id: uuid.v4(),
+              policyId: policyId,
+              printerId: printer.id,
+            ),
+          );
+        }
+      }
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).hideCurrentSnackBar();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(widget.isEditMode
+              ? 'Póliza actualizada correctamente'
+              : 'Póliza guardada correctamente'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      Navigator.of(context).pop(true);
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).hideCurrentSnackBar();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Error al guardar: $e'),
+          backgroundColor: Theme.of(context).colorScheme.error,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
     }
   }
 }
@@ -1099,15 +1366,15 @@ class _DateField extends StatelessWidget {
 }
 
 @immutable
-class _PrinterOption {
-  const _PrinterOption({
-    required this.printerId,
-    required this.label,
+class _PolicyPrinterItem {
+  const _PolicyPrinterItem({
+    required this.id,
+    required this.model,
     required this.serial,
   });
 
-  final String printerId;
-  final String label;
+  final String id;
+  final String model;
   final String serial;
 }
 
@@ -1116,123 +1383,77 @@ class _PrinterOption {
 class PolicyDetailScreen extends StatefulWidget {
   const PolicyDetailScreen({
     super.key,
-    required this.policy,
     required this.database,
+    required this.policy,
   });
 
-  final PolicySummary policy;
   final AppDatabase database;
+  final PolicySummary policy;
 
   @override
   State<PolicyDetailScreen> createState() => _PolicyDetailScreenState();
 }
 
 class _PolicyDetailScreenState extends State<PolicyDetailScreen> {
-  List<_PolicyAsset> _parqueTotal = <_PolicyAsset>[];
-  List<_PolicyAsset> _misTareas = <_PolicyAsset>[];
-  List<_PolicyVisit> _visits = <_PolicyVisit>[];
-  bool _loading = true;
+  late final List<_PolicyAsset> _parqueTotal;
+  late final List<_PolicyAsset> _misTareas;
+  late final List<_PolicyVisit> _visits;
 
   @override
   void initState() {
     super.initState();
-    _loadData();
-  }
-
-  Future<void> _loadData() async {
-    try {
-      final db = widget.database;
-
-      // Cargar impresoras de la póliza
-      final List<PolicyPrinter> policyPrinters = await (db
-              .select(db.policyPrinters)
-            ..where((pp) => pp.policyId.equals(widget.policy.policyId)))
-          .get();
-
-      final List<_PolicyAsset> assets = <_PolicyAsset>[];
-
-      for (final PolicyPrinter pp in policyPrinters) {
-        final rows = await (db.select(db.printers)
-              ..where((p) => p.id.equals(pp.printerId)))
-            .join(<drift.Join>[
-              drift.innerJoin(
-                db.catalogModels,
-                db.catalogModels.id.equalsExp(db.printers.modelId),
-              ),
-              drift.innerJoin(
-                db.plants,
-                db.plants.id.equalsExp(db.printers.plantId),
-              ),
-              drift.innerJoin(
-                db.areas,
-                db.areas.id.equalsExp(db.printers.areaId),
-              ),
-            ])
-            .get();
-
-        if (rows.isNotEmpty) {
-          final row = rows.first;
-          final catalogModel = row.readTable(db.catalogModels);
-          final plant = row.readTable(db.plants);
-          final area = row.readTable(db.areas);
-          final printer = row.readTable(db.printers);
-
-          assets.add(_PolicyAsset(
-            model: '${catalogModel.brand} ${catalogModel.modelName}',
-            serial: printer.serialNumber,
-            plant: plant.name,
-            area: area.name,
-            isMine: true,
-            assignedTo: 'Tú',
-          ));
-        }
-      }
-
-      // Cargar entregas para el calendario
-      final List<PolicyDelivery> deliveries = await (db
-              .select(db.policyDeliveries)
-            ..where((d) => d.policyId.equals(widget.policy.policyId))
-            ..orderBy(<drift.OrderingTerm Function(PolicyDeliveries)>[
-              (d) => drift.OrderingTerm.asc(d.deliveryDate),
-            ]))
-          .get();
-
-      final DateTime now = DateTime.now();
-      final List<_PolicyVisit> visits = deliveries
-          .asMap()
-          .entries
-          .map((MapEntry<int, PolicyDelivery> e) {
-            final PolicyDelivery d = e.value;
-            final _VisitStatus status = d.deliveryDate.isBefore(now)
-                ? _VisitStatus.completed
-                : _VisitStatus.scheduled;
-            return _PolicyVisit(
-              title: 'Entrega ${e.key + 1}',
-              status: status,
-              dateLabel: _fmtDate(d.deliveryDate),
-            );
-          })
-          .toList();
-
-      if (mounted) {
-        setState(() {
-          _parqueTotal = assets;
-          _misTareas = assets;
-          _visits = visits;
-          _loading = false;
-        });
-      }
-    } catch (_) {
-      if (mounted) setState(() => _loading = false);
-    }
-  }
-
-  String _fmtDate(DateTime d) {
-    const List<String> meses = <String>[
-      'Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun',
-      'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic',
+    _parqueTotal = _buildParqueTotal();
+    _misTareas = _parqueTotal.where((_PolicyAsset item) => item.isMine).toList();
+    _visits = <_PolicyVisit>[
+      const _PolicyVisit(
+        title: 'Visita Q1',
+        status: _VisitStatus.completed,
+        dateLabel: '15 Mar 2026',
+      ),
+      const _PolicyVisit(
+        title: 'Visita Q2',
+        status: _VisitStatus.pending,
+        dateLabel: '15 Jun 2026',
+      ),
+      const _PolicyVisit(
+        title: 'Visita Q3',
+        status: _VisitStatus.scheduled,
+        dateLabel: '20 Sep 2026',
+      ),
+      const _PolicyVisit(
+        title: 'Visita Q4',
+        status: _VisitStatus.scheduled,
+        dateLabel: '10 Dic 2026',
+      ),
     ];
-    return '${d.day.toString().padLeft(2, '0')} ${meses[d.month - 1]} ${d.year}';
+  }
+
+  List<_PolicyAsset> _buildParqueTotal() {
+    const List<String> models = <String>[
+      'Zebra ZT411', 'Zebra ZD421', 'Zebra ZT610', 'Zebra ZT231',
+    ];
+    const List<String> plants = <String>[
+      'Planta Norte', 'Planta Sur', 'Principal', 'Nave 2',
+    ];
+    const List<String> areas = <String>[
+      'Línea de Empaque', 'Línea 3', 'Almacén', 'Recibo',
+    ];
+    const List<String> others = <String>[
+      'Pedro R.', 'Daniela M.', 'Mariana S.', 'Luis T.',
+    ];
+
+    return List<_PolicyAsset>.generate(24, (int index) {
+      final bool isMine = index < 12;
+      final String serial = 'SN-${520000000000 + index}';
+      return _PolicyAsset(
+        model: models[index % models.length],
+        serial: serial,
+        plant: plants[index % plants.length],
+        area: areas[index % areas.length],
+        isMine: isMine,
+        assignedTo: isMine ? 'Tú' : others[index % others.length],
+      );
+    });
   }
 
   _PolicyStatusStyle _statusStyle(PolicyStatus status) {
@@ -1316,7 +1537,7 @@ class _PolicyDetailScreenState extends State<PolicyDetailScreen> {
               if (value == 'edit') {
                 Navigator.of(context).push(
                   MaterialPageRoute<void>(
-                    builder: (_) => AddPolicyScreen(database: localDatabase),
+                    builder: (_) => AddPolicyScreen(database: widget.database, policy: widget.policy),
                   ),
                 );
               }
@@ -1482,9 +1703,7 @@ class _PolicyDetailScreenState extends State<PolicyDetailScreen> {
                 ),
                 const SizedBox(height: 10),
                 Expanded(
-                  child: _loading
-                      ? const Center(child: CircularProgressIndicator())
-                      : TabBarView(
+                  child: TabBarView(
                     children: <Widget>[
                       _MyTasksTab(
                         tasks: _misTareas,
@@ -1505,7 +1724,6 @@ class _PolicyDetailScreenState extends State<PolicyDetailScreen> {
                     ],
                   ),
                 ),
-
               ],
             ),
           ),
@@ -1529,24 +1747,14 @@ class _MyTasksTab extends StatelessWidget {
     return Column(
       children: <Widget>[
         Expanded(
-          child: tasks.isEmpty
-              ? const Center(
-                  child: Text(
-                    'Sin equipos asignados',
-                    style: TextStyle(
-                      color: Colors.white54,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                )
-              : ListView.separated(
-                  itemCount: tasks.length,
-                  separatorBuilder: (_, __) => const SizedBox(height: 8),
-                  itemBuilder: (BuildContext context, int index) {
-                    final _PolicyAsset item = tasks[index];
-                    return _TaskCard(item: item, showMineBadge: true);
-                  },
-                ),
+          child: ListView.separated(
+            itemCount: tasks.length,
+            separatorBuilder: (_, __) => const SizedBox(height: 8),
+            itemBuilder: (BuildContext context, int index) {
+              final _PolicyAsset item = tasks[index];
+              return _TaskCard(item: item, showMineBadge: true);
+            },
+          ),
         ),
         const SizedBox(height: 10),
         SizedBox(
@@ -1772,14 +1980,6 @@ class _CalendarTab extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    if (visits.isEmpty) {
-      return const Center(
-        child: Text(
-          'Sin visitas registradas',
-          style: TextStyle(color: Colors.white54, fontWeight: FontWeight.w600),
-        ),
-      );
-    }
     return ListView.builder(
       itemCount: visits.length,
       itemBuilder: (BuildContext context, int index) {
