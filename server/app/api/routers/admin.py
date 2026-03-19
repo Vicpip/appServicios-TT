@@ -34,6 +34,7 @@ from app.schemas.admin import (
     ClientUpdate,
     PlantCreate,
     PlantListItem,
+    PlantUpdate,
     PolicyCreate,
     PolicyDetail,
     PolicyListItem,
@@ -248,14 +249,17 @@ def get_report_files(report_id: str, db: Session = Depends(get_db)) -> dict:
         .all()
     )
 
-    upload_dir = settings.upload_dir.rstrip("/")
+    upload_dir_path = Path(settings.upload_dir)
     photos: list[str] = []
     signature: str | None = None
     pdf: str | None = None
 
     for ef, f in rows:
-        rel = f.storage_path.removeprefix(upload_dir).lstrip("/")
-        url = f"/uploads/{rel}"
+        try:
+            rel = Path(f.storage_path).relative_to(upload_dir_path)
+            url = f"/uploads/{rel.as_posix()}"
+        except ValueError:
+            url = f"/uploads/{f.storage_path.lstrip('/')}"
         if ef.file_category == "photo":
             photos.append(url)
         elif ef.file_category == "signature":
@@ -376,6 +380,64 @@ def list_technicians(
 
 
 # ---------------------------------------------------------------------------
+# GET /api/admin/technicians/{tech_id}  — Perfil
+# ---------------------------------------------------------------------------
+
+@router.get("/technicians/{tech_id}", response_model=dict)
+def get_technician_detail(tech_id: str, db: Session = Depends(get_db)) -> dict:
+    tech = db.query(User).filter(User.id == tech_id, User.role == "technician").first()
+    if not tech:
+        raise HTTPException(status_code=404, detail="Technician not found")
+    report_count = db.query(Report).filter(Report.tech_id == tech_id).count()
+    signature_url = f"/uploads/{tech.signature_path}" if tech.signature_path else None
+    return {
+        "id": tech.id, "code": tech.code, "name": tech.name,
+        "email": tech.email, "role": tech.role, "is_active": tech.is_active,
+        "signature_url": signature_url,
+        "last_sync_at": tech.last_sync_at.isoformat() if tech.last_sync_at else None,
+        "report_count": report_count,
+    }
+
+
+# ---------------------------------------------------------------------------
+# GET /api/admin/technicians/{tech_id}/reports  — Reportes con filtro de fecha
+# ---------------------------------------------------------------------------
+
+@router.get("/technicians/{tech_id}/reports", response_model=dict)
+def get_technician_reports(
+    tech_id: str,
+    date_from: str | None = Query(None),
+    date_to: str | None = Query(None),
+    offset: int = Query(0, ge=0),
+    limit: int = Query(20, ge=1, le=100),
+    db: Session = Depends(get_db),
+) -> dict:
+    q = (
+        db.query(Report)
+        .filter(Report.tech_id == tech_id)
+        .order_by(Report.service_date.desc())
+    )
+    if date_from:
+        q = q.filter(Report.service_date >= datetime.fromisoformat(date_from))
+    if date_to:
+        q = q.filter(Report.service_date <= datetime.fromisoformat(date_to))
+    total = q.count()
+    rows = q.offset(offset).limit(limit).all()
+    items = []
+    for r in rows:
+        printer = db.get(Printer, r.printer_id) if r.printer_id else None
+        client = db.get(Client, printer.client_id) if printer and printer.client_id else None
+        items.append({
+            "id": r.id, "code": r.code, "service_type": r.service_type,
+            "service_date": r.service_date.isoformat() if r.service_date else None,
+            "status": r.status,
+            "printer_serial": printer.serial_number if printer else None,
+            "client_name": client.name if client else None,
+        })
+    return {"total": total, "items": items}
+
+
+# ---------------------------------------------------------------------------
 # GET /api/admin/printers
 # ---------------------------------------------------------------------------
 
@@ -463,6 +525,73 @@ def list_printers(
         )
 
     return {"total": total, "offset": offset, "limit": limit, "items": [i.model_dump() for i in items]}
+
+
+# ---------------------------------------------------------------------------
+# GET /api/admin/printers/{printer_id}  — Detalle
+# ---------------------------------------------------------------------------
+
+@router.get("/printers/{printer_id}", response_model=dict)
+def get_printer_detail(printer_id: str, db: Session = Depends(get_db)) -> dict:
+    printer = db.get(Printer, printer_id)
+    if not printer:
+        raise HTTPException(status_code=404, detail="Printer not found")
+    client = db.get(Client, printer.client_id) if printer.client_id else None
+    plant = db.get(Plant, printer.plant_id) if printer.plant_id else None
+    area = db.get(Area, printer.area_id) if printer.area_id else None
+    model = db.get(CatalogModel, printer.model_id) if printer.model_id else None
+    return {
+        "id": printer.id,
+        "code": printer.code,
+        "serial_number": printer.serial_number,
+        "qr_uuid": printer.qr_uuid,
+        "is_active": printer.is_active,
+        "client": {"id": client.id, "name": client.name} if client else None,
+        "plant": {
+            "id": plant.id, "name": plant.name,
+            "contact_name": plant.contact_name, "phone": plant.phone,
+        } if plant else None,
+        "area": {"id": area.id, "name": area.name} if area else None,
+        "model": {
+            "id": model.id, "brand": model.brand,
+            "model_name": model.model_name, "dpi": model.dpi,
+        } if model else None,
+    }
+
+
+# ---------------------------------------------------------------------------
+# GET /api/admin/printers/{printer_id}/reports  — Historial paginado
+# ---------------------------------------------------------------------------
+
+@router.get("/printers/{printer_id}/reports", response_model=dict)
+def get_printer_reports(
+    printer_id: str,
+    offset: int = Query(0, ge=0),
+    limit: int = Query(20, ge=1, le=100),
+    db: Session = Depends(get_db),
+) -> dict:
+    q = (
+        db.query(Report)
+        .filter(Report.printer_id == printer_id)
+        .order_by(Report.service_date.desc())
+    )
+    total = q.count()
+    rows = q.offset(offset).limit(limit).all()
+    items = []
+    for r in rows:
+        tech = db.get(User, r.tech_id) if r.tech_id else None
+        items.append({
+            "id": r.id, "code": r.code, "service_type": r.service_type,
+            "service_date": r.service_date.isoformat() if r.service_date else None,
+            "status": r.status, "tech_name": tech.name if tech else None,
+            "notes": r.notes, "signature_name": r.signature_name,
+            "signature_role": r.signature_role,
+            "linear_inches_counter": r.linear_inches_counter,
+            "darkness_level": r.darkness_level,
+            "technical_checkboxes": r.technical_checkboxes,
+            "photo_count": r.photo_count or 0,
+        })
+    return {"total": total, "items": items}
 
 
 # ---------------------------------------------------------------------------
@@ -996,7 +1125,7 @@ def list_plants(
     if client_id:
         q = q.filter(Plant.client_id == client_id)
     rows = q.order_by(Plant.name).all()
-    items = [PlantListItem(id=p.id, name=p.name, client_id=p.client_id).model_dump() for p in rows]
+    items = [PlantListItem(id=p.id, name=p.name, client_id=p.client_id, contact_name=p.contact_name, phone=p.phone).model_dump() for p in rows]
     return {"total": len(items), "items": items}
 
 
@@ -1010,11 +1139,33 @@ def create_plant(body: PlantCreate, db: Session = Depends(get_db)) -> dict:
         id=str(uuid.uuid4()),
         client_id=body.client_id,
         name=body.name,
+        contact_name=body.contact_name,
+        phone=body.contact_phone,
     )
     db.add(plant)
     db.commit()
     db.refresh(plant)
-    return PlantListItem(id=plant.id, name=plant.name, client_id=plant.client_id).model_dump()
+    return PlantListItem(
+        id=plant.id, name=plant.name, client_id=plant.client_id,
+        contact_name=plant.contact_name, phone=plant.phone,
+    ).model_dump()
+
+
+@router.put("/plants/{plant_id}", response_model=dict)
+def update_plant(plant_id: str, body: PlantUpdate, db: Session = Depends(get_db)) -> dict:
+    plant = db.get(Plant, plant_id)
+    if not plant:
+        raise HTTPException(status_code=404, detail="Plant not found")
+    if body.contact_name is not None:
+        plant.contact_name = body.contact_name
+    if body.contact_phone is not None:
+        plant.phone = body.contact_phone
+    db.commit()
+    db.refresh(plant)
+    return PlantListItem(
+        id=plant.id, name=plant.name, client_id=plant.client_id,
+        contact_name=plant.contact_name, phone=plant.phone,
+    ).model_dump()
 
 
 @router.get("/areas", response_model=dict)
@@ -1124,6 +1275,7 @@ def create_printer(body: PrinterCreate, db: Session = Depends(get_db)) -> dict:
         area_name=area.name if area else None,
         model_brand=catalog_model.brand if catalog_model else None,
         model_name=catalog_model.model_name if catalog_model else None,
+        model_dpi=catalog_model.dpi if catalog_model else None,
         last_service_date=None,
         printer_status="Sin Historial",
     ).model_dump()
