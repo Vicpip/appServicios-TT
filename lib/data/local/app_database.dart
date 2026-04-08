@@ -223,6 +223,10 @@ class Reports extends Table {
   TextColumn get signatureBlockId => text().nullable()();
   TextColumn get reportBlockStatus => text().nullable()();
 
+  /// Si el técnico ignoró una asignación ajena para crear este reporte
+  BoolColumn get assignmentOverride =>
+      boolean().withDefault(const Constant(false))();
+
   /// Código legible: R-001, R-002, …
   TextColumn get code => text().nullable()();
 
@@ -279,6 +283,8 @@ class Policies extends Table {
 
   TextColumn get slaNotes => text().nullable()();
 
+  TextColumn get frequencyMaintenance => text().nullable()();
+
   TextColumn get status => text()();
 
   @override
@@ -308,6 +314,48 @@ class PolicyDeliveries extends Table {
   TextColumn get signatureRole => text()();
 
   TextColumn get techId => text().references(Users, #id)();
+
+  TextColumn get signatureImagePath => text().nullable()();
+
+  @override
+  Set<Column> get primaryKey => {id};
+}
+
+class PolicyPrinterAssignments extends Table {
+  TextColumn get id => text()();
+
+  TextColumn get policyId => text().references(Policies, #id)();
+
+  TextColumn get printerId => text().references(Printers, #id)();
+
+  TextColumn get technicianId => text().references(Users, #id)();
+
+  DateTimeColumn get assignedAt => dateTime()();
+
+  @override
+  Set<Column> get primaryKey => {id};
+}
+
+class PolicyVisits extends Table {
+  TextColumn get id => text()();
+
+  TextColumn get policyId => text().references(Policies, #id)();
+
+  IntColumn get visitNumber => integer()();
+
+  /// ISO date string nullable (yyyy-MM-dd)
+  TextColumn get scheduledDate => text().nullable()();
+
+  /// 'scheduled' | 'in_progress' | 'completed'
+  TextColumn get status =>
+      text().withDefault(const Constant('scheduled'))();
+
+  DateTimeColumn get startedAt => dateTime().nullable()();
+
+  DateTimeColumn get completedAt => dateTime().nullable()();
+
+  DateTimeColumn get createdAt =>
+      dateTime().withDefault(currentDateAndTime)();
 
   @override
   Set<Column> get primaryKey => {id};
@@ -410,6 +458,8 @@ class SyncQueue extends Table {
     PolicyPrinters,
     PolicyDeliveries,
     PolicyDeliveryReports,
+    PolicyVisits,
+    PolicyPrinterAssignments,
     Files,
     EntityFiles,
     CatalogActions,
@@ -423,7 +473,7 @@ class AppDatabase extends _$AppDatabase {
   AppDatabase([QueryExecutor? executor]) : super(executor ?? _openConnection());
 
   @override
-  int get schemaVersion => 6;
+  int get schemaVersion => 9;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -460,6 +510,21 @@ class AppDatabase extends _$AppDatabase {
             // Only devices that already had sync_queue (v5) need this column.
             // Devices upgrading from < 5 get it automatically via createTable.
             await migrator.addColumn(syncQueue, syncQueue.lastError);
+          }
+          if (from < 7) {
+            // Módulo de pólizas — asignaciones técnico-impresora
+            await migrator.createTable(policyPrinterAssignments);
+            await migrator.addColumn(
+                policyDeliveries, policyDeliveries.signatureImagePath);
+            await migrator.addColumn(reports, reports.assignmentOverride);
+          }
+          if (from < 8) {
+            // Frecuencia de mantenimiento preventivo en pólizas
+            await migrator.addColumn(policies, policies.frequencyMaintenance);
+          }
+          if (from < 9) {
+            // Visitas de póliza — entidad que conecta póliza con visita de campo
+            await migrator.createTable(policyVisits);
           }
         },
         beforeOpen: (OpeningDetails details) async {

@@ -1,6 +1,7 @@
+import 'dart:convert';
 import 'dart:io' as io;
 
-import 'package:drift/drift.dart' show OrderingTerm, innerJoin;
+import 'package:drift/drift.dart' show Expression, OrderingTerm, innerJoin;
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -74,15 +75,174 @@ final _lastReportProvider =
       .getSingleOrNull();
 });
 
+final _activeVisitCheckProvider =
+    FutureProvider.family<bool, String?>((ref, printerId) async {
+  if (printerId == null || printerId.isEmpty) return false;
+  final PolicyPrinter? pp = await (localDatabase.select(localDatabase.policyPrinters)
+        ..where((PolicyPrinters t) => t.printerId.equals(printerId)))
+      .getSingleOrNull();
+  if (pp == null) return false;
+  final List<PolicyVisit> visits =
+      await (localDatabase.select(localDatabase.policyVisits)
+            ..where((PolicyVisits v) => Expression.and(<Expression<bool>>[
+                v.policyId.equals(pp.policyId),
+                v.status.equals('in_progress'),
+              ]))
+            ..limit(1))
+          .get();
+  return visits.isNotEmpty;
+});
+
+// Data loaded from DB for read-only mode
+class _SavedReportState {
+  const _SavedReportState({
+    required this.report,
+    required this.serial,
+    required this.model,
+    required this.previousCounter,
+    required this.previousDate,
+    required this.photoPaths,
+  });
+  final Report report;
+  final String serial;
+  final String model;
+  final String previousCounter;
+  final String previousDate;
+  final List<String> photoPaths;
+}
+
+String _fmtDate(DateTime date) {
+  const List<String> months = <String>[
+    'Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun',
+    'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic',
+  ];
+  return '${date.day} ${months[date.month - 1]} ${date.year}';
+}
+
+final _savedReportDataProvider =
+    FutureProvider.family<_SavedReportState?, String>((ref, reportId) async {
+  final Report? report = await (localDatabase.select(localDatabase.reports)
+        ..where((Reports r) => r.id.equals(reportId)))
+      .getSingleOrNull();
+  if (report == null) return null;
+
+  final Printer? printer = await (localDatabase.select(localDatabase.printers)
+        ..where((Printers p) => p.id.equals(report.printerId)))
+      .getSingleOrNull();
+
+  final CatalogModel? model = printer == null
+      ? null
+      : await (localDatabase.select(localDatabase.catalogModels)
+              ..where((CatalogModels m) => m.id.equals(printer.modelId)))
+          .getSingleOrNull();
+
+  final Report? prevReport = await (localDatabase.select(localDatabase.reports)
+        ..where((Reports r) => Expression.and(<Expression<bool>>[
+              r.printerId.equals(report.printerId),
+              r.id.isNotValue(reportId),
+            ]))
+        ..orderBy([(Reports r) => OrderingTerm.desc(r.createdAt)])
+        ..limit(1))
+      .getSingleOrNull();
+
+  List<String> photoPaths = const <String>[];
+  try {
+    final dynamic decoded = jsonDecode(report.photoPaths ?? '[]');
+    if (decoded is List) {
+      photoPaths = List<String>.from(decoded);
+    }
+  } catch (_) {}
+
+  return _SavedReportState(
+    report: report,
+    serial: printer?.serialNumber ?? '—',
+    model: model != null ? '${model.brand} ${model.modelName} - ${model.dpi}dpi' : '—',
+    previousCounter: prevReport?.linearInchesCounter.toString() ?? '0',
+    previousDate: prevReport != null ? _fmtDate(prevReport.createdAt) : '—',
+    photoPaths: photoPaths,
+  );
+});
+
 // ---------------------------------------------------------------------------
 // Pantalla
 // ---------------------------------------------------------------------------
 
 class ReportSummaryScreen extends ConsumerWidget {
-  const ReportSummaryScreen({super.key});
+  const ReportSummaryScreen({super.key, this.reportId});
+
+  final String? reportId;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    // Read-only mode: display a saved report from DB
+    if (reportId != null) {
+      final AsyncValue<_SavedReportState?> savedAsync =
+          ref.watch(_savedReportDataProvider(reportId!));
+      if (!savedAsync.hasValue) {
+        return Scaffold(
+          appBar: AppBar(title: const Text('Resumen del Reporte')),
+          body: const Center(child: CircularProgressIndicator()),
+        );
+      }
+      final _SavedReportState? saved = savedAsync.value;
+      if (saved == null) {
+        return Scaffold(
+          appBar: AppBar(title: const Text('Resumen del Reporte')),
+          body: const Center(
+            child: Text('Reporte no encontrado',
+                style: TextStyle(color: Colors.white70)),
+          ),
+        );
+      }
+      final String previousDate = saved.previousDate;
+      final String currentDate = _formatDate(saved.report.serviceDate);
+      final List<String> diagnostics = saved.report.technicalCheckboxes.entries
+          .where((MapEntry<String, bool> e) => e.value)
+          .map((MapEntry<String, bool> e) => e.key)
+          .toList();
+      return Scaffold(
+        appBar: AppBar(title: const Text('Resumen del Reporte')),
+        body: SingleChildScrollView(
+          padding: const EdgeInsets.fromLTRB(16, 16, 16, 32),
+          child: Center(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 1024),
+              child: Column(
+                children: <Widget>[
+                  const SizedBox(height: 4),
+                  _GeneralSummaryCard(
+                    serial: saved.serial,
+                    model: saved.model,
+                    serviceType: saved.report.serviceType,
+                    counter: saved.report.linearInchesCounter.toString(),
+                    darkness: saved.report.darknessLevel?.toString() ?? '',
+                    labelType: '',
+                  ),
+                  const SizedBox(height: 12),
+                  _UsageChartCard(
+                    previousCounter: saved.previousCounter,
+                    currentCounter:
+                        saved.report.linearInchesCounter.toString(),
+                    previousDate: previousDate,
+                    currentDate: currentDate,
+                  ),
+                  const SizedBox(height: 12),
+                  _DiagnosticCard(
+                    diagnostics: diagnostics,
+                    notes: saved.report.notes?.isEmpty ?? true
+                        ? 'Sin observaciones adicionales.'
+                        : saved.report.notes!,
+                  ),
+                  const SizedBox(height: 12),
+                  _EvidenceCard(photoPaths: saved.photoPaths),
+                ],
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+
     final CaptureState capture = ref.watch(captureProvider);
     final String printerId = capture.printerId ?? '';
 
@@ -90,6 +250,8 @@ class ReportSummaryScreen extends ConsumerWidget {
         ref.watch(_printerInfoProvider(printerId));
     final AsyncValue<Report?> lastReportAsync =
         ref.watch(_lastReportProvider(printerId));
+    final bool hasActiveVisit =
+        ref.watch(_activeVisitCheckProvider(capture.printerId)).valueOrNull ?? false;
 
     final _PrinterInfo? printerInfo = printerAsync.valueOrNull;
     final Report? lastReport = lastReportAsync.valueOrNull;
@@ -165,9 +327,9 @@ class ReportSummaryScreen extends ConsumerWidget {
                 backgroundColor: AppPalette.success,
                 foregroundColor: AppPalette.backgroundLight,
               ),
-              child: const Text(
-                'Proceder a Firma',
-                style: TextStyle(fontWeight: FontWeight.w800),
+              child: Text(
+                hasActiveVisit ? 'Guardar reporte' : 'Proceder a Firma',
+                style: const TextStyle(fontWeight: FontWeight.w800),
               ),
             ),
           ),

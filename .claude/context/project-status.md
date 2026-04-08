@@ -475,6 +475,51 @@ http://localhost:8000/docs
 
 ---
 
+## ✅ Feature: Policy Visits — COMPLETADA (27/03/2026)
+
+### Regla de negocio central implementada
+- Sin póliza → Signed (firma individual)
+- Póliza sin visita in_progress → Signed (firma individual)
+- Póliza CON visita in_progress → pending_delivery (firma global)
+
+### Sprint A — Migración
+- Alembic `005_add_policy_visits.py` (down_revision=004)
+- SQLAlchemy `PolicyVisit` model en `policy.py`
+- Drift `PolicyVisits` table + `schemaVersion 9`
+
+### Sprint B — Backend
+- GET `/api/admin/policies/{id}/visits`
+- POST `/api/admin/policies/{id}/visits/generate` (distribuye fechas uniformemente)
+- PATCH `/api/admin/policies/{id}/visits/{visit_id}` (valida única in_progress)
+- `policyVisits` incluido en `GET /api/sync/download`
+
+### Sprint C — Flutter
+- Nuevo `policy_visit_provider.dart` (activeVisitProvider, policyVisitsProvider)
+- `sync_service.dart` descarga y persiste `policyVisits`
+- `signature_screen.dart` activa condición `pending_delivery`
+- `printer_confirmation_screen.dart` muestra banner "Visita X/N en curso"
+
+### Sprint D — Flutter: Detalle de póliza
+- Tab "Visitas" en `PolicyDetailScreen` (3 tabs total)
+- Sección "Visita activa" con barra de progreso `X/N equipos`
+- Botón "Iniciar visita" que actualiza DB local
+- Lista `_VisitRow` con estado (Programada/En Curso/Completada)
+
+### Sprint E — Admin Web
+- `endpoints.ts` con visits, generateVisits, updateVisit
+- `PoliciesPage.tsx` agrega sección Visitas en `AssignmentPanel`:
+  - Botón "Generar visitas" (solo si no hay visitas)
+  - Lista de visitas con fecha, status, badge progreso equipos
+  - Botón "Activar" por visita (solo si no hay otra in_progress)
+
+### Comandos para aplicar
+```bash
+alembic upgrade head
+dart run build_runner build --delete-conflicting-outputs
+```
+
+---
+
 ## ✅ Sprint 2 — Avance actual
 
 ### ✅ Fases 1, 2, 3 y 4 — COMPLETADAS (16/03/2026)

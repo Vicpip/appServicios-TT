@@ -1,0 +1,378 @@
+Especificación de asignación de impresoras en pólizas (modo offline con múltiples técnicos)
+Contexto del sistema
+
+El sistema gestiona servicios técnicos a impresoras industriales mediante una aplicación móvil utilizada por técnicos en campo.
+Los técnicos operan frecuentemente sin conexión a internet, por lo que la aplicación debe funcionar offline-first y sincronizar posteriormente con el servidor.
+
+Las impresoras pueden estar cubiertas por pólizas de servicio. Una póliza puede incluir decenas o incluso cientos de impresoras dentro de una planta.
+
+Cuando una visita de servicio cubre muchas impresoras, varios técnicos pueden ser enviados a la misma planta. Para organizar el trabajo, se debe implementar un mecanismo de asignación previa de impresoras por técnico.
+
+Objetivo de la asignación
+
+Antes de salir a campo, desde la web administrativa, se debe poder:
+
+Seleccionar una póliza.
+Ver todas las impresoras incluidas en esa póliza.
+Asignar cada impresora a un técnico específico.
+Dividir el trabajo entre técnicos de forma equilibrada.
+
+Ejemplo:
+
+Póliza: POL-2025-01
+Total impresoras: 30
+
+Asignación inicial:
+
+Técnico A → 15 impresoras
+Técnico B → 15 impresoras
+
+Esta asignación se sincroniza a las tablets antes de salir de la oficina.
+
+Comportamiento de la aplicación móvil
+
+Cuando el técnico llega a planta y escanea una impresora, la aplicación debe verificar si:
+
+La impresora pertenece a una póliza.
+La impresora está asignada a ese técnico.
+Caso 1 — Impresora asignada al técnico correcto
+
+Si el técnico escanea una impresora que está asignada a él:
+
+Impresora: ZT411-203dpi
+Serial: ZT411A123
+
+Asignada a: Técnico A
+Usuario actual: Técnico A
+
+La aplicación permite continuar normalmente.
+
+Flujo:
+
+Escanear QR
+↓
+Confirmar impresora
+↓
+Crear reporte
+↓
+Completar servicio
+↓
+Estado: pending_delivery
+Caso 2 — Impresora asignada a otro técnico
+
+Si el técnico escanea una impresora que está asignada a otro técnico, el sistema debe mostrar una advertencia.
+
+Ejemplo:
+
+Impresora: ZT610
+Serial: ZT610B456
+
+Asignada a: Técnico B
+Usuario actual: Técnico A
+
+La aplicación debe mostrar un mensaje claro:
+
+Esta impresora está asignada al técnico: Técnico B.
+
+¿Estás seguro de que deseas realizar este servicio?
+
+Opciones:
+
+Cancelar
+Continuar
+
+Si el técnico confirma:
+
+se permite crear el reporte
+el reporte quedará registrado como realizado por el técnico actual
+el sistema puede marcar el reporte con un indicador opcional:
+assignment_override = true
+
+Esto permite auditoría posterior.
+
+Objetivos de esta advertencia
+Mantener la organización del trabajo.
+Evitar duplicidad de servicios.
+Permitir flexibilidad en campo cuando un técnico necesita ayudar al otro.
+Sincronización offline
+
+Dado que los técnicos pueden trabajar sin internet, la asignación debe descargarse previamente.
+
+Cuando el técnico sincroniza antes de salir:
+
+La tablet descarga:
+
+clientes
+impresoras
+pólizas
+relación póliza ↔ impresoras
+asignación técnico ↔ impresora
+
+Esto permite validar localmente si una impresora está asignada o no.
+
+Datos necesarios para la asignación
+
+El sistema debe registrar la relación:
+
+policy_id
+printer_id
+technician_id
+assigned_at
+
+Esta información debe almacenarse en una tabla similar a:
+
+policy_printer_assignments
+Comportamiento esperado del sistema
+
+La asignación no debe bloquear el trabajo, solo advertir.
+
+Regla:
+
+Si la impresora pertenece a otro técnico
+→ mostrar advertencia
+→ permitir continuar si el técnico confirma
+
+Esto evita que una impresora quede sin servicio si un técnico se retrasa.
+
+Ejemplo completo
+
+Póliza:
+
+POL-2025-01
+Cliente: Beautyge
+Impresoras: 30
+
+Asignación previa:
+
+Tecnico A → impresoras 1–15
+Tecnico B → impresoras 16–30
+
+En planta:
+
+Tecnico A atiende impresora 18
+
+El sistema detecta:
+
+Asignada a Tecnico B
+
+Se muestra advertencia:
+
+Esta impresora está asignada al técnico B.
+¿Deseas continuar?
+
+Si confirma:
+
+Reporte creado por Técnico A
+assignment_override = true
+Firma de póliza
+
+Al finalizar los servicios:
+
+Los reportes quedan en estado:
+
+pending_delivery
+
+El técnico puede generar una entrega de póliza, donde:
+
+selecciona los reportes pendientes
+el cliente firma una sola vez
+todos los reportes seleccionados quedan firmados.
+Resumen
+
+El sistema debe permitir:
+
+dividir impresoras entre técnicos antes de salir a campo
+trabajar completamente offline
+advertir cuando un técnico atiende una impresora asignada a otro
+permitir continuar con confirmación
+mantener trazabilidad para auditoría
+
+Este mecanismo asegura organización operativa sin bloquear el trabajo en campo.
+
+Especificación del flujo de pólizas y entrega global de reportes
+Contexto del sistema
+
+El sistema gestiona servicios técnicos de mantenimiento para impresoras industriales mediante una aplicación móvil utilizada por técnicos en campo.
+
+Las impresoras pueden estar cubiertas por pólizas de servicio. Una póliza puede incluir múltiples impresoras dentro de una planta.
+
+Durante una visita de servicio, un técnico puede atender muchas impresoras pertenecientes a una misma póliza, por lo que se requiere un mecanismo para revisar y firmar los reportes de forma global, manteniendo al mismo tiempo un reporte individual por cada impresora.
+
+El sistema debe funcionar offline-first, permitiendo que los técnicos trabajen sin conexión a internet.
+
+Generación de reportes por impresora
+
+Cada impresora siempre genera un reporte independiente.
+
+Ejemplo:
+
+Cliente: Beautyge
+Póliza: POL-2025-01
+Impresoras atendidas: 30
+
+Resultado:
+
+30 impresoras = 30 reportes
+
+Cada reporte incluye:
+
+impresora
+número de serie
+modelo con DPI
+contador
+tipo de servicio
+checkboxes técnicos
+acciones realizadas
+piezas cambiadas
+evidencia fotográfica
+observaciones
+PDF generado en la tablet
+
+Estos reportes se almacenan en estado:
+
+pending_delivery
+
+cuando pertenecen a una póliza.
+
+Almacenamiento de reportes en el apartado de pólizas
+
+Cuando un reporte pertenece a una póliza:
+
+no se firma individualmente
+se guarda temporalmente dentro del apartado de pólizas de la app
+
+Esto permite que el técnico posteriormente realice una entrega global de la póliza.
+
+Ejemplo dentro de la app:
+
+Pólizas
+   ↓
+POL-2025-01
+   ↓
+Reportes pendientes de entrega
+
+Lista:
+
+Impresora ZT411 - Área Producción
+Impresora ZT411 - Área Empaque
+Impresora ZT610 - Área Almacén
+...
+Revisión de reportes antes de firmar
+
+Antes de solicitar la firma del cliente, la aplicación debe permitir revisar todos los reportes generados.
+
+La interfaz debe mostrar los reportes en un formato de navegación rápida tipo "historias" (similar a Instagram).
+
+Esto significa:
+
+cada impresora aparece como una tarjeta o pantalla individual
+el usuario puede deslizar horizontalmente para ver la siguiente impresora
+
+Ejemplo de flujo visual:
+
+[Impresora 1] → swipe → [Impresora 2] → swipe → [Impresora 3]
+
+Cada tarjeta debe mostrar información resumida:
+
+modelo de impresora
+número de serie
+ubicación
+tipo de servicio
+contador
+resultado del mantenimiento
+foto de prueba de impresión
+Visualización de detalle del reporte
+
+Si el usuario toca la tarjeta o imagen del reporte, debe abrirse una vista detallada del reporte.
+
+La vista detallada debe mostrar:
+
+datos completos del reporte
+lista de acciones realizadas
+piezas reemplazadas
+checkboxes técnicos
+todas las evidencias fotográficas
+observaciones del técnico
+
+Esto permite que el cliente o el técnico revisen el servicio antes de firmar.
+
+Firma global del cliente
+
+Una vez revisados todos los reportes, el técnico puede presionar:
+
+Firmar entrega de póliza
+
+La aplicación debe mostrar:
+
+Firma del cliente
+Nombre
+Cargo
+
+El cliente firma una sola vez en la tablet.
+
+Esta firma se aplica a todos los reportes incluidos en esa entrega.
+
+El sistema crea un registro de entrega de póliza.
+
+Ejemplo:
+
+Entrega #0001
+Póliza: POL-2025-01
+Reportes incluidos: 30
+Firma del cliente: capturada
+Generación de PDFs
+
+Aunque la firma sea global, cada impresora debe tener su propio PDF.
+
+No se genera un PDF general.
+
+Resultado final:
+
+Reporte ZT411-001.pdf
+Reporte ZT411-002.pdf
+Reporte ZT610-003.pdf
+...
+Reporte ZT610-030.pdf
+
+Cada PDF incluye:
+
+datos de la impresora
+información del servicio
+evidencias
+firma del cliente
+
+La firma global se inserta en cada PDF individual.
+
+Ventajas de este diseño
+
+Este enfoque permite:
+
+revisar rápidamente muchos reportes
+evitar que el cliente tenga que firmar múltiples veces
+mantener trazabilidad individual por impresora
+generar documentación independiente por equipo
+Flujo completo de una póliza
+El técnico atiende impresoras.
+Se generan reportes individuales.
+Los reportes quedan en estado:
+pending_delivery
+Los reportes se almacenan en la sección de la póliza.
+El técnico revisa todos los reportes mediante navegación tipo historias.
+El cliente firma una sola vez.
+Se crea una entrega de póliza.
+Todos los reportes pasan a estado:
+signed
+Cada reporte conserva su PDF individual firmado.
+Resumen conceptual
+
+El sistema maneja firma global, pero reportes individuales.
+
+1 póliza
+   ↓
+30 impresoras
+   ↓
+30 reportes
+   ↓
+1 firma
+   ↓
+30 PDFs firmados

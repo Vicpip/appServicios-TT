@@ -14,7 +14,11 @@ abstract final class AppRoutes {
   static const String reportSummary  = 'reportSummary';
   static const String signature      = 'signature';
   static const String serviceHistory = 'serviceHistory';
-  static const String policies       = 'policies';
-  static const String sync           = 'sync';
-  static const String reportView     = 'reportView';
+  static const String policies                 = 'policies';
+  static const String sync                     = 'sync';
+  static const String reportView               = 'reportView';
+  static const String policyDelivery           = 'policyDelivery';
+  static const String policyDeliverySignature  = 'policyDeliverySignature';
+  static const String policyDeliverySuccess    = 'policyDeliverySuccess';
+  static const String visitSummary             = 'visitSummary';
 }

@@ -43,3 +43,6 @@ class Printer(Base):
     policy_printers: Mapped[list] = relationship(
         "PolicyPrinter", back_populates="printer"
     )
+    policy_assignments: Mapped[list] = relationship(
+        "PolicyPrinterAssignment", back_populates="printer"
+    )

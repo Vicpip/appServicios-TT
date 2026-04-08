@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io' as io;
 
 import 'package:drift/drift.dart';
+import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 
 import 'package:industrial_service_reports/core/constants.dart';
@@ -72,7 +73,9 @@ class SyncService {
     try {
       onProgress?.call('Descargando datos del servidor...');
       await downloadData(baseUrl: baseUrl);
-    } catch (_) {
+    } catch (e) {
+      // ignore: avoid_print
+      debugPrint('[Sync] downloadData error: $e');
       onProgress?.call('Sin conexión — usando datos locales');
     }
 
@@ -153,7 +156,10 @@ class SyncService {
         await _syncReport(item, baseUrl, authToken);
       case 'file':
       case 'signature':
+      case 'pdf':
         await _syncFile(item, baseUrl, authToken);
+      case 'policy_delivery':
+        await _syncPolicyDelivery(item, baseUrl, authToken);
     }
   }
 
@@ -184,7 +190,8 @@ class SyncService {
     final Map<String, dynamic> data =
         jsonDecode(response.body) as Map<String, dynamic>;
 
-    // Insert in topological order: catalogModels → clients → plants → areas → printers → policies
+    // Insert in topological order: catalogModels → clients → plants → areas → printers → policies → reports → technicians → assignments → visits
+    // technicians must come before assignments (FK: technician_id → users.id)
     final List<dynamic> catalogModels =
         (data['catalogModels'] as List<dynamic>?) ?? <dynamic>[];
     for (final dynamic m in catalogModels) {
@@ -276,6 +283,8 @@ class SyncService {
               endDate: DateTime.parse(d['endDate'] as String),
               coverageType: d['coverageType'] as String,
               slaNotes: Value<String?>(d['slaNotes'] as String?),
+              frequencyMaintenance:
+                  Value<String?>(d['frequencyMaintenance'] as String?),
               status: d['status'] as String,
             ),
           );
@@ -292,8 +301,206 @@ class SyncService {
       }
     }
 
+    final List<dynamic> reports =
+        (data['reports'] as List<dynamic>?) ?? <dynamic>[];
+    for (final dynamic rpt in reports) {
+      final Map<String, dynamic> d = rpt as Map<String, dynamic>;
+      // Only upsert if printerId exists locally (avoid FK violations)
+      final bool printerExists = await (_db.select(_db.printers)
+            ..where((Printers p) => p.id.equals(d['printerId'] as String? ?? '')))
+          .getSingleOrNull() !=
+          null;
+      if (!printerExists) continue;
+      // Decode checkbox JSON string → Map<String, bool> for TypeConverter
+      final String checkboxJson = d['technicalCheckboxes'] as String? ?? '{}';
+      final Map<String, bool> checkboxMap = <String, bool>{};
+      try {
+        final Map<String, dynamic> raw =
+            jsonDecode(checkboxJson) as Map<String, dynamic>;
+        raw.forEach((String k, dynamic v) {
+          checkboxMap[k] = v == true;
+        });
+      } catch (_) {}
+
+      await _db.into(_db.reports).insertOnConflictUpdate(ReportsCompanion.insert(
+        id: d['id'] as String,
+        code: Value<String?>(d['code'] as String?),
+        printerId: d['printerId'] as String,
+        techId: d['techId'] as String? ?? '',
+        serviceType: d['serviceType'] as String? ?? '',
+        status: d['status'] as String? ?? 'Synced',
+        serviceDate: d['serviceDate'] != null
+            ? DateTime.parse(d['serviceDate'] as String)
+            : DateTime.now(),
+        linearInchesCounter: (d['linearInchesCounter'] as int?) ?? 0,
+        darknessLevel: Value<int?>(d['darknessLevel'] as int?),
+        technicalCheckboxes: checkboxMap,
+        notes: Value<String?>(d['notes'] as String?),
+        signatureName: Value<String?>(d['signatureName'] as String?),
+        signatureRole: Value<String?>(d['signatureRole'] as String?),
+        photoCount: Value<int>(d['photoCount'] as int? ?? 0),
+      ));
+    }
+
+    // Technicians: seed all active technicians so assignment FK resolves on every tablet
+    final List<dynamic> technicians =
+        (data['technicians'] as List<dynamic>?) ?? <dynamic>[];
     // ignore: avoid_print
-    print('[SyncService] downloadData complete');
+    debugPrint('[Sync] técnicos descargados: ${technicians.length}');
+    for (final dynamic t in technicians) {
+      final Map<String, dynamic> d = t as Map<String, dynamic>;
+      await _db.into(_db.users).insertOnConflictUpdate(
+            UsersCompanion.insert(
+              id: d['id'] as String,
+              code: Value<String?>(d['code'] as String?),
+              name: d['name'] as String,
+              email: d['email'] as String,
+              role: d['role'] as String,
+              isActive: Value<bool>(true),
+            ),
+          );
+    }
+
+    final List<dynamic> assignments =
+        (data['policyPrinterAssignments'] as List<dynamic>?) ?? <dynamic>[];
+    // ignore: avoid_print
+    print('[Sync] assignments recibidos: ${assignments.length}');
+    if (assignments.isNotEmpty) {
+      // ignore: avoid_print
+      print('[Sync] primer assignment: ${assignments.first}');
+    }
+    int assignmentsSaved = 0;
+    for (final dynamic a in assignments) {
+      final Map<String, dynamic> d = a as Map<String, dynamic>;
+      final String assignmentId = d['id'] as String;
+      final String printerId = d['printerId'] as String;
+      final String technicianId = d['technicianId'] as String;
+
+      // Guard FK: printer must exist locally
+      final Printer? printerExists = await (_db.select(_db.printers)
+            ..where((Printers p) => p.id.equals(printerId)))
+          .getSingleOrNull();
+      if (printerExists == null) {
+        // ignore: avoid_print
+        debugPrint('[Sync] SKIP assignment $assignmentId: printer $printerId no existe local');
+        continue;
+      }
+
+      // Guard FK: technician (user) must exist locally
+      final User? techExists = await (_db.select(_db.users)
+            ..where((Users u) => u.id.equals(technicianId)))
+          .getSingleOrNull();
+      if (techExists == null) {
+        // ignore: avoid_print
+        debugPrint('[Sync] SKIP assignment $assignmentId: technician $technicianId no existe local');
+        continue;
+      }
+
+      // ignore: avoid_print
+      debugPrint('[Sync] persistiendo assignment $assignmentId policyId=${d['policyId']}');
+      try {
+        await _db.into(_db.policyPrinterAssignments).insertOnConflictUpdate(
+              PolicyPrinterAssignmentsCompanion.insert(
+                id: assignmentId,
+                policyId: d['policyId'] as String,
+                printerId: printerId,
+                technicianId: technicianId,
+                assignedAt: DateTime.parse(d['assignedAt'] as String),
+              ),
+            );
+        assignmentsSaved++;
+      } catch (e) {
+        // ignore: avoid_print
+        debugPrint('[Sync] ERROR assignment $assignmentId: $e');
+      }
+    }
+    // ignore: avoid_print
+    print('[Sync] assignments guardados: $assignmentsSaved / ${assignments.length}');
+
+    // Policy visits
+    final List<dynamic> visits =
+        (data['policyVisits'] as List<dynamic>?) ?? <dynamic>[];
+    // ignore: avoid_print
+    debugPrint('[Sync] visitas recibidas: ${visits.length}');
+
+    // Agrupar por policyId
+    final Map<String, List<dynamic>> visitsByPolicy = {};
+    for (final v in visits) {
+      final pid = (v as Map<String, dynamic>)['policyId'] as String;
+      visitsByPolicy.putIfAbsent(pid, () => []).add(v);
+    }
+
+    // Por cada póliza presente en el payload, reemplazar todas sus visitas locales
+    for (final entry in visitsByPolicy.entries) {
+      final policyId = entry.key;
+      final policyVisits = entry.value;
+
+      // Guard FK: policy must exist locally
+      final bool policyExists = await (_db.select(_db.policies)
+                ..where((Policies p) => p.id.equals(policyId)))
+              .getSingleOrNull() !=
+          null;
+      if (!policyExists) {
+        // ignore: avoid_print
+        debugPrint('[Sync] SKIP policyId=$policyId: no existe local, omitiendo ${policyVisits.length} visitas');
+        continue;
+      }
+
+      // Eliminar visitas locales de esta póliza
+      await (_db.delete(_db.policyVisits)
+            ..where((v) => v.policyId.equals(policyId)))
+          .go();
+      // ignore: avoid_print
+      debugPrint('[Sync] eliminadas visitas locales de policyId=$policyId');
+
+      // Insertar las nuevas
+      for (final v in policyVisits) {
+        final Map<String, dynamic> d = v as Map<String, dynamic>;
+        // ignore: avoid_print
+        debugPrint('[Sync] visita recibida: id=${d['id']} status=${d['status']}');
+        try {
+          await _db.into(_db.policyVisits).insert(
+                PolicyVisitsCompanion.insert(
+                  id: d['id'] as String,
+                  policyId: d['policyId'] as String,
+                  visitNumber: d['visitNumber'] as int,
+                  scheduledDate: Value<String?>(d['scheduledDate'] as String?),
+                  status: Value<String>(d['status'] as String? ?? 'scheduled'),
+                  startedAt: Value<DateTime?>(
+                    d['startedAt'] != null
+                        ? DateTime.parse(d['startedAt'] as String)
+                        : null,
+                  ),
+                  completedAt: Value<DateTime?>(
+                    d['completedAt'] != null
+                        ? DateTime.parse(d['completedAt'] as String)
+                        : null,
+                  ),
+                  createdAt: Value<DateTime>(
+                    d['createdAt'] != null
+                        ? DateTime.parse(d['createdAt'] as String)
+                        : DateTime.now(),
+                  ),
+                ),
+              );
+          // ignore: avoid_print
+          debugPrint('[Sync] visita guardada: ${d['id']}');
+        } catch (e) {
+          // ignore: avoid_print
+          debugPrint('[Sync] ERROR visita ${d['id']}: $e');
+        }
+      }
+    }
+    // ignore: avoid_print
+    debugPrint('[Sync] policyVisits guardadas: ${visits.length} / ${visits.length}');
+
+    // NOTE: sync_service.dart NO contiene lógica de auto-completado de visitas.
+    // El auto-complete está en _loadData() de PolicyDetailScreen (solo se ejecuta
+    // en initState — NO hay stream listener). Si una visita in_progress se
+    // auto-completa tras el sync, el bug está en que pendingCount==0 cuando el
+    // técnico aún no ha creado reportes para esa visita.
+    // ignore: avoid_print
+    debugPrint('[Sync] download completo — orden: catalogModels → clients → plants → areas → printers → policies → reports → technicians → assignments → visits');
   }
 
   // ---------------------------------------------------------------------------
@@ -499,13 +706,33 @@ class SyncService {
   ) async {
     final Map<String, dynamic> meta =
         jsonDecode(item.payloadJson) as Map<String, dynamic>;
-    final String localPath = meta['localPath'] as String;
+    final String? localPath = meta['localPath'] as String?;
     final String fileCategory =
         meta['fileCategory'] as String? ?? item.entityType;
 
+    // ignore: avoid_print
+    print(
+      '[SyncService] _syncFile: entityType=${item.entityType}, '
+      'entityId=${item.entityId}, fileCategory=$fileCategory, '
+      'localPath=$localPath',
+    );
+
+    if (localPath == null || localPath.isEmpty) {
+      throw Exception(
+        'localPath ausente en payloadJson para ${item.entityType}/${item.entityId}',
+      );
+    }
+
     final io.File file = io.File(localPath);
-    if (!file.existsSync()) {
-      throw Exception('Archivo local no encontrado: $localPath');
+    final bool exists = file.existsSync();
+    // ignore: avoid_print
+    print('[SyncService] _syncFile: exists=$exists, path=$localPath');
+
+    if (!exists) {
+      throw Exception(
+        'Archivo local no encontrado: $localPath '
+        '(entityType=${item.entityType}, entityId=${item.entityId})',
+      );
     }
 
     final String url = '$baseUrl/api/files';
@@ -538,6 +765,32 @@ class SyncService {
   }
 
   // ---------------------------------------------------------------------------
+  // Policy delivery upload — POST /api/policy-deliveries
+  // ---------------------------------------------------------------------------
+
+  Future<void> _syncPolicyDelivery(
+    SyncQueueData item,
+    String baseUrl,
+    String? authToken,
+  ) async {
+    final String url = '$baseUrl/api/policy-deliveries';
+    // ignore: avoid_print
+    print('[SyncService] POST $url (entity: ${item.entityId})');
+    final Object payload = jsonDecode(item.payloadJson);
+    final http.Response response = await http.post(
+      Uri.parse(url),
+      headers: <String, String>{
+        'Content-Type': 'application/json',
+        if (authToken != null) 'Authorization': 'Bearer $authToken',
+      },
+      body: jsonEncode(payload),
+    );
+    if (response.statusCode != 200 && response.statusCode != 201) {
+      throw Exception('HTTP ${response.statusCode}: ${response.body}');
+    }
+  }
+
+  // ---------------------------------------------------------------------------
   // Helpers
   // ---------------------------------------------------------------------------
 
@@ -545,6 +798,8 @@ class SyncService {
         'report' => 'Reporte',
         'file' => 'Archivo',
         'signature' => 'Firma',
+        'pdf' => 'PDF',
+        'policy_delivery' => 'Entrega póliza',
         _ => entityType,
       };
 }

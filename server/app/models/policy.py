@@ -1,4 +1,4 @@
-from sqlalchemy import DateTime, ForeignKey, String
+from sqlalchemy import Date, DateTime, ForeignKey, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
 
@@ -18,6 +18,7 @@ class Policy(Base):
     end_date: Mapped[DateTime] = mapped_column(DateTime, nullable=False)
     coverage_type: Mapped[str] = mapped_column(String, nullable=False)
     sla_notes: Mapped[str | None] = mapped_column(String, nullable=True)
+    frequency_maintenance: Mapped[str | None] = mapped_column(String, nullable=True)
     status: Mapped[str] = mapped_column(String, nullable=False)
     created_at: Mapped[DateTime] = mapped_column(
         DateTime, server_default=func.now(), nullable=False
@@ -29,6 +30,10 @@ class Policy(Base):
         "PolicyPrinter", back_populates="policy"
     )
     deliveries: Mapped[list] = relationship("PolicyDelivery", back_populates="policy")
+    assignments: Mapped[list] = relationship(
+        "PolicyPrinterAssignment", back_populates="policy"
+    )
+    visits: Mapped[list] = relationship("PolicyVisit", back_populates="policy")
 
 
 class PolicyPrinter(Base):
@@ -62,6 +67,7 @@ class PolicyDelivery(Base):
     tech_id: Mapped[str] = mapped_column(
         String, ForeignKey("users.id"), nullable=False
     )
+    signature_image_path: Mapped[str | None] = mapped_column(String, nullable=True)
 
     # Relationships
     policy: Mapped["Policy"] = relationship("Policy", back_populates="deliveries")
@@ -89,3 +95,48 @@ class PolicyDeliveryReport(Base):
         "PolicyDelivery", back_populates="delivery_reports"
     )
     report: Mapped["Report"] = relationship("Report")
+
+
+class PolicyVisit(Base):
+    __tablename__ = "policy_visits"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    policy_id: Mapped[str] = mapped_column(
+        String, ForeignKey("policies.id"), nullable=False
+    )
+    visit_number: Mapped[int] = mapped_column(Integer, nullable=False)
+    scheduled_date: Mapped[Date | None] = mapped_column(Date, nullable=True)
+    status: Mapped[str] = mapped_column(
+        String, nullable=False, server_default="scheduled"
+    )
+    started_at: Mapped[DateTime | None] = mapped_column(DateTime, nullable=True)
+    completed_at: Mapped[DateTime | None] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[DateTime] = mapped_column(
+        DateTime, server_default=func.now(), nullable=False
+    )
+
+    # Relationships
+    policy: Mapped["Policy"] = relationship("Policy", back_populates="visits")
+
+
+class PolicyPrinterAssignment(Base):
+    __tablename__ = "policy_printer_assignments"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    policy_id: Mapped[str] = mapped_column(
+        String, ForeignKey("policies.id"), nullable=False
+    )
+    printer_id: Mapped[str] = mapped_column(
+        String, ForeignKey("printers.id"), nullable=False
+    )
+    technician_id: Mapped[str] = mapped_column(
+        String, ForeignKey("users.id"), nullable=False
+    )
+    assigned_at: Mapped[DateTime] = mapped_column(
+        DateTime, server_default=func.now(), nullable=False
+    )
+
+    # Relationships
+    policy: Mapped["Policy"] = relationship("Policy", back_populates="assignments")
+    printer: Mapped["Printer"] = relationship("Printer", back_populates="policy_assignments")
+    technician: Mapped["User"] = relationship("User", back_populates="policy_assignments")

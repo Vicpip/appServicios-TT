@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Users, FileText, Clock, Plus, Pencil, Trash2, X, AlertTriangle, Eye, EyeOff } from 'lucide-react'
 import apiClient from '@/api/client'
@@ -264,6 +265,7 @@ function DeleteTechModal({ tech, onClose }: { tech: TechnicianListItem; onClose:
 // ---------------------------------------------------------------------------
 
 export default function TechniciansPage() {
+  const navigate = useNavigate()
   const [showCreate, setShowCreate] = useState(false)
   const [editTech, setEditTech] = useState<TechnicianListItem | null>(null)
   const [deleteTech, setDeleteTech] = useState<TechnicianListItem | null>(null)
@@ -328,7 +330,7 @@ export default function TechniciansPage() {
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
           {items.map((tech) => (
-            <div key={tech.id} className="bg-white rounded-xl border border-border p-5 shadow-sm hover:shadow-md transition-shadow group">
+            <div key={tech.id} className="bg-white rounded-xl border border-border p-5 shadow-sm hover:shadow-md transition-shadow group cursor-pointer" onClick={() => navigate(`/technicians/${tech.id}`)}>
               {/* Identity row */}
               <div className="flex items-center gap-3 mb-4">
                 <InitialAvatar name={tech.name} />
@@ -367,14 +369,14 @@ export default function TechniciansPage() {
                 {/* Action buttons */}
                 <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                   <button
-                    onClick={() => setEditTech(tech)}
+                    onClick={(e) => { e.stopPropagation(); setEditTech(tech) }}
                     className="p-1.5 rounded-lg text-gray-400 hover:text-primary hover:bg-primary/10 transition-colors"
                     title="Editar"
                   >
                     <Pencil size={14} />
                   </button>
                   <button
-                    onClick={() => setDeleteTech(tech)}
+                    onClick={(e) => { e.stopPropagation(); setDeleteTech(tech) }}
                     className="p-1.5 rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-50 transition-colors"
                     title="Desactivar"
                   >

@@ -1,17 +1,62 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:industrial_service_reports/core/router/app_routes.dart';
 import 'package:industrial_service_reports/core/router/route_args.dart';
 import 'package:industrial_service_reports/core/theme/app_palette.dart';
+import 'package:industrial_service_reports/data/local/app_database.dart';
+import 'package:industrial_service_reports/data/local/local_database.dart';
+import 'package:industrial_service_reports/features/policies/providers/policy_assignment_provider.dart';
+import 'package:industrial_service_reports/features/policies/providers/policy_visit_provider.dart';
 import 'package:industrial_service_reports/features/printers/models/printer_summary.dart';
+import 'package:industrial_service_reports/features/reports/providers/capture_provider.dart';
 
-class PrinterConfirmationScreen extends StatelessWidget {
+class PrinterConfirmationScreen extends ConsumerStatefulWidget {
   const PrinterConfirmationScreen({
     super.key,
     required this.printer,
   });
 
   final PrinterSummary printer;
+
+  @override
+  ConsumerState<PrinterConfirmationScreen> createState() =>
+      _PrinterConfirmationScreenState();
+}
+
+class _PrinterConfirmationScreenState
+    extends ConsumerState<PrinterConfirmationScreen> {
+  PolicyVisit? _activeVisit;
+  int _totalVisits = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadActiveVisit();
+  }
+
+  Future<void> _loadActiveVisit() async {
+    // Find policy for this printer
+    final db = localDatabase;
+    final policyPrinter = await (db.select(db.policyPrinters)
+          ..where((pp) => pp.printerId.equals(widget.printer.printerId)))
+        .getSingleOrNull();
+    if (policyPrinter == null) return;
+
+    final visit = await ref.read(
+      activeVisitProvider(policyPrinter.policyId).future,
+    );
+    final allVisits = await ref.read(
+      policyVisitsProvider(policyPrinter.policyId).future,
+    );
+    if (mounted) {
+      setState(() {
+        _activeVisit = visit;
+        _totalVisits = allVisits.length;
+      });
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -25,10 +70,72 @@ class PrinterConfirmationScreen extends StatelessWidget {
             padding: const EdgeInsets.all(16),
             child: ConstrainedBox(
               constraints: const BoxConstraints(maxWidth: 900),
-              child: _ConfirmationCard(printer: printer),
+              child: _ConfirmationCard(
+                printer: widget.printer,
+                activeVisit: _activeVisit,
+                totalVisits: _totalVisits,
+                onCreateReport: _handleCreateReport,
+              ),
             ),
           ),
         ),
+      ),
+    );
+  }
+
+  Future<void> _handleCreateReport() async {
+    // Await the future directly so we get the result even if the provider
+    // hasn't been pre-loaded yet (ref.read on an AsyncValue can return null
+    // while still loading).
+    final PolicyPrinterAssignmentResult? assignment = await ref.read(
+      printerAssignmentProvider(widget.printer.printerId).future,
+    );
+    debugPrint('[Assignment] printerId=${widget.printer.printerId} result=$assignment');
+
+    if (assignment != null && !assignment.isAssignedToCurrentUser) {
+      // Show warning dialog
+      if (!mounted) return;
+      final bool proceed = await showDialog<bool>(
+            context: context,
+            builder: (BuildContext ctx) => AlertDialog(
+              title: const Text('Impresora asignada a otro técnico'),
+              content: Text(
+                'Esta impresora está asignada al técnico '
+                '${assignment.assignedTechnicianName}'
+                '${assignment.assignedTechnicianCode != null ? ' (${assignment.assignedTechnicianCode})' : ''}.'
+                '\n\n¿Deseas continuar de todas formas?',
+              ),
+              actions: <Widget>[
+                TextButton(
+                  onPressed: () => Navigator.of(ctx).pop(false),
+                  child: const Text('Cancelar'),
+                ),
+                FilledButton(
+                  onPressed: () => Navigator.of(ctx).pop(true),
+                  child: const Text('Continuar'),
+                ),
+              ],
+            ),
+          ) ??
+          false;
+
+      if (!proceed) return;
+
+      ref
+          .read(captureProvider.notifier)
+          .setAssignmentOverride(value: true);
+    } else {
+      ref
+          .read(captureProvider.notifier)
+          .setAssignmentOverride(value: false);
+    }
+
+    if (!mounted) return;
+    context.pushNamed(
+      AppRoutes.capture,
+      extra: CaptureArgs(
+        printerId: widget.printer.printerId,
+        assignmentOverride: assignment != null && !assignment.isAssignedToCurrentUser,
       ),
     );
   }
@@ -37,9 +144,15 @@ class PrinterConfirmationScreen extends StatelessWidget {
 class _ConfirmationCard extends StatelessWidget {
   const _ConfirmationCard({
     required this.printer,
+    required this.onCreateReport,
+    this.activeVisit,
+    this.totalVisits = 0,
   });
 
   final PrinterSummary printer;
+  final VoidCallback onCreateReport;
+  final PolicyVisit? activeVisit;
+  final int totalVisits;
 
   @override
   Widget build(BuildContext context) {
@@ -92,6 +205,34 @@ class _ConfirmationCard extends StatelessWidget {
             ),
             const SizedBox(height: 14),
             _LocationPanel(printer: printer, compact: compact),
+            if (activeVisit != null) ...[
+              const SizedBox(height: 12),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF1A3A5C),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: AppPalette.primary, width: 1.2),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(Icons.assignment_turned_in_rounded,
+                        color: AppPalette.primary, size: 18),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        'Visita ${activeVisit!.visitNumber}/$totalVisits en curso — el reporte quedará pendiente de entrega grupal',
+                        style: const TextStyle(
+                          color: AppPalette.backgroundLight,
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
             const SizedBox(height: 14),
             _ActionRow(
               compact: compact,
@@ -109,14 +250,10 @@ class _ConfirmationCard extends StatelessWidget {
                     serialNumber: printer.serialNumber,
                     model: model,
                     client: printer.clientName,
-                    printerId: printer.printerId,
                   ),
                 );
               },
-              onCreateReport: () => context.pushNamed(
-                AppRoutes.capture,
-                extra: CaptureArgs(printerId: printer.printerId),
-              ),
+              onCreateReport: onCreateReport,
             ),
           ],
         ),

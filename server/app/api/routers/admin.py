@@ -16,7 +16,7 @@ from app.models.catalog import CatalogModel
 from app.models.client import Client
 from app.models.file import EntityFile, File
 from app.models.plant import Plant
-from app.models.policy import Policy, PolicyPrinter
+from app.models.policy import Policy, PolicyDelivery, PolicyDeliveryReport, PolicyPrinter, PolicyPrinterAssignment, PolicyVisit
 from app.models.printer import Printer
 from app.models.report import Report
 from app.models.sync import SyncLog
@@ -27,19 +27,26 @@ from app.schemas.admin import (
     AreaCreate,
     AreaListItem,
     AssignPrintersRequest,
+    AssignTechnicianRequest,
     CatalogModelCreate,
     CatalogModelItem,
     ClientCreate,
     ClientListItem,
     ClientUpdate,
+    GenerateVisitsRequest,
     PlantCreate,
     PlantListItem,
     PlantUpdate,
     PolicyCreate,
+    PolicyDeliveryCreate,
+    PolicyDeliveryItem,
     PolicyDetail,
     PolicyListItem,
+    PolicyPrinterAssignmentItem,
     PolicyPrinterItem,
     PolicyUpdate,
+    PolicyVisitItem,
+    PolicyVisitUpdate,
     PrinterCreate,
     PrinterListItem,
     PrinterUpdate,
@@ -63,10 +70,14 @@ def _now_utc() -> datetime:
 
 
 def _policy_status(end_date: datetime) -> str:
+    # Normalize to naive UTC: Pydantic v2 parses ISO strings with 'Z' as
+    # timezone-aware datetimes; DB-loaded datetimes are naive. Stripping tzinfo
+    # (replace, not astimezone) is safe because we always work in UTC.
+    end = end_date.replace(tzinfo=None)
     now = _now_utc()
-    if end_date < now:
+    if end < now:
         return "Expired"
-    if end_date < now + timedelta(days=30):
+    if end < now + timedelta(days=30):
         return "Expiring"
     return "Active"
 
@@ -646,6 +657,7 @@ def list_policies(
                 status=computed_status,
                 printer_count=printer_count,
                 sla_notes=policy.sla_notes,
+                frequency_maintenance=policy.frequency_maintenance,
             )
         )
 
@@ -767,6 +779,7 @@ def _policy_detail(policy: Policy, db: Session) -> PolicyDetail:
         status=_policy_status(policy.end_date),
         printer_count=len(printers),
         sla_notes=policy.sla_notes,
+        frequency_maintenance=policy.frequency_maintenance,
         printers=printers,
     )
 
@@ -796,12 +809,36 @@ def create_policy(body: PolicyCreate, db: Session = Depends(get_db)) -> dict:
         end_date=body.end_date,
         coverage_type=body.coverage_type,
         sla_notes=body.sla_notes,
+        frequency_maintenance=body.frequency_maintenance,
         status=_policy_status(body.end_date),
     )
     db.add(policy)
     db.commit()
     db.refresh(policy)
     return _policy_detail(policy, db).model_dump()
+
+
+# ---------------------------------------------------------------------------
+# GET /api/admin/policies/next-folio  — Siguiente folio sugerido
+# ---------------------------------------------------------------------------
+
+@router.get("/policies/next-folio", response_model=dict)
+def get_next_policy_folio(db: Session = Depends(get_db)) -> dict:
+    """Return the next suggested folio in POL-YYYY-NNN format for the current year."""
+    import re
+    year = datetime.now().year
+    prefix = f"POL-{year}-"
+    rows = db.query(Policy.folio).filter(Policy.folio.like(f"{prefix}%")).all()
+    nums = []
+    for (folio,) in rows:
+        match = re.match(rf"POL-{year}-(\d+)$", folio or "")
+        if match:
+            try:
+                nums.append(int(match.group(1)))
+            except ValueError:
+                pass
+    next_num = max(nums, default=0) + 1
+    return {"folio": f"{prefix}{next_num:03d}"}
 
 
 # ---------------------------------------------------------------------------
@@ -848,6 +885,8 @@ def update_policy(
         policy.coverage_type = body.coverage_type
     if body.sla_notes is not None:
         policy.sla_notes = body.sla_notes
+    if body.frequency_maintenance is not None:
+        policy.frequency_maintenance = body.frequency_maintenance
 
     if policy.start_date >= policy.end_date:
         raise HTTPException(status_code=422, detail="start_date must be before end_date")
@@ -945,6 +984,251 @@ def remove_printer_from_policy(
     db.delete(link)
     db.commit()
     return {"success": True, "policy_id": policy_id, "printer_id": printer_id}
+
+
+# ===========================================================================
+# FASE 7 — Asignaciones técnico-impresora
+# ===========================================================================
+
+@router.get("/policies/{policy_id}/assignments", response_model=dict)
+def list_assignments(policy_id: str, db: Session = Depends(get_db)) -> dict:
+    """List technician assignments for printers in a policy."""
+    policy = db.get(Policy, policy_id)
+    if not policy:
+        raise HTTPException(status_code=404, detail="Policy not found")
+    rows = (
+        db.query(PolicyPrinterAssignment)
+        .filter(PolicyPrinterAssignment.policy_id == policy_id)
+        .all()
+    )
+    items = []
+    for a in rows:
+        printer = db.get(Printer, a.printer_id)
+        tech = db.get(User, a.technician_id)
+        items.append(PolicyPrinterAssignmentItem(
+            id=a.id,
+            policy_id=a.policy_id,
+            printer_id=a.printer_id,
+            printer_serial=printer.serial_number if printer else None,
+            technician_id=a.technician_id,
+            technician_name=tech.name if tech else None,
+            technician_code=tech.code if tech else None,
+            assigned_at=a.assigned_at,
+        ).model_dump())
+    return {"total": len(items), "items": items}
+
+
+@router.post("/policies/{policy_id}/assignments", response_model=dict)
+def assign_technician(
+    policy_id: str, body: AssignTechnicianRequest, db: Session = Depends(get_db)
+) -> dict:
+    """Upsert: assign a technician to a printer within a policy."""
+    policy = db.get(Policy, policy_id)
+    if not policy:
+        raise HTTPException(status_code=404, detail="Policy not found")
+
+    # Validate printer belongs to policy
+    pp = (
+        db.query(PolicyPrinter)
+        .filter(PolicyPrinter.policy_id == policy_id, PolicyPrinter.printer_id == body.printer_id)
+        .first()
+    )
+    if not pp:
+        raise HTTPException(status_code=422, detail="Printer not assigned to this policy")
+
+    if not db.get(User, body.technician_id):
+        raise HTTPException(status_code=404, detail="Technician not found")
+
+    existing = (
+        db.query(PolicyPrinterAssignment)
+        .filter(
+            PolicyPrinterAssignment.policy_id == policy_id,
+            PolicyPrinterAssignment.printer_id == body.printer_id,
+        )
+        .first()
+    )
+    if existing:
+        existing.technician_id = body.technician_id
+        existing.assigned_at = _now_utc()
+    else:
+        existing = PolicyPrinterAssignment(
+            id=str(uuid.uuid4()),
+            policy_id=policy_id,
+            printer_id=body.printer_id,
+            technician_id=body.technician_id,
+            assigned_at=_now_utc(),
+        )
+        db.add(existing)
+
+    db.commit()
+    db.refresh(existing)
+
+    printer = db.get(Printer, body.printer_id)
+    tech = db.get(User, body.technician_id)
+    return PolicyPrinterAssignmentItem(
+        id=existing.id,
+        policy_id=existing.policy_id,
+        printer_id=existing.printer_id,
+        printer_serial=printer.serial_number if printer else None,
+        technician_id=existing.technician_id,
+        technician_name=tech.name if tech else None,
+        technician_code=tech.code if tech else None,
+        assigned_at=existing.assigned_at,
+    ).model_dump()
+
+
+@router.delete("/policies/{policy_id}/assignments/{printer_id}", status_code=200)
+def delete_assignment(
+    policy_id: str, printer_id: str, db: Session = Depends(get_db)
+) -> dict:
+    """Remove a technician assignment for a printer in a policy."""
+    assignment = (
+        db.query(PolicyPrinterAssignment)
+        .filter(
+            PolicyPrinterAssignment.policy_id == policy_id,
+            PolicyPrinterAssignment.printer_id == printer_id,
+        )
+        .first()
+    )
+    if not assignment:
+        raise HTTPException(status_code=404, detail="Assignment not found")
+    db.delete(assignment)
+    db.commit()
+    return {"success": True, "policy_id": policy_id, "printer_id": printer_id}
+
+
+# ===========================================================================
+# FASE 7 — Entregas de póliza (admin)
+# ===========================================================================
+
+def _create_policy_delivery(policy_id: str, body: PolicyDeliveryCreate, db: Session) -> PolicyDeliveryItem:
+    """Shared logic: create delivery + link reports + mark as signed."""
+    policy = db.get(Policy, policy_id)
+    if not policy:
+        raise HTTPException(status_code=404, detail="Policy not found")
+
+    delivery = PolicyDelivery(
+        id=str(uuid.uuid4()),
+        policy_id=policy_id,
+        delivery_date=body.delivery_date,
+        signature_name=body.signature_name,
+        signature_role=body.signature_role,
+        tech_id=body.tech_id,
+        signature_image_path=body.signature_image_path,
+    )
+    db.add(delivery)
+    db.flush()
+
+    for report_id in body.report_ids:
+        db.add(PolicyDeliveryReport(
+            id=str(uuid.uuid4()),
+            delivery_id=delivery.id,
+            report_id=report_id,
+        ))
+        from app.models.report import Report as ReportModel
+        report = db.get(ReportModel, report_id)
+        if report:
+            report.status = "signed"
+
+    db.commit()
+    db.refresh(delivery)
+
+    return PolicyDeliveryItem(
+        id=delivery.id,
+        policy_id=delivery.policy_id,
+        delivery_date=delivery.delivery_date,
+        signature_name=delivery.signature_name,
+        signature_role=delivery.signature_role,
+        tech_id=delivery.tech_id,
+        signature_image_path=delivery.signature_image_path,
+        report_count=len(body.report_ids),
+    )
+
+
+@router.get("/policies/{policy_id}/deliveries", response_model=dict)
+def list_deliveries(policy_id: str, db: Session = Depends(get_db)) -> dict:
+    """List delivery history for a policy."""
+    policy = db.get(Policy, policy_id)
+    if not policy:
+        raise HTTPException(status_code=404, detail="Policy not found")
+    rows = (
+        db.query(PolicyDelivery)
+        .filter(PolicyDelivery.policy_id == policy_id)
+        .order_by(PolicyDelivery.delivery_date.desc())
+        .all()
+    )
+    items = []
+    for d in rows:
+        report_count = (
+            db.query(func.count(PolicyDeliveryReport.id))
+            .filter(PolicyDeliveryReport.delivery_id == d.id)
+            .scalar() or 0
+        )
+        items.append(PolicyDeliveryItem(
+            id=d.id,
+            policy_id=d.policy_id,
+            delivery_date=d.delivery_date,
+            signature_name=d.signature_name,
+            signature_role=d.signature_role,
+            tech_id=d.tech_id,
+            signature_image_path=d.signature_image_path,
+            report_count=report_count,
+        ).model_dump())
+    return {"total": len(items), "items": items}
+
+
+@router.get("/policy-deliveries/{delivery_id}/detail", response_model=dict)
+def get_delivery_detail(delivery_id: str, db: Session = Depends(get_db)) -> dict:
+    """Get full delivery detail including each report's printer info."""
+    delivery = db.get(PolicyDelivery, delivery_id)
+    if not delivery:
+        raise HTTPException(status_code=404, detail="Delivery not found")
+
+    policy = db.get(Policy, delivery.policy_id)
+    tech = db.get(User, delivery.tech_id)
+
+    delivery_reports = (
+        db.query(PolicyDeliveryReport)
+        .filter(PolicyDeliveryReport.delivery_id == delivery_id)
+        .all()
+    )
+
+    items = []
+    for dr in delivery_reports:
+        report = db.get(Report, dr.report_id)
+        if not report:
+            continue
+        printer = db.get(Printer, report.printer_id) if report.printer_id else None
+        model = db.get(CatalogModel, printer.model_id) if printer else None
+        items.append({
+            "report_id": dr.report_id,
+            "serial_number": printer.serial_number if printer else None,
+            "model_name": f"{model.brand} {model.model_name}" if model else None,
+            "service_type": report.service_type,
+            "service_date": report.service_date.isoformat() if report.service_date else None,
+            "status": report.status,
+        })
+
+    return {
+        "id": delivery.id,
+        "policy_id": delivery.policy_id,
+        "policy_folio": policy.folio if policy else None,
+        "delivery_date": delivery.delivery_date.isoformat(),
+        "signature_name": delivery.signature_name,
+        "signature_role": delivery.signature_role,
+        "tech_id": delivery.tech_id,
+        "tech_name": tech.name if tech else None,
+        "report_count": len(items),
+        "reports": items,
+    }
+
+
+@router.post("/policies/{policy_id}/deliveries", response_model=dict, status_code=201)
+def create_delivery_admin(
+    policy_id: str, body: PolicyDeliveryCreate, db: Session = Depends(get_db)
+) -> dict:
+    """Create a delivery for a policy (admin side)."""
+    return _create_policy_delivery(policy_id, body, db).model_dump()
 
 
 # ===========================================================================
@@ -1349,3 +1633,222 @@ def delete_printer(printer_id: str, db: Session = Depends(get_db)) -> dict:
     printer.is_active = False
     db.commit()
     return {"success": True, "id": printer_id}
+
+
+# ---------------------------------------------------------------------------
+# Policy Visits
+# ---------------------------------------------------------------------------
+
+_FREQUENCY_VISIT_COUNT: dict[str, int] = {
+    "Mensual": 12,
+    "Bimestral": 6,
+    "Trimestral": 4,
+    "Semestral": 2,
+    "Anual": 1,
+}
+
+
+def _build_visit_item(visit: "PolicyVisit", db: Session) -> PolicyVisitItem:
+    """Build a PolicyVisitItem with computed counts."""
+    total_printers = (
+        db.query(func.count(PolicyPrinter.id))
+        .filter(PolicyPrinter.policy_id == visit.policy_id)
+        .scalar()
+        or 0
+    )
+    # Count reports in pending_delivery status for this policy's printers
+    printer_ids = [
+        pp.printer_id
+        for pp in db.query(PolicyPrinter)
+        .filter(PolicyPrinter.policy_id == visit.policy_id)
+        .all()
+    ]
+    from app.models.report import Report as ReportModel
+    attended_count = 0
+    if printer_ids:
+        attended_count = (
+            db.query(func.count(ReportModel.id))
+            .filter(
+                ReportModel.printer_id.in_(printer_ids),
+                ReportModel.status == "pending_delivery",
+            )
+            .scalar()
+            or 0
+        )
+    return PolicyVisitItem(
+        id=visit.id,
+        policy_id=visit.policy_id,
+        visit_number=visit.visit_number,
+        scheduled_date=visit.scheduled_date.isoformat() if visit.scheduled_date else None,
+        status=visit.status,
+        started_at=visit.started_at,
+        completed_at=visit.completed_at,
+        created_at=visit.created_at,
+        attended_count=attended_count,
+        total_printers=total_printers,
+    )
+
+
+@router.get("/policies/{policy_id}/visits", response_model=list)
+def list_policy_visits(policy_id: str, db: Session = Depends(get_db)) -> list:
+    """List all visits for a given policy, ordered by visit_number."""
+    policy = db.get(Policy, policy_id)
+    if not policy:
+        raise HTTPException(status_code=404, detail="Policy not found")
+
+    visits = (
+        db.query(PolicyVisit)
+        .filter(PolicyVisit.policy_id == policy_id)
+        .order_by(PolicyVisit.visit_number)
+        .all()
+    )
+    return [_build_visit_item(v, db).model_dump() for v in visits]
+
+
+@router.post("/policies/{policy_id}/visits/generate", response_model=list, status_code=201)
+def generate_policy_visits(
+    policy_id: str,
+    _body: GenerateVisitsRequest,
+    db: Session = Depends(get_db),
+) -> list:
+    """Auto-generate N visits based on policy.frequency_maintenance.
+
+    Only allowed if the policy has no visits yet.
+    Schedules dates evenly between start_date and end_date.
+    """
+    policy = db.get(Policy, policy_id)
+    if not policy:
+        raise HTTPException(status_code=404, detail="Policy not found")
+
+    existing = (
+        db.query(PolicyVisit).filter(PolicyVisit.policy_id == policy_id).count()
+    )
+    if existing > 0:
+        raise HTTPException(
+            status_code=409,
+            detail="Policy already has visits. Delete them before regenerating.",
+        )
+
+    # frequency_maintenance may be stored as "Trimestral (4 visitas)" — extract the keyword before "("
+    raw_freq = (policy.frequency_maintenance or "Anual").split("(")[0].strip().title()
+    n_visits = _FREQUENCY_VISIT_COUNT.get(raw_freq, 1)
+    print(f"[Visits] policy.frequency_maintenance raw: '{policy.frequency_maintenance}'")
+    print(f"[Visits] freq normalizado: '{raw_freq}'")
+    print(f"[Visits] n_visits calculado: {n_visits}")
+
+    from datetime import date, timedelta
+    start: date = policy.start_date.date() if hasattr(policy.start_date, "date") else policy.start_date
+    end: date = policy.end_date.date() if hasattr(policy.end_date, "date") else policy.end_date
+    total_days = (end - start).days
+
+    created_visits: list[PolicyVisit] = []
+    for i in range(n_visits):
+        # Distribute evenly between start_date and end_date (endpoint-inclusive).
+        # For a single visit, place it on start_date.
+        if n_visits == 1:
+            offset_days = 0
+        else:
+            offset_days = round(total_days * i / (n_visits - 1))
+        scheduled = start + timedelta(days=offset_days)
+
+        visit = PolicyVisit(
+            id=str(uuid.uuid4()),
+            policy_id=policy_id,
+            visit_number=i + 1,
+            scheduled_date=scheduled,
+            status="scheduled",
+        )
+        db.add(visit)
+        created_visits.append(visit)
+
+    db.commit()
+    for v in created_visits:
+        db.refresh(v)
+
+    return [_build_visit_item(v, db).model_dump() for v in created_visits]
+
+
+@router.patch("/policies/{policy_id}/visits/{visit_id}", response_model=dict)
+def update_policy_visit(
+    policy_id: str,
+    visit_id: str,
+    body: PolicyVisitUpdate,
+    db: Session = Depends(get_db),
+) -> dict:
+    """Update visit status.
+
+    Validates: if status=in_progress, no other visit of this policy may already
+    be in_progress.
+    """
+    visit = db.get(PolicyVisit, visit_id)
+    if not visit or visit.policy_id != policy_id:
+        raise HTTPException(status_code=404, detail="Visit not found")
+
+    if body.status == "in_progress" and visit.status != "in_progress":
+        # Check for existing in_progress visit on the same policy
+        conflict = (
+            db.query(PolicyVisit)
+            .filter(
+                PolicyVisit.policy_id == policy_id,
+                PolicyVisit.status == "in_progress",
+                PolicyVisit.id != visit_id,
+            )
+            .first()
+        )
+        if conflict:
+            raise HTTPException(
+                status_code=409,
+                detail=f"Visit {conflict.visit_number} is already in_progress for this policy.",
+            )
+        visit.started_at = _now_utc()
+
+    if body.status == "completed" and visit.status != "completed":
+        visit.completed_at = _now_utc()
+
+    visit.status = body.status
+    if body.scheduled_date is not None:
+        from datetime import date as date_type
+        visit.scheduled_date = date_type.fromisoformat(body.scheduled_date)
+
+    db.commit()
+    db.refresh(visit)
+    return _build_visit_item(visit, db).model_dump()
+
+
+@router.delete("/policies/{policy_id}/visits", status_code=200)
+def delete_all_policy_visits(
+    policy_id: str,
+    db: Session = Depends(get_db),
+) -> dict:
+    """Delete ALL visits for a policy at once. Returns count of deleted visits."""
+    policy = db.get(Policy, policy_id)
+    if not policy:
+        raise HTTPException(status_code=404, detail="Policy not found")
+
+    deleted = (
+        db.query(PolicyVisit)
+        .filter(PolicyVisit.policy_id == policy_id)
+        .delete(synchronize_session=False)
+    )
+    db.commit()
+    print(f"[DELETE all visits] policy_id={policy_id} deleted={deleted}")
+    return {"deleted": deleted}
+
+
+@router.delete("/policies/{policy_id}/visits/{visit_id}", status_code=204)
+def delete_policy_visit(
+    policy_id: str,
+    visit_id: str,
+    db: Session = Depends(get_db),
+) -> None:
+    """Delete a visit regardless of status. Admin has full control."""
+    print(f"[DELETE visit] policy_id={policy_id} visit_id={visit_id}")
+    visit = db.query(PolicyVisit).filter(
+        PolicyVisit.id == visit_id,
+        PolicyVisit.policy_id == policy_id,
+    ).first()
+    print(f"[DELETE visit] encontrada: {visit is not None}")
+    if not visit:
+        raise HTTPException(status_code=404, detail="Visit not found")
+    db.delete(visit)
+    db.commit()

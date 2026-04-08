@@ -1,8 +1,10 @@
 from functools import lru_cache
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
+    model_config = SettingsConfigDict(env_file=".env")
+
     database_url: str
     secret_key: str
     algorithm: str = "HS256"
@@ -12,9 +14,6 @@ class Settings(BaseSettings):
     cors_origins: list[str] = ["*"]
     log_level: str = "INFO"
     app_env: str = "production"
-
-    class Config:
-        env_file = ".env"
 
 
 @lru_cache()

@@ -643,4 +643,640 @@ class PdfService {
       ),
     );
   }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // PDF DE ENTREGA DE PÓLIZA
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  /// Genera el PDF de entrega global de póliza.
+  ///
+  /// Página 1 — portada: datos de la póliza, tabla de impresoras atendidas y
+  /// firma global del cliente.
+  /// Páginas siguientes — una por reporte: datos de impresora + checklist +
+  /// notas (sin firma individual; la firma ya está en la portada).
+  static Future<Uint8List> generateDeliveryPdf({
+    required PolicyDelivery delivery,
+    required List<Report> reports,
+    required Policy policy,
+    required AppDatabase database,
+  }) async {
+    // ── Logo ─────────────────────────────────────────────────────────────────
+    pw.ImageProvider? logoImage;
+    try {
+      final ByteData logoData = await rootBundle.load('lib/img/logo_smp.png');
+      logoImage = pw.MemoryImage(logoData.buffer.asUint8List());
+    } catch (_) {}
+
+    // ── Firma del cliente (entrega) ───────────────────────────────────────────
+    pw.ImageProvider? clientSignatureImage;
+    final String? sigPath = delivery.signatureImagePath;
+    if (sigPath != null && io.File(sigPath).existsSync()) {
+      try {
+        clientSignatureImage =
+            pw.MemoryImage(await io.File(sigPath).readAsBytes());
+      } catch (_) {}
+    }
+
+    // ── Técnico que registró la entrega ───────────────────────────────────────
+    final User? technician = await (database.select(database.users)
+          ..where((u) => u.id.equals(delivery.techId)))
+        .getSingleOrNull();
+    final String technicianName = technician?.name ?? 'No especificado';
+
+    // ── Firma del técnico ─────────────────────────────────────────────────────
+    pw.ImageProvider? techSignatureImage;
+    final String? techSigPath = technician?.signaturePath;
+    if (techSigPath != null && io.File(techSigPath).existsSync()) {
+      try {
+        techSignatureImage =
+            pw.MemoryImage(await io.File(techSigPath).readAsBytes());
+      } catch (_) {}
+    }
+
+    // ── Datos del cliente (via póliza) ────────────────────────────────────────
+    final Client? client = await (database.select(database.clients)
+          ..where((c) => c.id.equals(policy.clientId)))
+        .getSingleOrNull();
+
+    // ── Datos de cada reporte ─────────────────────────────────────────────────
+    final List<_DeliveryReportData> reportData = <_DeliveryReportData>[];
+    for (final Report r in reports) {
+      final Printer? printer = await (database.select(database.printers)
+            ..where((p) => p.id.equals(r.printerId)))
+          .getSingleOrNull();
+
+      CatalogModel? catalogModel;
+      Plant? plant;
+      Area? area;
+      CatalogLabelType? catalogLabelType;
+
+      if (printer != null) {
+        catalogModel = await (database.select(database.catalogModels)
+              ..where((m) => m.id.equals(printer.modelId)))
+            .getSingleOrNull();
+        plant = await (database.select(database.plants)
+              ..where((p) => p.id.equals(printer.plantId)))
+            .getSingleOrNull();
+        area = await (database.select(database.areas)
+              ..where((a) => a.id.equals(printer.areaId)))
+            .getSingleOrNull();
+      }
+      if (r.labelTypeId != null) {
+        catalogLabelType = await (database.select(database.catalogLabelTypes)
+              ..where((l) => l.id.equals(r.labelTypeId!)))
+            .getSingleOrNull();
+      }
+
+      // Cargar fotos del reporte para el PDF
+      final List<pw.ImageProvider> reportPhotoImages = <pw.ImageProvider>[];
+      try {
+        final List<dynamic> rawPaths = jsonDecode(r.photoPaths ?? '[]') as List<dynamic>;
+        for (final dynamic rawPath in rawPaths) {
+          final String path = rawPath as String;
+          if (io.File(path).existsSync()) {
+            try {
+              final Uint8List photoBytes = await io.File(path).readAsBytes();
+              reportPhotoImages.add(pw.MemoryImage(photoBytes));
+            } catch (_) {}
+          }
+        }
+      } catch (_) {}
+
+      reportData.add(_DeliveryReportData(
+        report: r,
+        printer: printer,
+        catalogModel: catalogModel,
+        plant: plant,
+        area: area,
+        catalogLabelType: catalogLabelType,
+        photoImages: reportPhotoImages,
+      ));
+    }
+
+    // ── Construir PDF ─────────────────────────────────────────────────────────
+    final pw.Document pdf = pw.Document();
+
+    // Página 1 — portada de entrega
+    pdf.addPage(
+      pw.MultiPage(
+        pageFormat: PdfPageFormat.a4,
+        margin: const pw.EdgeInsets.all(32),
+        header: (pw.Context ctx) =>
+            _buildDeliveryHeader(ctx, logoImage, policy, delivery),
+        footer: (pw.Context ctx) => _buildFooter(ctx),
+        build: (pw.Context ctx) {
+          return <pw.Widget>[
+            _buildDeliveryInfoSection(client, policy, delivery, technicianName),
+            pw.SizedBox(height: 16),
+            _buildDeliveryPrinterTable(reportData),
+            pw.SizedBox(height: 16),
+            _buildEquipmentStatusTable(reportData),
+            pw.SizedBox(height: 16),
+            _buildSignaturesSection(
+              signerName: delivery.signatureName,
+              signerRole: delivery.signatureRole,
+              clientSignatureImage: clientSignatureImage,
+              technicianName: technicianName,
+              techSignatureImage: techSignatureImage,
+            ),
+          ];
+        },
+      ),
+    );
+
+    // Páginas siguientes — una por reporte
+    for (int i = 0; i < reportData.length; i++) {
+      final _DeliveryReportData rd = reportData[i];
+      pdf.addPage(
+        pw.MultiPage(
+          pageFormat: PdfPageFormat.a4,
+          margin: const pw.EdgeInsets.all(32),
+          header: (pw.Context ctx) => _buildReportSummaryHeader(
+            ctx,
+            logoImage,
+            rd.report,
+            policy,
+            i + 1,
+            reportData.length,
+          ),
+          footer: (pw.Context ctx) => _buildFooter(ctx),
+          build: (pw.Context ctx) {
+            return <pw.Widget>[
+              pw.Row(
+                crossAxisAlignment: pw.CrossAxisAlignment.start,
+                children: <pw.Widget>[
+                  pw.Expanded(
+                    child: _buildClientInfoSection(
+                      client,
+                      rd.plant,
+                      rd.area,
+                    ),
+                  ),
+                  pw.SizedBox(width: 14),
+                  pw.Expanded(
+                    child: _buildPrinterSection(
+                      rd.printer,
+                      rd.catalogModel,
+                      rd.report,
+                      rd.catalogLabelType,
+                    ),
+                  ),
+                ],
+              ),
+              pw.SizedBox(height: 16),
+              _buildChecklistSection(rd.report.technicalCheckboxes),
+              if ((rd.report.notes ?? '').isNotEmpty) ...<pw.Widget>[
+                pw.SizedBox(height: 16),
+                _buildNotesSection(rd.report.notes!),
+              ],
+              if (rd.photoImages.isNotEmpty) ...<pw.Widget>[
+                pw.SizedBox(height: 16),
+                _buildPhotosSection(rd.photoImages),
+              ],
+              pw.SizedBox(height: 16),
+              pw.Row(
+                crossAxisAlignment: pw.CrossAxisAlignment.start,
+                children: <pw.Widget>[
+                  pw.Expanded(
+                    child: pw.Column(
+                      crossAxisAlignment: pw.CrossAxisAlignment.start,
+                      children: <pw.Widget>[
+                        pw.Text(
+                          'FIRMA DEL TÉCNICO',
+                          style: pw.TextStyle(
+                            fontSize: 10,
+                            fontWeight: pw.FontWeight.bold,
+                            color: PdfColors.blueGrey700,
+                          ),
+                        ),
+                        pw.SizedBox(height: 4),
+                        pw.Text(
+                          technicianName,
+                          style: const pw.TextStyle(fontSize: 10),
+                        ),
+                        pw.SizedBox(height: 8),
+                        pw.Container(
+                          height: 70,
+                          decoration: pw.BoxDecoration(
+                            border: pw.Border.all(color: PdfColors.blueGrey200),
+                            borderRadius:
+                                const pw.BorderRadius.all(pw.Radius.circular(4)),
+                          ),
+                          child: techSignatureImage != null
+                              ? pw.Center(
+                                  child: pw.Image(
+                                    techSignatureImage,
+                                    height: 60,
+                                    fit: pw.BoxFit.contain,
+                                  ),
+                                )
+                              : pw.Center(
+                                  child: pw.Text(
+                                    'Sin firma del técnico',
+                                    style: const pw.TextStyle(
+                                      color: PdfColors.blueGrey300,
+                                      fontSize: 9,
+                                    ),
+                                  ),
+                                ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  pw.SizedBox(width: 14),
+                  pw.Expanded(child: pw.SizedBox()),
+                ],
+              ),
+            ];
+          },
+        ),
+      );
+    }
+
+    return pdf.save();
+  }
+
+  // ── Header portada entrega ──────────────────────────────────────────────────
+  static pw.Widget _buildDeliveryHeader(
+    pw.Context ctx,
+    pw.ImageProvider? logoImage,
+    Policy policy,
+    PolicyDelivery delivery,
+  ) {
+    return pw.Container(
+      margin: const pw.EdgeInsets.only(bottom: 12),
+      decoration: const pw.BoxDecoration(
+        border: pw.Border(
+          bottom: pw.BorderSide(color: PdfColors.blueGrey300),
+        ),
+      ),
+      child: pw.Row(
+        crossAxisAlignment: pw.CrossAxisAlignment.center,
+        children: <pw.Widget>[
+          if (logoImage != null)
+            pw.Image(logoImage, width: 60, height: 60)
+          else
+            pw.Container(
+              width: 60,
+              height: 60,
+              color: PdfColors.blueGrey100,
+              child: pw.Center(
+                child: pw.Text(
+                  'SMP',
+                  style: pw.TextStyle(
+                    color: PdfColors.blueGrey700,
+                    fontWeight: pw.FontWeight.bold,
+                    fontSize: 16,
+                  ),
+                ),
+              ),
+            ),
+          pw.SizedBox(width: 16),
+          pw.Expanded(
+            child: pw.Column(
+              crossAxisAlignment: pw.CrossAxisAlignment.end,
+              children: <pw.Widget>[
+                pw.Text(
+                  'ACTA DE ENTREGA DE PÓLIZA',
+                  style: pw.TextStyle(
+                    fontSize: 16,
+                    fontWeight: pw.FontWeight.bold,
+                    color: PdfColors.blueGrey800,
+                  ),
+                ),
+                pw.SizedBox(height: 3),
+                pw.Text(
+                  'Póliza: ${policy.folio}',
+                  style: pw.TextStyle(
+                    fontSize: 13,
+                    color: PdfColors.blue700,
+                    fontWeight: pw.FontWeight.bold,
+                  ),
+                ),
+                pw.SizedBox(height: 2),
+                pw.Text(
+                  'Fecha de entrega: ${_formatDate(delivery.deliveryDate)}',
+                  style: const pw.TextStyle(
+                    fontSize: 11,
+                    color: PdfColors.blueGrey600,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ── Header resumen individual de reporte ────────────────────────────────────
+  static pw.Widget _buildReportSummaryHeader(
+    pw.Context ctx,
+    pw.ImageProvider? logoImage,
+    Report report,
+    Policy policy,
+    int index,
+    int total,
+  ) {
+    return pw.Container(
+      margin: const pw.EdgeInsets.only(bottom: 12),
+      decoration: const pw.BoxDecoration(
+        border: pw.Border(
+          bottom: pw.BorderSide(color: PdfColors.blueGrey300),
+        ),
+      ),
+      child: pw.Row(
+        crossAxisAlignment: pw.CrossAxisAlignment.center,
+        children: <pw.Widget>[
+          if (logoImage != null)
+            pw.Image(logoImage, width: 50, height: 50)
+          else
+            pw.SizedBox(width: 50, height: 50),
+          pw.SizedBox(width: 16),
+          pw.Expanded(
+            child: pw.Column(
+              crossAxisAlignment: pw.CrossAxisAlignment.end,
+              children: <pw.Widget>[
+                pw.Text(
+                  'RESUMEN DE SERVICIO — Equipo $index/$total',
+                  style: pw.TextStyle(
+                    fontSize: 13,
+                    fontWeight: pw.FontWeight.bold,
+                    color: PdfColors.blueGrey800,
+                  ),
+                ),
+                pw.SizedBox(height: 2),
+                pw.Text(
+                  'Póliza: ${policy.folio}',
+                  style: const pw.TextStyle(
+                    fontSize: 10,
+                    color: PdfColors.blueGrey600,
+                  ),
+                ),
+                pw.Text(
+                  report.code ??
+                      'R-${report.id.substring(0, 8).toUpperCase()}',
+                  style: pw.TextStyle(
+                    fontSize: 10,
+                    color: PdfColors.blue700,
+                    fontWeight: pw.FontWeight.bold,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ── Sección info de la entrega ──────────────────────────────────────────────
+  static pw.Widget _buildDeliveryInfoSection(
+    Client? client,
+    Policy policy,
+    PolicyDelivery delivery,
+    String technicianName,
+  ) {
+    return pw.Row(
+      crossAxisAlignment: pw.CrossAxisAlignment.start,
+      children: <pw.Widget>[
+        pw.Expanded(
+          child: pw.Column(
+            crossAxisAlignment: pw.CrossAxisAlignment.start,
+            children: <pw.Widget>[
+              _buildSectionTitle('DATOS DEL CLIENTE'),
+              _buildInfoRow('Cliente', client?.name ?? '—'),
+              _buildInfoRow('RFC', client?.rfc ?? '—'),
+              _buildInfoRow('Dirección', client?.address ?? '—'),
+            ],
+          ),
+        ),
+        pw.SizedBox(width: 14),
+        pw.Expanded(
+          child: pw.Column(
+            crossAxisAlignment: pw.CrossAxisAlignment.start,
+            children: <pw.Widget>[
+              _buildSectionTitle('DATOS DE LA PÓLIZA'),
+              _buildInfoRow('Folio', policy.folio),
+              _buildInfoRow('Cobertura', policy.coverageType),
+              _buildInfoRow(
+                'Vigencia',
+                '${_formatDate(policy.startDate)} — ${_formatDate(policy.endDate)}',
+              ),
+              _buildInfoRow('Técnico', technicianName),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  // ── Tabla de estado de equipos ──────────────────────────────────────────────
+  static pw.Widget _buildEquipmentStatusTable(
+    List<_DeliveryReportData> reportData,
+  ) {
+    const List<String> damageKeys = <String>[
+      'Rodillo dañado',
+      'Cabezal dañado',
+      'Sensor ribbon dañado',
+      'Sensor papel dañado',
+      'Otros',
+    ];
+    final List<_DeliveryReportData> withWarnings = reportData
+        .where((rd) => damageKeys.any(
+              (String k) => rd.report.technicalCheckboxes[k] == true,
+            ))
+        .toList();
+
+    return pw.Column(
+      crossAxisAlignment: pw.CrossAxisAlignment.start,
+      children: <pw.Widget>[
+        _buildSectionTitle('ESTADO DE EQUIPOS'),
+        pw.Table(
+          border: pw.TableBorder.all(color: PdfColors.blueGrey200),
+          columnWidths: <int, pw.TableColumnWidth>{
+            0: const pw.FlexColumnWidth(3),
+            1: const pw.FlexColumnWidth(2),
+            2: const pw.FlexColumnWidth(2),
+            3: const pw.FlexColumnWidth(2),
+          },
+          children: <pw.TableRow>[
+            pw.TableRow(
+              decoration: const pw.BoxDecoration(color: PdfColors.blueGrey100),
+              children: <pw.Widget>[
+                _tableCell('Modelo', bold: true),
+                _tableCell('Serie', bold: true),
+                _tableCell('Tipo servicio', bold: true),
+                _tableCell('Estado', bold: true),
+              ],
+            ),
+            ...reportData.map((rd) {
+              final bool isSigned =
+                  rd.report.status == 'signed' || rd.report.status == 'Signed';
+              final String modelName = rd.catalogModel != null
+                  ? '${rd.catalogModel!.brand} ${rd.catalogModel!.modelName}'
+                  : '—';
+              return pw.TableRow(
+                children: <pw.Widget>[
+                  _tableCell(modelName),
+                  _tableCell(rd.printer?.serialNumber ?? '—'),
+                  _tableCell(rd.report.serviceType),
+                  pw.Padding(
+                    padding: const pw.EdgeInsets.symmetric(
+                        horizontal: 6, vertical: 4),
+                    child: pw.Container(
+                      decoration: pw.BoxDecoration(
+                        color: isSigned ? PdfColors.blue50 : PdfColors.orange50,
+                        borderRadius:
+                            const pw.BorderRadius.all(pw.Radius.circular(3)),
+                      ),
+                      padding: const pw.EdgeInsets.symmetric(
+                          horizontal: 4, vertical: 2),
+                      child: pw.Text(
+                        isSigned ? 'Firmado' : 'Pendiente',
+                        style: pw.TextStyle(
+                          fontSize: 9,
+                          color: isSigned
+                              ? PdfColors.blue800
+                              : PdfColors.orange800,
+                          fontWeight: pw.FontWeight.bold,
+                        ),
+                        textAlign: pw.TextAlign.center,
+                      ),
+                    ),
+                  ),
+                ],
+              );
+            }),
+          ],
+        ),
+        if (withWarnings.isNotEmpty) ...<pw.Widget>[
+          pw.SizedBox(height: 12),
+          _buildSectionTitle('EQUIPOS CON ADVERTENCIAS (${withWarnings.length})'),
+          pw.Table(
+            border: pw.TableBorder.all(color: PdfColors.orange200),
+            columnWidths: <int, pw.TableColumnWidth>{
+              0: const pw.FlexColumnWidth(2),
+              1: const pw.FlexColumnWidth(5),
+            },
+            children: <pw.TableRow>[
+              pw.TableRow(
+                decoration: const pw.BoxDecoration(color: PdfColors.orange50),
+                children: <pw.Widget>[
+                  _tableCell('Serie', bold: true),
+                  _tableCell('Daños reportados', bold: true),
+                ],
+              ),
+              ...withWarnings.map((rd) {
+                final String damages = damageKeys
+                    .where((k) => rd.report.technicalCheckboxes[k] == true)
+                    .join(', ');
+                return pw.TableRow(
+                  children: <pw.Widget>[
+                    _tableCell(rd.printer?.serialNumber ?? '—'),
+                    _tableCell(damages),
+                  ],
+                );
+              }),
+            ],
+          ),
+        ],
+      ],
+    );
+  }
+
+  // ── Tabla de impresoras atendidas ───────────────────────────────────────────
+  static pw.Widget _buildDeliveryPrinterTable(
+    List<_DeliveryReportData> reportData,
+  ) {
+    return pw.Column(
+      crossAxisAlignment: pw.CrossAxisAlignment.start,
+      children: <pw.Widget>[
+        _buildSectionTitle('EQUIPOS ATENDIDOS (${reportData.length})'),
+        pw.Table(
+          border: pw.TableBorder.all(color: PdfColors.blueGrey200),
+          columnWidths: <int, pw.TableColumnWidth>{
+            0: const pw.FlexColumnWidth(1),
+            1: const pw.FlexColumnWidth(3),
+            2: const pw.FlexColumnWidth(2),
+            3: const pw.FlexColumnWidth(2),
+            4: const pw.FlexColumnWidth(2),
+          },
+          children: <pw.TableRow>[
+            // Encabezado
+            pw.TableRow(
+              decoration:
+                  const pw.BoxDecoration(color: PdfColors.blueGrey100),
+              children: <pw.Widget>[
+                _tableCell('#', bold: true),
+                _tableCell('Modelo', bold: true),
+                _tableCell('Serie', bold: true),
+                _tableCell('Planta', bold: true),
+                _tableCell('Tipo servicio', bold: true),
+              ],
+            ),
+            // Filas de datos
+            ...reportData.asMap().entries.map(
+              (MapEntry<int, _DeliveryReportData> entry) {
+                final int idx = entry.key;
+                final _DeliveryReportData rd = entry.value;
+                final String modelName = rd.catalogModel != null
+                    ? '${rd.catalogModel!.brand} ${rd.catalogModel!.modelName}'
+                    : '—';
+                final String serial =
+                    rd.printer?.serialNumber ?? rd.report.printerId;
+                return pw.TableRow(
+                  decoration: pw.BoxDecoration(
+                    color: idx.isEven ? PdfColors.white : PdfColors.blueGrey50,
+                  ),
+                  children: <pw.Widget>[
+                    _tableCell('${idx + 1}'),
+                    _tableCell(modelName),
+                    _tableCell(serial),
+                    _tableCell(rd.plant?.name ?? '—'),
+                    _tableCell(rd.report.serviceType),
+                  ],
+                );
+              },
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  static pw.Widget _tableCell(String text, {bool bold = false}) {
+    return pw.Padding(
+      padding: const pw.EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+      child: pw.Text(
+        text,
+        style: pw.TextStyle(
+          fontSize: 9,
+          fontWeight: bold ? pw.FontWeight.bold : pw.FontWeight.normal,
+          color: bold ? PdfColors.blueGrey800 : PdfColors.blueGrey900,
+        ),
+      ),
+    );
+  }
+}
+
+// ── Helper privado para agrupar datos de cada reporte ────────────────────────
+class _DeliveryReportData {
+  _DeliveryReportData({
+    required this.report,
+    required this.printer,
+    required this.catalogModel,
+    required this.plant,
+    required this.area,
+    required this.catalogLabelType,
+    required this.photoImages,
+  });
+
+  final Report report;
+  final Printer? printer;
+  final CatalogModel? catalogModel;
+  final Plant? plant;
+  final Area? area;
+  final CatalogLabelType? catalogLabelType;
+  final List<pw.ImageProvider> photoImages;
 }

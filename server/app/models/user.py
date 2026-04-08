@@ -31,3 +31,6 @@ class User(Base):
     policy_deliveries: Mapped[list] = relationship(
         "PolicyDelivery", back_populates="technician"
     )
+    policy_assignments: Mapped[list] = relationship(
+        "PolicyPrinterAssignment", back_populates="technician"
+    )

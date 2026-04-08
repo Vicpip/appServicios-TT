@@ -16,11 +16,12 @@ from app.models.catalog import CatalogModel
 from app.models.client import Client
 from app.models.file import EntityFile, File
 from app.models.plant import Plant
-from app.models.policy import Policy, PolicyPrinter
+from app.models.policy import Policy, PolicyDelivery, PolicyDeliveryReport, PolicyPrinter, PolicyPrinterAssignment, PolicyVisit
 from app.models.printer import Printer
 from app.models.report import Report
 from app.models.sync import SyncLog
 from app.models.user import User
+from app.schemas.admin import PolicyDeliveryCreate
 from app.schemas.report import ReportCreate
 from app.schemas.sync import (
     BulkSyncRequest,
@@ -512,7 +513,7 @@ def download_data(
 
     policies_q = (
         db.query(Policy)
-        .filter(Policy.status != "Deleted", Policy.end_date >= now)
+        .filter(Policy.status != "Deleted")
         .all()
     )
     policies = []
@@ -529,8 +530,70 @@ def download_data(
             "startDate": p.start_date.isoformat(),
             "endDate": p.end_date.isoformat(),
             "status": p.status, "slaNotes": p.sla_notes,
+            "frequencyMaintenance": p.frequency_maintenance,
             "printerIds": printer_ids,
         })
+
+    cutoff_90d = now - timedelta(days=90)
+    reports = [
+        {
+            "id": r.id,
+            "code": r.code,
+            "printerId": r.printer_id,
+            "techId": r.tech_id,
+            "serviceType": r.service_type,
+            "status": r.status,
+            "serviceDate": r.service_date.isoformat() if r.service_date else None,
+            "linearInchesCounter": r.linear_inches_counter,
+            "darknessLevel": r.darkness_level,
+            "technicalCheckboxes": r.technical_checkboxes,
+            "notes": r.notes,
+            "signatureName": r.signature_name,
+            "signatureRole": r.signature_role,
+            "photoCount": r.photo_count or 0,
+        }
+        for r in db.query(Report)
+        .filter(Report.status != "Deleted", Report.service_date >= cutoff_90d)
+        .all()
+    ]
+
+    assignments = db.query(PolicyPrinterAssignment).all()
+    print(f"[Sync] assignments a enviar: {len(assignments)}")
+    policy_assignments = [
+        {
+            "id": a.id,
+            "policyId": a.policy_id,
+            "printerId": a.printer_id,
+            "technicianId": a.technician_id,
+            "assignedAt": a.assigned_at.isoformat(),
+        }
+        for a in assignments
+    ]
+
+    technicians = [
+        {
+            "id": u.id,
+            "code": u.code,
+            "name": u.name,
+            "email": u.email,
+            "role": u.role,
+        }
+        for u in db.query(User).filter(User.role == "technician", User.is_active.is_(True)).all()
+    ]
+
+    policy_visits = [
+        {
+            "id": v.id,
+            "policyId": v.policy_id,
+            "visitNumber": v.visit_number,
+            "scheduledDate": v.scheduled_date.isoformat() if v.scheduled_date else None,
+            "status": v.status,
+            "startedAt": v.started_at.isoformat() if v.started_at else None,
+            "completedAt": v.completed_at.isoformat() if v.completed_at else None,
+            "createdAt": v.created_at.isoformat() if v.created_at else None,
+        }
+        for v in db.query(PolicyVisit).all()
+    ]
 
     return {
         "clients": clients,
@@ -539,6 +602,95 @@ def download_data(
         "catalogModels": catalog_models,
         "printers": printers,
         "policies": policies,
+        "reports": reports,
+        "technicians": technicians,
+        "policyPrinterAssignments": policy_assignments,
+        "policyVisits": policy_visits,
+    }
+
+
+@router.get("/policies/{policy_id}/assignment")
+def check_assignment(
+    policy_id: str,
+    printer_id: str,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+) -> dict:
+    """Check if a printer in a policy is assigned to a specific technician."""
+    assignment = (
+        db.query(PolicyPrinterAssignment)
+        .filter(
+            PolicyPrinterAssignment.policy_id == policy_id,
+            PolicyPrinterAssignment.printer_id == printer_id,
+        )
+        .first()
+    )
+    if not assignment:
+        return {"assigned_tech_id": None, "assigned_tech_name": None,
+                "assigned_tech_code": None, "is_assigned_to_me": False}
+
+    tech = db.get(User, assignment.technician_id)
+    is_mine = assignment.technician_id == current_user.get("sub")
+    return {
+        "assigned_tech_id": assignment.technician_id,
+        "assigned_tech_name": tech.name if tech else None,
+        "assigned_tech_code": tech.code if tech else None,
+        "is_assigned_to_me": is_mine,
+    }
+
+
+@router.post("/policy-deliveries", response_model=dict, status_code=201)
+def create_policy_delivery(
+    body: PolicyDeliveryCreate,
+    db: Session = Depends(get_db),
+    _current_user: dict = Depends(get_current_user),
+) -> dict:
+    """Create a policy delivery from the mobile app. Marks all reports as 'signed'."""
+    policy = db.get(Policy, body.policy_id)
+    if not policy:
+        raise HTTPException(status_code=404, detail="Policy not found")
+
+    delivery = PolicyDelivery(
+        id=str(uuid.uuid4()),
+        policy_id=body.policy_id,
+        delivery_date=body.delivery_date,
+        signature_name=body.signature_name,
+        signature_role=body.signature_role,
+        tech_id=body.tech_id,
+        signature_image_path=body.signature_image_path,
+    )
+    db.add(delivery)
+    db.flush()
+
+    for report_id in body.report_ids:
+        db.add(PolicyDeliveryReport(
+            id=str(uuid.uuid4()),
+            delivery_id=delivery.id,
+            report_id=report_id,
+        ))
+        report = db.get(Report, report_id)
+        if report:
+            report.status = "signed"
+
+    _record_sync_log(
+        db,
+        entity_type="policy_delivery",
+        entity_id=delivery.id,
+        action="insert",
+        status="synced",
+    )
+    db.commit()
+    db.refresh(delivery)
+
+    return {
+        "id": delivery.id,
+        "policy_id": delivery.policy_id,
+        "delivery_date": delivery.delivery_date.isoformat(),
+        "signature_name": delivery.signature_name,
+        "signature_role": delivery.signature_role,
+        "tech_id": delivery.tech_id,
+        "signature_image_path": delivery.signature_image_path,
+        "report_count": len(body.report_ids),
     }
 
 

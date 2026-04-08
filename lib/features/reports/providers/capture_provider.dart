@@ -41,6 +41,7 @@ class CaptureState {
     this.notes = '',
     this.photoPaths = const <String>[],
     this.signatureImagePath,
+    this.assignmentOverride = false,
   });
 
   final String? printerId;
@@ -54,6 +55,9 @@ class CaptureState {
   // Campos nuevos para multimedia
   final List<String> photoPaths;
   final String? signatureImagePath;
+
+  /// Indica que el técnico aceptó trabajar en una impresora asignada a otro técnico.
+  final bool assignmentOverride;
 
   List<String> get selectedDiagnostics => checkValues.entries
       .where((MapEntry<String, bool> e) => e.value)
@@ -76,6 +80,7 @@ class CaptureState {
     String? notes,
     List<String>? photoPaths,
     String? signatureImagePath,
+    bool? assignmentOverride,
   }) {
     return CaptureState(
       printerId: printerId ?? this.printerId,
@@ -87,6 +92,7 @@ class CaptureState {
       notes: notes ?? this.notes,
       photoPaths: photoPaths ?? this.photoPaths,
       signatureImagePath: signatureImagePath ?? this.signatureImagePath,
+      assignmentOverride: assignmentOverride ?? this.assignmentOverride,
     );
   }
 }
@@ -121,6 +127,9 @@ class CaptureNotifier extends Notifier<CaptureState> {
   }
 
   void setPrinterId(String? id) => state = state.copyWith(printerId: id);
+
+  void setAssignmentOverride({required bool value}) =>
+      state = state.copyWith(assignmentOverride: value);
 
   // ============================================================================
   // Métodos para manejo de fotos

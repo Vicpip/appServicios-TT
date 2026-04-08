@@ -94,6 +94,7 @@ class PolicyListItem(BaseModel):
     status: str  # "Active" | "Expiring" | "Expired"
     printer_count: int
     sla_notes: str | None
+    frequency_maintenance: str | None
 
 
 class ReviewRequest(BaseModel):
@@ -130,6 +131,7 @@ class PolicyCreate(BaseModel):
     end_date: datetime
     coverage_type: str
     sla_notes: str | None = None
+    frequency_maintenance: str | None = None
 
 
 class PolicyUpdate(BaseModel):
@@ -138,6 +140,7 @@ class PolicyUpdate(BaseModel):
     end_date: datetime | None = None
     coverage_type: str | None = None
     sla_notes: str | None = None
+    frequency_maintenance: str | None = None
 
 
 class AssignPrintersRequest(BaseModel):
@@ -210,12 +213,21 @@ class PrinterUpdate(BaseModel):
 class PlantCreate(BaseModel):
     client_id: str
     name: str
+    contact_name: str | None = None
+    contact_phone: str | None = None
 
 
 class PlantListItem(BaseModel):
     id: str
     name: str
     client_id: str
+    contact_name: str | None = None
+    phone: str | None = None
+
+
+class PlantUpdate(BaseModel):
+    contact_name: str | None = None
+    contact_phone: str | None = None
 
 
 class AreaCreate(BaseModel):
@@ -236,7 +248,75 @@ class CatalogModelItem(BaseModel):
     dpi: int
 
 
+# ---------------------------------------------------------------------------
+# Policy printer assignments (Fase 7)
+# ---------------------------------------------------------------------------
+
+class PolicyPrinterAssignmentItem(BaseModel):
+    id: str
+    policy_id: str
+    printer_id: str
+    printer_serial: str | None
+    technician_id: str
+    technician_name: str | None
+    technician_code: str | None
+    assigned_at: datetime
+
+
+class AssignTechnicianRequest(BaseModel):
+    printer_id: str
+    technician_id: str
+
+
+class PolicyDeliveryCreate(BaseModel):
+    policy_id: str
+    delivery_date: datetime
+    signature_name: str
+    signature_role: str
+    tech_id: str
+    report_ids: list[str]
+    signature_image_path: str | None = None
+
+
+class PolicyDeliveryItem(BaseModel):
+    id: str
+    policy_id: str
+    delivery_date: datetime
+    signature_name: str
+    signature_role: str
+    tech_id: str
+    signature_image_path: str | None
+    report_count: int
+
+
 class CatalogModelCreate(BaseModel):
     brand: str
     model_name: str
     dpi: int
+
+
+# ---------------------------------------------------------------------------
+# Policy visits (Sprint — policy_visits feature)
+# ---------------------------------------------------------------------------
+
+class PolicyVisitItem(BaseModel):
+    id: str
+    policy_id: str
+    visit_number: int
+    scheduled_date: str | None  # ISO date string
+    status: str  # scheduled | in_progress | completed
+    started_at: datetime | None
+    completed_at: datetime | None
+    created_at: datetime
+    # Computed
+    attended_count: int = 0   # reports pending_delivery for this policy
+    total_printers: int = 0   # printers in policy
+
+
+class PolicyVisitUpdate(BaseModel):
+    status: str  # scheduled | in_progress | completed
+    scheduled_date: str | None = None
+
+
+class GenerateVisitsRequest(BaseModel):
+    pass  # frequency derived from policy.frequency_maintenance

@@ -10,6 +10,10 @@ import 'package:industrial_service_reports/features/clients/presentation/client_
 import 'package:industrial_service_reports/features/clients/presentation/client_list_screen.dart';
 import 'package:industrial_service_reports/features/dashboard/presentation/main_dashboard_screen.dart';
 import 'package:industrial_service_reports/features/policies/presentation/policy_dashboard_screen.dart';
+import 'package:industrial_service_reports/features/policies/presentation/policy_delivery_screen.dart';
+import 'package:industrial_service_reports/features/policies/presentation/policy_delivery_signature_screen.dart';
+import 'package:industrial_service_reports/features/policies/presentation/policy_delivery_success_screen.dart';
+import 'package:industrial_service_reports/features/policies/providers/pending_delivery_provider.dart';
 import 'package:industrial_service_reports/features/printers/presentation/printer_confirmation_screen.dart';
 import 'package:industrial_service_reports/features/printers/presentation/printer_detail_screen.dart';
 import 'package:industrial_service_reports/features/printers/presentation/printer_inventory_screen.dart';
@@ -21,6 +25,7 @@ import 'package:industrial_service_reports/features/reports/presentation/express
 import 'package:industrial_service_reports/features/reports/presentation/report_summary_screen.dart';
 import 'package:industrial_service_reports/features/signature/presentation/signature_screen.dart';
 import 'package:industrial_service_reports/features/reports/presentation/report_view_screen.dart';
+import 'package:industrial_service_reports/features/policies/presentation/visit_summary_screen.dart';
 import 'package:industrial_service_reports/features/sync/presentation/sync_dashboard_screen.dart';
 
 final routerProvider = Provider<GoRouter>((ref) {
@@ -98,8 +103,6 @@ final routerProvider = Provider<GoRouter>((ref) {
             serialNumber: args.serialNumber,
             model: args.model,
             client: args.client,
-            printerId: args.printerId,
-            database: localDatabase,
           );
         },
         routes: <RouteBase>[
@@ -141,13 +144,18 @@ final routerProvider = Provider<GoRouter>((ref) {
         name: AppRoutes.capture,
         builder: (_, state) {
           final CaptureArgs? args = state.extra as CaptureArgs?;
-          return ExpressCaptureScreen(printerId: args?.printerId);
+          return ExpressCaptureScreen(
+            printerId: args?.printerId,
+            assignmentOverride: args?.assignmentOverride ?? false,
+          );
         },
       ),
       GoRoute(
         path: '/report-summary',
         name: AppRoutes.reportSummary,
-        builder: (_, __) => const ReportSummaryScreen(),
+        builder: (_, state) => ReportSummaryScreen(
+          reportId: state.extra as String?,
+        ),
       ),
       GoRoute(
         path: '/signature',
@@ -170,6 +178,48 @@ final routerProvider = Provider<GoRouter>((ref) {
         builder: (_, state) {
           final ReportViewArgs args = state.extra! as ReportViewArgs;
           return ReportViewScreen(reportId: args.reportId, database: localDatabase);
+        },
+      ),
+      GoRoute(
+        path: '/policy-delivery',
+        name: AppRoutes.policyDelivery,
+        builder: (_, state) {
+          final PolicyWithPendingReports policy =
+              state.extra! as PolicyWithPendingReports;
+          return PolicyDeliveryScreen(policy: policy);
+        },
+      ),
+      GoRoute(
+        path: '/policy-delivery-signature',
+        name: AppRoutes.policyDeliverySignature,
+        builder: (_, state) {
+          final PolicyDeliverySignatureArgs args =
+              state.extra! as PolicyDeliverySignatureArgs;
+          return PolicyDeliverySignatureScreen(args: args);
+        },
+      ),
+      GoRoute(
+        path: '/policy-delivery-success',
+        name: AppRoutes.policyDeliverySuccess,
+        builder: (_, state) {
+          if (state.extra is Map) {
+            final Map<String, dynamic> m = state.extra as Map<String, dynamic>;
+            return PolicyDeliverySuccessScreen(
+              reportCount: m['count'] as int? ?? 0,
+              isDelivery: m['isDelivery'] as bool? ?? true,
+              deliveryId: m['deliveryId'] as String?,
+              policyFolio: m['policyFolio'] as String?,
+            );
+          }
+          return PolicyDeliverySuccessScreen(reportCount: state.extra as int? ?? 0);
+        },
+      ),
+      GoRoute(
+        path: '/visit-summary',
+        name: AppRoutes.visitSummary,
+        builder: (_, state) {
+          final VisitSummaryArgs args = state.extra! as VisitSummaryArgs;
+          return VisitSummaryScreen(args: args);
         },
       ),
     ],

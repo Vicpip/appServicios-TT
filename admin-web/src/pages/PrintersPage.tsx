@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   Printer, ChevronLeft, ChevronRight, Plus, Pencil, Trash2, X,
@@ -182,6 +183,8 @@ function PrinterModal({ printer, onClose }: PrinterModalProps) {
   )
   const [error, setError] = useState<string | null>(null)
   const [newPlantName, setNewPlantName] = useState('')
+  const [newPlantContactName, setNewPlantContactName] = useState('')
+  const [newPlantContactPhone, setNewPlantContactPhone] = useState('')
   const [newAreaName, setNewAreaName] = useState('')
   const [showNewPlant, setShowNewPlant] = useState(false)
   const [showNewArea, setShowNewArea] = useState(false)
@@ -227,13 +230,20 @@ function PrinterModal({ printer, onClose }: PrinterModalProps) {
 
   const createPlantMutation = useMutation({
     mutationFn: async () => {
-      const res = await apiClient.post<PlantOption>(API.plants.create, { client_id: form.client_id, name: newPlantName })
+      const res = await apiClient.post<PlantOption>(API.plants.create, {
+        client_id: form.client_id,
+        name: newPlantName.trim(),
+        contact_name: newPlantContactName.trim(),
+        contact_phone: newPlantContactPhone.trim(),
+      })
       return res.data
     },
     onSuccess: (plant) => {
       refetchPlants()
       setForm((p) => ({ ...p, plant_id: plant.id, area_id: '' }))
       setNewPlantName('')
+      setNewPlantContactName('')
+      setNewPlantContactPhone('')
       setShowNewPlant(false)
     },
   })
@@ -380,10 +390,18 @@ function PrinterModal({ printer, onClose }: PrinterModalProps) {
                     </button>
                   </div>
                   {showNewPlant ? (
-                    <div className="flex gap-2">
-                      <input type="text" value={newPlantName} onChange={(e) => setNewPlantName(e.target.value)} className={inputCls} placeholder="Nombre de la planta" />
-                      <button type="button" onClick={() => createPlantMutation.mutate()} disabled={!newPlantName.trim() || createPlantMutation.isPending} className="shrink-0 px-3 py-2 text-sm font-semibold text-white bg-primary hover:bg-primary-dark disabled:opacity-50 rounded-lg transition-colors font-sans">
-                        {createPlantMutation.isPending ? '…' : 'Crear'}
+                    <div className="space-y-2">
+                      <input type="text" value={newPlantName} onChange={(e) => setNewPlantName(e.target.value)} className={inputCls} placeholder="Nombre de la planta *" />
+                      <input type="text" value={newPlantContactName} onChange={(e) => setNewPlantContactName(e.target.value)} className={inputCls} placeholder="Nombre de contacto *" />
+                      <input type="text" value={newPlantContactPhone} onChange={(e) => setNewPlantContactPhone(e.target.value)} className={inputCls} placeholder="Teléfono de contacto *" />
+                      <button type="button" onClick={() => {
+                        if (!newPlantName.trim() || !newPlantContactName.trim() || !newPlantContactPhone.trim()) {
+                          alert('Nombre, contacto y teléfono son requeridos')
+                          return
+                        }
+                        createPlantMutation.mutate()
+                      }} disabled={createPlantMutation.isPending} className="w-full px-3 py-2 text-sm font-semibold text-white bg-primary hover:bg-primary-dark disabled:opacity-50 rounded-lg transition-colors font-sans">
+                        {createPlantMutation.isPending ? '…' : 'Crear planta'}
                       </button>
                     </div>
                   ) : (
@@ -496,6 +514,7 @@ function DeletePrinterModal({ printer, onClose }: { printer: PrinterListItem; on
 // ---------------------------------------------------------------------------
 
 export default function PrintersPage() {
+  const navigate = useNavigate()
   const [search, setSearch] = useState('')
   const [debouncedSearch, setDebouncedSearch] = useState('')
   const [clientFilter, setClientFilter] = useState('')
@@ -657,7 +676,7 @@ export default function PrintersPage() {
                 </tr>
               ) : (
                 items.map((row) => (
-                  <tr key={row.id} className="hover:bg-gray-50/60 transition-colors group">
+                  <tr key={row.id} className="hover:bg-gray-50/60 transition-colors group cursor-pointer" onClick={() => navigate(`/printers/${row.id}`)}>
                     <td className="px-4 py-3.5">
                       <div className="flex items-center gap-2">
                         <Printer size={14} className="text-gray-300 shrink-0" />
@@ -682,10 +701,10 @@ export default function PrintersPage() {
                     <td className="px-4 py-3.5"><StatusChip status={row.printer_status} /></td>
                     <td className="px-4 py-3.5">
                       <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                        <button onClick={() => setEditPrinter(row)} className="p-1.5 rounded-lg text-gray-400 hover:text-primary hover:bg-primary/10 transition-colors" title="Editar">
+                        <button onClick={(e) => { e.stopPropagation(); setEditPrinter(row) }} className="p-1.5 rounded-lg text-gray-400 hover:text-primary hover:bg-primary/10 transition-colors" title="Editar">
                           <Pencil size={14} />
                         </button>
-                        <button onClick={() => setDeletePrinter(row)} className="p-1.5 rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-50 transition-colors" title="Desactivar">
+                        <button onClick={(e) => { e.stopPropagation(); setDeletePrinter(row) }} className="p-1.5 rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-50 transition-colors" title="Desactivar">
                           <Trash2 size={14} />
                         </button>
                       </div>

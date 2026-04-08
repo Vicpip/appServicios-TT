@@ -41,8 +41,9 @@ class ServiceHistoryArgs {
 }
 
 class CaptureArgs {
-  const CaptureArgs({this.printerId});
+  const CaptureArgs({this.printerId, this.assignmentOverride = false});
   final String? printerId;
+  final bool assignmentOverride;
 }
 
 class ReportViewArgs {
@@ -53,4 +54,29 @@ class ReportViewArgs {
 class QuickAddPrinterArgs {
   const QuickAddPrinterArgs({this.initialClientId});
   final String? initialClientId;
+}
+
+class PolicyDeliveryArgs {
+  const PolicyDeliveryArgs({required this.policyWithPendingReports});
+  final Object policyWithPendingReports; // PolicyWithPendingReports
+}
+
+class PolicyDeliverySignatureArgs {
+  const PolicyDeliverySignatureArgs({
+    required this.policyId,
+    required this.policyFolio,
+    required this.reportIds,
+    required this.techId,
+  });
+
+  final String policyId;
+  final String policyFolio;
+  final List<String> reportIds;
+  final String techId;
+}
+
+class VisitSummaryArgs {
+  const VisitSummaryArgs({required this.deliveryId, required this.policyFolio});
+  final String deliveryId;
+  final String policyFolio;
 }

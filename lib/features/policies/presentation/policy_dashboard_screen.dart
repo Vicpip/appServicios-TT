@@ -1,7 +1,16 @@
-import 'package:drift/drift.dart' show Value;
+import 'package:drift/drift.dart' hide Column;
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
+import 'package:industrial_service_reports/core/router/app_routes.dart';
+import 'package:industrial_service_reports/core/router/route_args.dart';
 import 'package:industrial_service_reports/core/theme/app_palette.dart';
 import 'package:industrial_service_reports/data/local/app_database.dart';
+import 'package:industrial_service_reports/data/local/local_database.dart';
+import 'package:industrial_service_reports/features/auth/providers/session_provider.dart';
+import 'package:industrial_service_reports/features/policies/providers/pending_delivery_provider.dart';
+import 'package:industrial_service_reports/features/policies/providers/policy_visit_provider.dart';
 import 'package:uuid/uuid.dart';
 
 enum _PolicyFilter {
@@ -44,16 +53,17 @@ class PolicySummary {
   final PolicyStatus status;
 }
 
-class PolicyDashboardScreen extends StatefulWidget {
+class PolicyDashboardScreen extends ConsumerStatefulWidget {
   const PolicyDashboardScreen({super.key, required this.database});
 
   final AppDatabase database;
 
   @override
-  State<PolicyDashboardScreen> createState() => _PolicyDashboardScreenState();
+  ConsumerState<PolicyDashboardScreen> createState() =>
+      _PolicyDashboardScreenState();
 }
 
-class _PolicyDashboardScreenState extends State<PolicyDashboardScreen> {
+class _PolicyDashboardScreenState extends ConsumerState<PolicyDashboardScreen> {
   final TextEditingController _searchController = TextEditingController();
   _PolicyFilter _selectedFilter = _PolicyFilter.all;
   List<PolicySummary> _policies = <PolicySummary>[];
@@ -157,6 +167,7 @@ class _PolicyDashboardScreenState extends State<PolicyDashboardScreen> {
   @override
   Widget build(BuildContext context) {
     final List<PolicySummary> policies = _filteredPolicies();
+    final pendingAsync = ref.watch(pendingDeliveryProvider);
 
     return Scaffold(
       appBar: AppBar(
@@ -261,7 +272,53 @@ class _PolicyDashboardScreenState extends State<PolicyDashboardScreen> {
                   ],
                 ),
               ),
-              const SizedBox(height: 12),
+              // Pending deliveries banner
+              pendingAsync.when(
+                data: (List<PolicyWithPendingReports> pending) {
+                  if (pending.isEmpty) return const SizedBox.shrink();
+                  final int totalReports =
+                      pending.fold(0, (int s, p) => s + p.reports.length);
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: <Widget>[
+                      const SizedBox(height: 4),
+                      Container(
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF1C2E4A),
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: AppPalette.primary),
+                        ),
+                        padding: const EdgeInsets.fromLTRB(14, 10, 14, 10),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: <Widget>[
+                            Row(children: <Widget>[
+                              const Icon(Icons.pending_actions_rounded,
+                                  color: AppPalette.primary, size: 18),
+                              const SizedBox(width: 8),
+                              Text(
+                                'Pendientes de entrega — $totalReports reporte(s)',
+                                style: const TextStyle(
+                                  color: AppPalette.backgroundLight,
+                                  fontWeight: FontWeight.w700,
+                                  fontSize: 14,
+                                ),
+                              ),
+                            ]),
+                            const SizedBox(height: 8),
+                            ...pending.map((PolicyWithPendingReports p) =>
+                                _PendingDeliveryRow(policy: p)),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                    ],
+                  );
+                },
+                loading: () => const SizedBox.shrink(),
+                error: (_, __) => const SizedBox.shrink(),
+              ),
+              const SizedBox(height: 4),
               Expanded(
                 child: policies.isEmpty
                     ? const Center(
@@ -329,6 +386,44 @@ class _PolicyDashboardScreenState extends State<PolicyDashboardScreen> {
   }
 }
 
+class _PendingDeliveryRow extends StatelessWidget {
+  const _PendingDeliveryRow({required this.policy});
+
+  final PolicyWithPendingReports policy;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(top: 6),
+      child: Row(
+        children: <Widget>[
+          Expanded(
+            child: Text(
+              '${policy.policyFolio} — ${policy.reports.length} equipo(s)',
+              style: const TextStyle(color: Colors.white70, fontSize: 13),
+            ),
+          ),
+          FilledButton.tonal(
+            onPressed: () => context.pushNamed(
+              AppRoutes.policyDelivery,
+              extra: policy,
+            ),
+            style: FilledButton.styleFrom(
+              backgroundColor: AppPalette.primary,
+              foregroundColor: AppPalette.backgroundLight,
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+              minimumSize: Size.zero,
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            ),
+            child: const Text('Iniciar entrega',
+                style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700)),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _FilterChip extends StatelessWidget {
   const _FilterChip({
     required this.label,
@@ -379,7 +474,7 @@ class _FilterChip extends StatelessWidget {
   }
 }
 
-class _PolicyCard extends StatelessWidget {
+class _PolicyCard extends ConsumerWidget {
   const _PolicyCard({
     required this.database,
     required this.policy,
@@ -391,7 +486,14 @@ class _PolicyCard extends StatelessWidget {
   final _PolicyStatusStyle statusStyle;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    // CAMBIO 2: buscar reportes pending_delivery para esta póliza
+    final PolicyWithPendingReports? pendingPolicy =
+        ref.watch(pendingDeliveryProvider).whenOrNull(
+          data: (List<PolicyWithPendingReports> pending) =>
+              pending.where((p) => p.policyId == policy.id).firstOrNull,
+        );
+
     return Material(
       color: Colors.transparent,
       borderRadius: BorderRadius.circular(14),
@@ -492,6 +594,33 @@ class _PolicyCard extends StatelessWidget {
                     ),
                   ],
                 ),
+                // CAMBIO 2: botón VER RESUMEN si hay reportes pending_delivery
+                if (pendingPolicy != null) ...<Widget>[
+                  const SizedBox(height: 10),
+                  SizedBox(
+                    width: double.infinity,
+                    child: FilledButton.icon(
+                      onPressed: () => context.pushNamed(
+                        AppRoutes.policyDelivery,
+                        extra: pendingPolicy,
+                      ),
+                      icon: const Icon(Icons.inventory_2_rounded, size: 18),
+                      label: Text(
+                        'VER RESUMEN (${pendingPolicy.reports.length} reportes)',
+                        style: const TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      style: FilledButton.styleFrom(
+                        backgroundColor: AppPalette.primary,
+                        foregroundColor: AppPalette.backgroundLight,
+                        shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(10)),
+                      ),
+                    ),
+                  ),
+                ],
               ],
             ),
           ),
@@ -1380,7 +1509,7 @@ class _PolicyPrinterItem {
 
 // ─── Policy Detail ────────────────────────────────────────────────────────────
 
-class PolicyDetailScreen extends StatefulWidget {
+class PolicyDetailScreen extends ConsumerStatefulWidget {
   const PolicyDetailScreen({
     super.key,
     required this.database,
@@ -1391,69 +1520,220 @@ class PolicyDetailScreen extends StatefulWidget {
   final PolicySummary policy;
 
   @override
-  State<PolicyDetailScreen> createState() => _PolicyDetailScreenState();
+  ConsumerState<PolicyDetailScreen> createState() => _PolicyDetailScreenState();
 }
 
-class _PolicyDetailScreenState extends State<PolicyDetailScreen> {
-  late final List<_PolicyAsset> _parqueTotal;
-  late final List<_PolicyAsset> _misTareas;
-  late final List<_PolicyVisit> _visits;
+class _PolicyDetailScreenState extends ConsumerState<PolicyDetailScreen> {
+  List<_PolicyAsset> _parqueTotal = const <_PolicyAsset>[];
+  List<_PolicyAsset> _misTareas = const <_PolicyAsset>[];
+  bool _loading = true;
+
+  // Visitas
+  List<PolicyVisit> _visits = const <PolicyVisit>[];
+  PolicyVisit? _activeVisit;
+  int _pendingDeliveryCount = 0;
+  List<PolicyDelivery> _deliveries = const <PolicyDelivery>[];
 
   @override
   void initState() {
     super.initState();
-    _parqueTotal = _buildParqueTotal();
-    _misTareas = _parqueTotal.where((_PolicyAsset item) => item.isMine).toList();
-    _visits = <_PolicyVisit>[
-      const _PolicyVisit(
-        title: 'Visita Q1',
-        status: _VisitStatus.completed,
-        dateLabel: '15 Mar 2026',
-      ),
-      const _PolicyVisit(
-        title: 'Visita Q2',
-        status: _VisitStatus.pending,
-        dateLabel: '15 Jun 2026',
-      ),
-      const _PolicyVisit(
-        title: 'Visita Q3',
-        status: _VisitStatus.scheduled,
-        dateLabel: '20 Sep 2026',
-      ),
-      const _PolicyVisit(
-        title: 'Visita Q4',
-        status: _VisitStatus.scheduled,
-        dateLabel: '10 Dic 2026',
-      ),
-    ];
+    _loadData();
   }
 
-  List<_PolicyAsset> _buildParqueTotal() {
-    const List<String> models = <String>[
-      'Zebra ZT411', 'Zebra ZD421', 'Zebra ZT610', 'Zebra ZT231',
-    ];
-    const List<String> plants = <String>[
-      'Planta Norte', 'Planta Sur', 'Principal', 'Nave 2',
-    ];
-    const List<String> areas = <String>[
-      'Línea de Empaque', 'Línea 3', 'Almacén', 'Recibo',
-    ];
-    const List<String> others = <String>[
-      'Pedro R.', 'Daniela M.', 'Mariana S.', 'Luis T.',
-    ];
+  Future<void> _loadData() async {
+    final SessionState session = ref.read(sessionProvider);
+    final String currentUserId = session.userId;   // UUID
+    final String currentUserCode = session.techId; // código legible, p.ej. T-0001
+    final AppDatabase db = widget.database;
 
-    return List<_PolicyAsset>.generate(24, (int index) {
-      final bool isMine = index < 12;
-      final String serial = 'SN-${520000000000 + index}';
-      return _PolicyAsset(
-        model: models[index % models.length],
-        serial: serial,
-        plant: plants[index % plants.length],
-        area: areas[index % areas.length],
-        isMine: isMine,
-        assignedTo: isMine ? 'Tú' : others[index % others.length],
-      );
-    });
+    List<_PolicyAsset> parque = <_PolicyAsset>[];
+    List<PolicyVisit> visits = <PolicyVisit>[];
+    PolicyVisit? activeVisit;
+    int pendingCount = 0;
+
+    try {
+      // ── DIAGNÓSTICO ────────────────────────────────────────────────────────
+      debugPrint('[PolicyDetail] policyId usado en query: ${widget.policy.id}');
+      debugPrint('[PolicyDetail] session.userId (UUID): $currentUserId');
+      debugPrint('[PolicyDetail] session.techId (código): $currentUserCode');
+
+      final List<PolicyPrinter> policyPrinters = await (db.select(db.policyPrinters)
+            ..where((PolicyPrinters pp) => pp.policyId.equals(widget.policy.id)))
+          .get();
+      debugPrint('[PolicyDetail] PolicyPrinters count para este policyId: ${policyPrinters.length}');
+
+      // Todos los registros de PolicyPrinterAssignments en SQLite (sin filtro)
+      final List<PolicyPrinterAssignment> todosAssignments =
+          await db.select(db.policyPrinterAssignments).get();
+      debugPrint('[PolicyDetail] TOTAL PolicyPrinterAssignments en SQLite: ${todosAssignments.length}');
+      for (final PolicyPrinterAssignment a in todosAssignments) {
+        debugPrint('[PolicyDetail]   assignment id=${a.id} '
+            'policyId=${a.policyId} printerId=${a.printerId} '
+            'technicianId=${a.technicianId}');
+      }
+
+      // Conteo filtrado por este policyId
+      final List<PolicyPrinterAssignment> assignmentsPorPoliza = todosAssignments
+          .where((PolicyPrinterAssignment a) => a.policyId == widget.policy.id)
+          .toList();
+      debugPrint('[PolicyDetail] PolicyPrinterAssignments para ESTE policyId: ${assignmentsPorPoliza.length}');
+      // ───────────────────────────────────────────────────────────────────────
+
+      for (final PolicyPrinter pp in policyPrinters) {
+        final Printer? printer = await (db.select(db.printers)
+              ..where((Printers p) => p.id.equals(pp.printerId)))
+            .getSingleOrNull();
+
+        if (printer == null) continue;
+
+        final CatalogModel? model = await (db.select(db.catalogModels)
+              ..where((CatalogModels m) => m.id.equals(printer.modelId)))
+            .getSingleOrNull();
+
+        final Plant? plant = await (db.select(db.plants)
+              ..where((Plants pl) => pl.id.equals(printer.plantId)))
+            .getSingleOrNull();
+
+        final Area? area = await (db.select(db.areas)
+              ..where((Areas a) => a.id.equals(printer.areaId)))
+            .getSingleOrNull();
+
+        // Asignaciones para esta impresora + esta póliza
+        final List<PolicyPrinterAssignment> assignments = todosAssignments
+            .where((PolicyPrinterAssignment a) =>
+                a.printerId == pp.printerId && a.policyId == pp.policyId)
+            .toList();
+
+        bool isMine = false;
+        String assignedTo = '—';
+        if (assignments.isNotEmpty) {
+          assignments.sort((PolicyPrinterAssignment a, PolicyPrinterAssignment b) =>
+              b.assignedAt.compareTo(a.assignedAt));
+          final PolicyPrinterAssignment latest = assignments.first;
+
+          // Buscar el técnico asignado para obtener nombre y código
+          final User? tech = await (db.select(db.users)
+                ..where((Users u) => u.id.equals(latest.technicianId)))
+              .getSingleOrNull();
+
+          debugPrint('[PolicyDetail] printer=${printer.serialNumber} '
+              'assignment.technicianId=${latest.technicianId} '
+              'tech.id=${tech?.id} tech.code=${tech?.code} tech.name=${tech?.name}');
+
+          // Comparar contra UUID (userId) y contra código (techId).
+          // El servidor almacena el UUID en technician_id, pero se cubre
+          // el caso donde se haya guardado el código por compatibilidad.
+          isMine = latest.technicianId == currentUserId ||
+              (currentUserCode.isNotEmpty &&
+                  latest.technicianId == currentUserCode) ||
+              (tech != null && tech.id == currentUserId) ||
+              (tech?.code != null &&
+                  currentUserCode.isNotEmpty &&
+                  tech!.code == currentUserCode);
+
+          if (isMine) {
+            assignedTo = 'Tú';
+          } else {
+            assignedTo = tech?.name ?? latest.technicianId;
+          }
+        }
+
+        parque.add(_PolicyAsset(
+          model: model != null ? '${model.brand} ${model.modelName}' : 'Modelo desconocido',
+          serial: printer.serialNumber,
+          plant: plant?.name ?? '—',
+          area: area?.name ?? '—',
+          isMine: isMine,
+          assignedTo: assignedTo,
+        ));
+      }
+
+      debugPrint('[PolicyDetail] parque=${parque.length} misTareas=${parque.where((_PolicyAsset a) => a.isMine).length}');
+
+      // Load visits — query directa a widget.database para evitar caché del provider
+      visits = await (db.select(db.policyVisits)
+            ..where((PolicyVisits v) => v.policyId.equals(widget.policy.id))
+            ..orderBy([(PolicyVisits v) => OrderingTerm.asc(v.visitNumber)]))
+          .get();
+      debugPrint('[PolicyDetail] visitas count en SQLite: ${visits.length}');
+      if (visits.isNotEmpty) {
+        debugPrint('[PolicyDetail] primera visita: ${visits.first}');
+      }
+      final List<PolicyVisit> activeVisits = await (db.select(db.policyVisits)
+            ..where((PolicyVisits v) =>
+                v.policyId.equals(widget.policy.id) &
+                v.status.equals('in_progress'))
+            ..orderBy([(PolicyVisits v) => OrderingTerm.desc(v.startedAt)])
+            ..limit(1))
+          .get();
+      activeVisit = activeVisits.firstOrNull;
+
+      // Count pending_delivery and signed reports for printers in this policy.
+      // reportsExist > 0 means the tech has actually created reports — prevents
+      // false auto-complete when a visit is activated but no reports exist yet.
+      int reportsExist = 0;
+      for (final PolicyPrinter pp in policyPrinters) {
+        final List<Report> relevantReports = await (db.select(db.reports)
+              ..where((Reports r) =>
+                  r.printerId.equals(pp.printerId) &
+                  r.status.isIn(<String>['pending_delivery', 'signed'])))
+            .get();
+        reportsExist += relevantReports.length;
+        pendingCount += relevantReports
+            .where((Report r) => r.status == 'pending_delivery')
+            .length;
+      }
+
+      // Auto-completar visita solo si:
+      //   1. Hay una visita activa (in_progress)
+      //   2. El técnico tiene al menos 1 tarea asignada
+      //   3. Existe al menos 1 reporte creado (evita falso auto-complete al abrir tras sync)
+      //   4. Ningún reporte está pendiente de entrega
+      final int myTaskCount = parque.where((_PolicyAsset a) => a.isMine).length;
+      // ignore: avoid_print
+      debugPrint('[PolicyDetail] auto-complete check: myTasks=$myTaskCount reportsExist=$reportsExist pending=$pendingCount activeVisit=${activeVisit?.id} visitsCount=${visits.length}');
+      if (activeVisit != null && myTaskCount > 0 && reportsExist > 0 && pendingCount == 0 && visits.isNotEmpty) {
+        try {
+          await (db.update(db.policyVisits)
+                ..where((PolicyVisits v) => v.id.equals(activeVisit!.id)))
+              .write(PolicyVisitsCompanion(
+            status: const Value<String>('completed'),
+            completedAt: Value<DateTime>(DateTime.now()),
+          ));
+          debugPrint('[PolicyDetail] Visita auto-completada en load: ${activeVisit!.id}');
+          // Refrescar activeVisit
+          activeVisit = null;
+          visits = await (db.select(db.policyVisits)
+                ..where((PolicyVisits v) => v.policyId.equals(widget.policy.id))
+                ..orderBy([(PolicyVisits v) => OrderingTerm.asc(v.visitNumber)]))
+              .get();
+        } catch (e) {
+          debugPrint('[PolicyDetail] Auto-completar visita en load (no fatal): $e');
+        }
+      }
+
+      // Cargar historial de entregas para esta póliza
+      final List<PolicyDelivery> deliveries = await (db.select(db.policyDeliveries)
+            ..where((PolicyDeliveries d) => d.policyId.equals(widget.policy.id))
+            ..orderBy([(PolicyDeliveries d) => OrderingTerm.desc(d.deliveryDate)]))
+          .get();
+
+      if (mounted) {
+        setState(() {
+          _parqueTotal = parque;
+          _misTareas = parque.where((_PolicyAsset a) => a.isMine).toList();
+          _visits = visits;
+          _activeVisit = activeVisit;
+          _pendingDeliveryCount = pendingCount;
+          _deliveries = deliveries;
+        });
+      }
+    } catch (e, stack) {
+      debugPrint('[PolicyDetail] ERROR en _loadData: $e');
+      debugPrint('[PolicyDetail] Stack: $stack');
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
   }
 
   _PolicyStatusStyle _statusStyle(PolicyStatus status) {
@@ -1697,37 +1977,88 @@ class _PolicyDetailScreenState extends State<PolicyDetailScreen> {
                     tabs: <Widget>[
                       Tab(text: 'Mis Tareas (${_misTareas.length})'),
                       Tab(text: 'Parque Total (${_parqueTotal.length})'),
-                      const Tab(text: 'Calendario'),
+                      Tab(text: 'Visitas (${_visits.length})'),
                     ],
                   ),
                 ),
                 const SizedBox(height: 10),
-                Expanded(
-                  child: TabBarView(
-                    children: <Widget>[
-                      _MyTasksTab(
-                        tasks: _misTareas,
-                        onStartService: () {
-                          ScaffoldMessenger.of(context).hideCurrentSnackBar();
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(
-                              content: Text(
-                                'Abriendo Checklist de ${_misTareas.length} equipos...',
+                if (_loading)
+                  const Expanded(
+                    child: Center(child: CircularProgressIndicator()),
+                  )
+                else
+                  Expanded(
+                    child: TabBarView(
+                      children: <Widget>[
+                        _MyTasksTab(
+                          tasks: _misTareas,
+                          onStartService: () {
+                            ScaffoldMessenger.of(context).hideCurrentSnackBar();
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: Text(
+                                  'Abriendo Checklist de ${_misTareas.length} equipos...',
+                                ),
+                                behavior: SnackBarBehavior.floating,
                               ),
-                              behavior: SnackBarBehavior.floating,
-                            ),
-                          );
-                        },
-                      ),
-                      _ParqueTotalTab(printers: _parqueTotal),
-                      _CalendarTab(visits: _visits),
-                    ],
+                            );
+                          },
+                        ),
+                        _ParqueTotalTab(printers: _parqueTotal),
+                        _VisitsTab(
+                          visits: _visits,
+                          activeVisit: _activeVisit,
+                          totalPrinters: _parqueTotal.length,
+                          pendingDeliveryCount: _pendingDeliveryCount,
+                          deliveries: _deliveries,
+                        ),
+                      ],
+                    ),
                   ),
-                ),
               ],
             ),
           ),
         ),
+      ),
+      bottomNavigationBar: ref.watch(pendingDeliveryProvider).whenOrNull(
+        data: (List<PolicyWithPendingReports> pending) {
+          final PolicyWithPendingReports? pp = pending
+              .where((PolicyWithPendingReports p) => p.policyId == widget.policy.id)
+              .firstOrNull;
+          if (pp == null) return null;
+          return SafeArea(
+            top: false,
+            child: Container(
+              padding: const EdgeInsets.fromLTRB(16, 10, 16, 16),
+              decoration: const BoxDecoration(
+                color: AppPalette.surfaceDark,
+                border: Border(
+                    top: BorderSide(color: AppPalette.surfaceDarkHighlight)),
+              ),
+              child: SizedBox(
+                height: 52,
+                child: FilledButton.icon(
+                  onPressed: () => context.pushNamed(
+                    AppRoutes.policyDelivery,
+                    extra: pp,
+                  ),
+                  icon: const Icon(Icons.inventory_2_rounded, size: 18),
+                  label: Text(
+                    'VER RESUMEN (${pp.reports.length} reportes)',
+                    style: const TextStyle(
+                        fontSize: 15, fontWeight: FontWeight.w700),
+                  ),
+                  style: FilledButton.styleFrom(
+                    backgroundColor: AppPalette.primary,
+                    foregroundColor: AppPalette.backgroundLight,
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12)),
+                  ),
+                ),
+              ),
+            ),
+          );
+        },
       ),
     );
   }
@@ -1932,6 +2263,34 @@ class _AssigneeBadge extends StatelessWidget {
       );
     }
 
+    // Sin asignación: mostrar candado
+    if (item.assignedTo == '—') {
+      return Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+        decoration: BoxDecoration(
+          color: AppPalette.surfaceDarkHighlight,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: const Color(0xFF3A4557)),
+        ),
+        child: const Row(
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[
+            Icon(Icons.lock_outline_rounded, size: 14, color: Colors.white54),
+            SizedBox(width: 5),
+            Text(
+              'Sin asignar',
+              style: TextStyle(
+                color: Colors.white54,
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    // Con asignación: mostrar nombre del técnico asignado
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
       decoration: BoxDecoration(
@@ -1963,8 +2322,6 @@ class _AssigneeBadge extends StatelessWidget {
               fontWeight: FontWeight.w700,
             ),
           ),
-          const SizedBox(width: 6),
-          const Icon(Icons.lock_outline_rounded, size: 14, color: Colors.white54),
         ],
       ),
     );
@@ -2149,4 +2506,314 @@ class _VisitStyle {
   final Color bg;
   final Color border;
   final Color iconColor;
+}
+
+// ─── Visitas Tab ──────────────────────────────────────────────────────────────
+
+class _VisitsTab extends StatelessWidget {
+  const _VisitsTab({
+    required this.visits,
+    required this.activeVisit,
+    required this.totalPrinters,
+    required this.pendingDeliveryCount,
+    required this.deliveries,
+  });
+
+  final List<PolicyVisit> visits;
+  final PolicyVisit? activeVisit;
+  final int totalPrinters;
+  final int pendingDeliveryCount;
+  final List<PolicyDelivery> deliveries;
+
+  @override
+  Widget build(BuildContext context) {
+    debugPrint('[VisitsTab] visitas recibidas en widget: ${visits.length}');
+    if (visits.isEmpty) {
+      return const Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[
+            Icon(Icons.event_busy_rounded, size: 48, color: Colors.white30),
+            SizedBox(height: 12),
+            Text(
+              'No hay visitas generadas para esta póliza',
+              style: TextStyle(color: Colors.white54),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return ListView(
+      padding: const EdgeInsets.only(bottom: 20),
+      children: <Widget>[
+        // ── Visita activa ────────────────────────────────────────────────────
+        if (activeVisit != null) ...[
+          const SizedBox(height: 4),
+          Container(
+            padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+            decoration: BoxDecoration(
+              color: const Color(0xFF1C2E4A),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: AppPalette.primary),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                Row(
+                  children: <Widget>[
+                    const Icon(Icons.sync_rounded,
+                        color: AppPalette.primary, size: 18),
+                    const SizedBox(width: 8),
+                    Text(
+                      'Visita ${activeVisit!.visitNumber}/${visits.length} — En Curso',
+                      style: const TextStyle(
+                        color: AppPalette.backgroundLight,
+                        fontWeight: FontWeight.w800,
+                        fontSize: 15,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 10),
+                // Progreso
+                Row(
+                  children: <Widget>[
+                    Expanded(
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(6),
+                        child: LinearProgressIndicator(
+                          value: totalPrinters > 0
+                              ? pendingDeliveryCount / totalPrinters
+                              : 0,
+                          minHeight: 8,
+                          backgroundColor: AppPalette.surfaceDarkHighlight,
+                          valueColor: const AlwaysStoppedAnimation<Color>(
+                            AppPalette.primary,
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Text(
+                      '$pendingDeliveryCount/$totalPrinters equipos',
+                      style: const TextStyle(
+                        color: AppPalette.backgroundLight,
+                        fontWeight: FontWeight.w700,
+                        fontSize: 13,
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 10),
+        ],
+
+        // ── Lista de visitas ─────────────────────────────────────────────────
+        const Text(
+          'Historial de visitas',
+          style: TextStyle(
+            color: Colors.white70,
+            fontWeight: FontWeight.w700,
+            fontSize: 13,
+          ),
+        ),
+        const SizedBox(height: 8),
+        ...visits.map((PolicyVisit v) => Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: _VisitRow(
+                visit: v,
+                totalVisits: visits.length,
+              ),
+            )),
+
+        // ── Historial de entregas ────────────────────────────────────────────
+        if (deliveries.isNotEmpty) ...<Widget>[
+          const SizedBox(height: 16),
+          const Text(
+            'Historial de entregas',
+            style: TextStyle(
+              color: Colors.white70,
+              fontWeight: FontWeight.w700,
+              fontSize: 13,
+            ),
+          ),
+          const SizedBox(height: 8),
+          ...deliveries.map((PolicyDelivery d) => Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: _DeliveryHistoryRow(delivery: d),
+              )),
+        ],
+      ],
+    );
+  }
+}
+
+class _VisitRow extends StatelessWidget {
+  const _VisitRow({required this.visit, required this.totalVisits});
+
+  final PolicyVisit visit;
+  final int totalVisits;
+
+  @override
+  Widget build(BuildContext context) {
+    final (Color bg, Color border, Color textColor, String label, IconData icon) =
+        switch (visit.status) {
+      'in_progress' => (
+          const Color(0xFF1C2E4A),
+          AppPalette.primary,
+          AppPalette.primary,
+          'EN CURSO',
+          Icons.sync_rounded,
+        ),
+      'completed' => (
+          AppPalette.successDark,
+          AppPalette.success,
+          AppPalette.success,
+          'COMPLETADA',
+          Icons.check_circle_rounded,
+        ),
+      _ => (
+          AppPalette.surfaceDark,
+          AppPalette.surfaceDarkHighlight,
+          Colors.white54,
+          'PROGRAMADA',
+          Icons.event_available_rounded,
+        ),
+    };
+
+    return Container(
+      padding: const EdgeInsets.fromLTRB(14, 10, 14, 10),
+      decoration: BoxDecoration(
+        color: bg,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: border),
+      ),
+      child: Row(
+        children: <Widget>[
+          Icon(icon, color: textColor, size: 20),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                Text(
+                  'Visita ${visit.visitNumber}/$totalVisits',
+                  style: const TextStyle(
+                    color: AppPalette.backgroundLight,
+                    fontWeight: FontWeight.w800,
+                    fontSize: 15,
+                  ),
+                ),
+                if (visit.scheduledDate != null)
+                  Text(
+                    visit.scheduledDate!,
+                    style: const TextStyle(
+                      color: Colors.white60,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+              ],
+            ),
+          ),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+            decoration: BoxDecoration(
+              color: AppPalette.backgroundDark,
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: border),
+            ),
+            child: Text(
+              label,
+              style: TextStyle(
+                color: textColor,
+                fontSize: 10,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _DeliveryHistoryRow extends StatelessWidget {
+  const _DeliveryHistoryRow({required this.delivery});
+
+  final PolicyDelivery delivery;
+
+  String _formatDate(DateTime date) {
+    const List<String> months = <String>[
+      'Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun',
+      'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic',
+    ];
+    return '${date.day.toString().padLeft(2, '0')} ${months[date.month - 1]} ${date.year}';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.fromLTRB(14, 10, 14, 10),
+      decoration: BoxDecoration(
+        color: AppPalette.surfaceDark,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AppPalette.surfaceDarkHighlight),
+      ),
+      child: Row(
+        children: <Widget>[
+          const Icon(Icons.check_circle_rounded,
+              color: AppPalette.success, size: 18),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                Text(
+                  _formatDate(delivery.deliveryDate),
+                  style: const TextStyle(
+                    color: AppPalette.backgroundLight,
+                    fontWeight: FontWeight.w700,
+                    fontSize: 14,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  'Firmó: ${delivery.signatureName}',
+                  style: const TextStyle(
+                    color: Colors.white60,
+                    fontSize: 12,
+                  ),
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ],
+            ),
+          ),
+          OutlinedButton.icon(
+            onPressed: () => context.pushNamed(
+              AppRoutes.visitSummary,
+              extra: VisitSummaryArgs(
+                deliveryId: delivery.id,
+                policyFolio: '',
+              ),
+            ),
+            icon: const Icon(Icons.summarize_rounded, size: 14),
+            label: const Text('Ver resumen'),
+            style: OutlinedButton.styleFrom(
+              foregroundColor: AppPalette.backgroundLight,
+              side: const BorderSide(color: AppPalette.surfaceDarkHighlight),
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+              minimumSize: Size.zero,
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              textStyle: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }

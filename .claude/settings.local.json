@@ -30,7 +30,9 @@
       "Bash(for f:*)",
       "Bash(do echo:*)",
       "Read(//c/Users/Victor/Documents/app/.claude/worktrees/eloquent-tesla/**)",
-      "Bash(done)"
+      "Bash(done)",
+      "Bash(venv/Scripts/activate)",
+      "Bash(alembic revision:*)"
     ]
   }
 }

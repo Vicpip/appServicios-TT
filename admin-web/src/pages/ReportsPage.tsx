@@ -101,11 +101,13 @@ function parseJson<T>(raw: string | null | undefined, fallback: T): T {
 // ---------------------------------------------------------------------------
 
 const STATUS: Record<string, { label: string; classes: string; icon: React.ReactNode }> = {
-  Draft:                { label: 'Borrador',     classes: 'bg-gray-100 text-gray-600 border-gray-200',          icon: <Clock size={11} /> },
-  Signed:               { label: 'Firmado',      classes: 'bg-blue-50 text-blue-700 border-blue-200',           icon: <FileText size={11} /> },
-  Synced:               { label: 'Sincronizado', classes: 'bg-emerald-50 text-emerald-700 border-emerald-200',  icon: <CheckCircle2 size={11} /> },
-  'Reviewed-Approved':  { label: 'Aprobado',     classes: 'bg-green-50 text-green-700 border-green-200',        icon: <CheckCircle2 size={11} /> },
-  'Reviewed-Rejected':  { label: 'Rechazado',    classes: 'bg-red-50 text-red-600 border-red-200',              icon: <XCircle size={11} /> },
+  Draft:                { label: 'Borrador',          classes: 'bg-gray-100 text-gray-600 border-gray-200',          icon: <Clock size={11} /> },
+  Signed:               { label: 'Firmado',           classes: 'bg-blue-50 text-blue-700 border-blue-200',           icon: <FileText size={11} /> },
+  signed:               { label: 'Firmado',           classes: 'bg-blue-50 text-blue-700 border-blue-200',           icon: <FileText size={11} /> },
+  pending_delivery:     { label: 'Pendiente entrega', classes: 'bg-yellow-50 text-yellow-700 border-yellow-200',     icon: <Clock size={11} /> },
+  Synced:               { label: 'Sincronizado',      classes: 'bg-emerald-50 text-emerald-700 border-emerald-200',  icon: <CheckCircle2 size={11} /> },
+  'Reviewed-Approved':  { label: 'Aprobado',          classes: 'bg-green-50 text-green-700 border-green-200',        icon: <CheckCircle2 size={11} /> },
+  'Reviewed-Rejected':  { label: 'Rechazado',         classes: 'bg-red-50 text-red-600 border-red-200',              icon: <XCircle size={11} /> },
 }
 
 function StatusBadge({ status }: { status: string }) {

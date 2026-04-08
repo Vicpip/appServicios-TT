@@ -6,6 +6,7 @@ Create Date: 2026-03-16
 """
 
 from alembic import op
+import sqlalchemy as sa
 
 revision = "002"
 down_revision = "001"
@@ -14,9 +15,12 @@ depends_on = None
 
 
 def upgrade() -> None:
-    op.execute(
-        "ALTER TABLE users ADD COLUMN IF NOT EXISTS password_hash VARCHAR"
-    )
+    conn = op.get_bind()
+    inspector = sa.inspect(conn)
+    if 'users' in inspector.get_table_names():
+        op.execute(
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS password_hash VARCHAR"
+        )
 
 
 def downgrade() -> None:

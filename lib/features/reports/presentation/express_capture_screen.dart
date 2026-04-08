@@ -13,9 +13,11 @@ class ExpressCaptureScreen extends ConsumerStatefulWidget {
   const ExpressCaptureScreen({
     super.key,
     this.printerId,
+    this.assignmentOverride = false,
   });
 
   final String? printerId;
+  final bool assignmentOverride;
 
   @override
   ConsumerState<ExpressCaptureScreen> createState() =>
@@ -31,11 +33,16 @@ class _ExpressCaptureScreenState extends ConsumerState<ExpressCaptureScreen> {
   @override
   void initState() {
     super.initState();
-    if (widget.printerId != null) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (widget.printerId != null) {
         ref.read(captureProvider.notifier).setPrinterId(widget.printerId);
-      });
-    }
+      }
+      if (widget.assignmentOverride) {
+        ref
+            .read(captureProvider.notifier)
+            .setAssignmentOverride(value: true);
+      }
+    });
   }
 
   @override

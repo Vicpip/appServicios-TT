@@ -365,9 +365,17 @@ class _QuickAddPrinterScreenState extends State<QuickAddPrinterScreen> {
 
       final String modelId = await _resolveModelId(modelInput);
 
+      // Generar código IA-XXX para impresoras creadas en la app
+      final List<Printer> appPrinters = await (widget.database.select(widget.database.printers)
+            ..where((Printers p) => p.code.like('IA-%')))
+          .get();
+      final String printerCode =
+          'IA-${(appPrinters.length + 1).toString().padLeft(3, '0')}';
+
       await widget.database.into(widget.database.printers).insert(
             PrintersCompanion.insert(
               id: printerId,
+              code: drift.Value(printerCode),
               qrUuid: qrUuid,
               serialNumber: serialNumber,
               clientId: clientId,
