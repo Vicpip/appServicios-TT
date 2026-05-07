@@ -1,3 +1,4 @@
+import 'package:drift/drift.dart' show Expression;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -84,6 +85,53 @@ class _PrinterConfirmationScreenState
   }
 
   Future<void> _handleCreateReport() async {
+    // Guard: if there is an active visit for this printer's policy, check
+    // whether a pending_delivery report already exists for this printer.
+    // This prevents accidental duplicates while still allowing the technician
+    // to override when genuinely needed.
+    if (_activeVisit != null) {
+      final Report? existingReport = await (localDatabase.select(localDatabase.reports)
+            ..where((Reports r) => Expression.and([
+                  r.printerId.equals(widget.printer.printerId),
+                  r.status.equals('pending_delivery'),
+                ])))
+          .getSingleOrNull();
+
+      if (existingReport != null && mounted) {
+        final bool createNew = await showDialog<bool>(
+              context: context,
+              builder: (BuildContext ctx) => AlertDialog(
+                title: const Text('Reporte ya registrado'),
+                content: const Text(
+                  'Esta impresora ya tiene un reporte registrado '
+                  'en la visita activa.',
+                ),
+                actions: <Widget>[
+                  TextButton(
+                    onPressed: () => Navigator.of(ctx).pop(false),
+                    child: const Text('Ver reporte existente'),
+                  ),
+                  FilledButton(
+                    onPressed: () => Navigator.of(ctx).pop(true),
+                    child: const Text('Crear de todas formas'),
+                  ),
+                ],
+              ),
+            ) ??
+            false;
+
+        if (!createNew) {
+          if (mounted) {
+            context.pushNamed(
+              AppRoutes.reportView,
+              extra: ReportViewArgs(reportId: existingReport.id),
+            );
+          }
+          return;
+        }
+      }
+    }
+
     // Await the future directly so we get the result even if the provider
     // hasn't been pre-loaded yet (ref.read on an AsyncValue can return null
     // while still loading).

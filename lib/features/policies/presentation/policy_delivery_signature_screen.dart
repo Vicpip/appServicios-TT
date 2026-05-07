@@ -13,6 +13,8 @@ import 'package:industrial_service_reports/core/router/route_args.dart';
 import 'package:industrial_service_reports/core/theme/app_palette.dart';
 import 'package:industrial_service_reports/data/local/app_database.dart';
 import 'package:industrial_service_reports/data/local/local_database.dart';
+import 'package:industrial_service_reports/features/policies/providers/pending_delivery_provider.dart';
+import 'package:industrial_service_reports/features/policies/providers/policy_visit_provider.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:signature/signature.dart';
 import 'package:uuid/uuid.dart';
@@ -85,6 +87,8 @@ class _PolicyDeliverySignatureScreenState
 
     setState(() => _isSaving = true);
 
+    String? activeVisitId;
+
     try {
       final String? sigPath = await _saveSignature();
       final String deliveryId = const Uuid().v4();
@@ -148,6 +152,7 @@ class _PolicyDeliverySignatureScreenState
                     ..limit(1))
                   .get();
           if (activeVisits.isNotEmpty) {
+            activeVisitId = activeVisits.first.id;
             await (localDatabase.update(localDatabase.policyVisits)
                   ..where((PolicyVisits v) =>
                       v.id.equals(activeVisits.first.id)))
@@ -164,6 +169,11 @@ class _PolicyDeliverySignatureScreenState
             '[PolicyDeliverySignature] Auto-completar visita (no fatal): $e');
       }
 
+      // Invalida el cache de visitas para que cualquier pantalla en la pila
+      // (PrinterConfirmationScreen, PolicyDetailScreen) refleje el nuevo estado.
+      ref.invalidate(activeVisitProvider(widget.args.policyId));
+      ref.invalidate(policyVisitsProvider(widget.args.policyId));
+
       // Enqueue sync
       await localDatabase.into(localDatabase.syncQueue).insert(
             SyncQueueCompanion.insert(
@@ -178,6 +188,7 @@ class _PolicyDeliverySignatureScreenState
                 'tech_id': widget.args.techId,
                 'report_ids': widget.args.reportIds,
                 'signature_image_path': sigPath,
+                'visit_id': activeVisitId,
               }),
               entityType: 'policy_delivery',
               entityId: deliveryId,
@@ -273,6 +284,7 @@ class _PolicyDeliverySignatureScreenState
       }
 
       if (!mounted) return;
+      ref.invalidate(pendingDeliveryProvider);
       context.pushReplacementNamed(
         AppRoutes.policyDeliverySuccess,
         extra: <String, dynamic>{

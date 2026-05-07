@@ -658,6 +658,7 @@ def create_policy_delivery(
         signature_role=body.signature_role,
         tech_id=body.tech_id,
         signature_image_path=body.signature_image_path,
+        visit_id=body.visit_id,
     )
     db.add(delivery)
     db.flush()
@@ -671,6 +672,12 @@ def create_policy_delivery(
         report = db.get(Report, report_id)
         if report:
             report.status = "signed"
+
+    if body.visit_id:
+        visit = db.get(PolicyVisit, body.visit_id)
+        if visit:
+            visit.status = "completed"
+            visit.completed_at = datetime.now(timezone.utc)
 
     _record_sync_log(
         db,

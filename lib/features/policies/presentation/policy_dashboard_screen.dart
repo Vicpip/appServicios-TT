@@ -1668,27 +1668,37 @@ class _PolicyDetailScreenState extends ConsumerState<PolicyDetailScreen> {
           .get();
       activeVisit = activeVisits.firstOrNull;
 
-      // Count pending_delivery and signed reports for printers in this policy.
-      // reportsExist > 0 means the tech has actually created reports — prevents
-      // false auto-complete when a visit is activated but no reports exist yet.
+      // pendingCount: reports still awaiting a delivery signature.
+      // reportsExist: reports created SINCE this visit was activated (serviceDate
+      //   >= visit.startedAt). Using the start timestamp as a cutoff prevents
+      //   signed reports from PREVIOUS visits (same printers) from triggering a
+      //   false auto-complete on a freshly-activated visit with zero new work.
       int reportsExist = 0;
       for (final PolicyPrinter pp in policyPrinters) {
-        final List<Report> relevantReports = await (db.select(db.reports)
+        final List<Report> pendingReports = await (db.select(db.reports)
               ..where((Reports r) =>
                   r.printerId.equals(pp.printerId) &
-                  r.status.isIn(<String>['pending_delivery', 'signed'])))
+                  r.status.equals('pending_delivery')))
             .get();
-        reportsExist += relevantReports.length;
-        pendingCount += relevantReports
-            .where((Report r) => r.status == 'pending_delivery')
-            .length;
+        pendingCount += pendingReports.length;
+
+        final DateTime? visitStart = activeVisit?.startedAt;
+        if (visitStart != null) {
+          final List<Report> thisVisitReports = await (db.select(db.reports)
+                ..where((Reports r) =>
+                    r.printerId.equals(pp.printerId) &
+                    r.serviceDate.isBiggerOrEqualValue(visitStart)))
+              .get();
+          reportsExist += thisVisitReports.length;
+        }
       }
 
       // Auto-completar visita solo si:
       //   1. Hay una visita activa (in_progress)
       //   2. El técnico tiene al menos 1 tarea asignada
-      //   3. Existe al menos 1 reporte creado (evita falso auto-complete al abrir tras sync)
-      //   4. Ningún reporte está pendiente de entrega
+      //   3. Existe al menos 1 reporte creado DURANTE esta visita (evita falso
+      //      auto-complete cuando se activa la visita pero aún no hay reportes)
+      //   4. Ningún reporte de esta visita está pendiente de entrega
       final int myTaskCount = parque.where((_PolicyAsset a) => a.isMine).length;
       // ignore: avoid_print
       debugPrint('[PolicyDetail] auto-complete check: myTasks=$myTaskCount reportsExist=$reportsExist pending=$pendingCount activeVisit=${activeVisit?.id} visitsCount=${visits.length}');

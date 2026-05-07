@@ -6,6 +6,8 @@ import 'package:industrial_service_reports/core/router/app_routes.dart';
 import 'package:industrial_service_reports/core/router/route_args.dart';
 import 'package:industrial_service_reports/core/theme/app_palette.dart';
 import 'package:industrial_service_reports/data/local/app_database.dart';
+import 'package:industrial_service_reports/features/policies/presentation/policy_dashboard_screen.dart'
+    show PolicyDetailScreen, PolicySummary, PolicyStatus;
 import 'package:intl/intl.dart';
 
 class ClientDetailScreen extends StatefulWidget {
@@ -651,6 +653,9 @@ class _PrinterCard extends StatelessWidget {
                     onPressed: () {
                       context.pushNamed(
                         AppRoutes.printerDetail,
+                        pathParameters: <String, String>{
+                          'serialNumber': printer.serialNumber,
+                        },
                         extra: PrinterDetailArgs(
                           printerId: printer.printerId,
                           serialNumber: printer.serialNumber,
@@ -685,7 +690,7 @@ class _PrinterCard extends StatelessWidget {
                 Expanded(
                   child: SizedBox(
                     height: 34,
-                    child: ElevatedButton(
+                    child: ElevatedButton.icon(
                     onPressed: () => context.pushNamed(
                       AppRoutes.capture,
                       extra: CaptureArgs(printerId: printer.printerId),
@@ -708,7 +713,8 @@ class _PrinterCard extends StatelessWidget {
                         borderRadius: BorderRadius.circular(8),
                       ),
                     ),
-                    child: const Text('📝 Reporte'),
+                    icon: const Icon(Icons.note_add_rounded, size: 16),
+                    label: const Text('Reporte'),
                   ),
                   ),
                 ),
@@ -723,6 +729,12 @@ class _PrinterCard extends StatelessWidget {
 
 // ─── TAB PÓLIZAS ────────────────────────────────────────────────────────────
 
+class _PolicyEntry {
+  const _PolicyEntry(this.policy, this.coveredPrinters);
+  final Policy policy;
+  final int coveredPrinters;
+}
+
 class _PoliciesTab extends StatefulWidget {
   const _PoliciesTab({required this.database, required this.clientId});
   final AppDatabase database;
@@ -732,27 +744,53 @@ class _PoliciesTab extends StatefulWidget {
 }
 
 class _PoliciesTabState extends State<_PoliciesTab> {
-  late Future<List<Policy>> _future;
+  late Future<List<_PolicyEntry>> _future;
+  String _clientName = '';
 
   @override
   void initState() {
     super.initState();
-    _future = (widget.database.select(widget.database.policies)
+    _future = _loadPolicies();
+  }
+
+  Future<List<_PolicyEntry>> _loadPolicies() async {
+    final Client? client = await (widget.database.select(widget.database.clients)
+          ..where((c) => c.id.equals(widget.clientId)))
+        .getSingleOrNull();
+    _clientName = client?.name ?? '';
+
+    final List<Policy> policies = await (widget.database.select(widget.database.policies)
           ..where((p) => p.clientId.equals(widget.clientId))
           ..orderBy([(p) => OrderingTerm(expression: p.startDate, mode: OrderingMode.desc)]))
         .get();
+
+    final List<_PolicyEntry> entries = <_PolicyEntry>[];
+    for (final Policy p in policies) {
+      final List<PolicyPrinter> printers = await (widget.database.select(widget.database.policyPrinters)
+            ..where((pp) => pp.policyId.equals(p.id)))
+          .get();
+      entries.add(_PolicyEntry(p, printers.length));
+    }
+    return entries;
+  }
+
+  PolicyStatus _derivedStatus(Policy p) {
+    final DateTime now = DateTime.now();
+    if (p.endDate.isBefore(now)) return PolicyStatus.expired;
+    if (p.endDate.difference(now).inDays <= 30) return PolicyStatus.expiring;
+    return PolicyStatus.active;
   }
 
   @override
   Widget build(BuildContext context) {
-    return FutureBuilder<List<Policy>>(
+    return FutureBuilder<List<_PolicyEntry>>(
       future: _future,
-      builder: (BuildContext ctx, AsyncSnapshot<List<Policy>> snap) {
+      builder: (BuildContext ctx, AsyncSnapshot<List<_PolicyEntry>> snap) {
         if (snap.connectionState == ConnectionState.waiting) {
           return const Center(child: CircularProgressIndicator());
         }
-        final List<Policy> policies = snap.data ?? <Policy>[];
-        if (policies.isEmpty) {
+        final List<_PolicyEntry> entries = snap.data ?? <_PolicyEntry>[];
+        if (entries.isEmpty) {
           return const _EmptyTab(
             icon: Icons.assignment_outlined,
             message: 'No hay polizas registradas para este cliente',
@@ -760,13 +798,35 @@ class _PoliciesTabState extends State<_PoliciesTab> {
         }
         return ListView.separated(
           padding: const EdgeInsets.only(top: 4, bottom: 12),
-          itemCount: policies.length,
+          itemCount: entries.length,
           separatorBuilder: (_, __) => const SizedBox(height: 8),
           itemBuilder: (BuildContext ctx2, int i) {
-            final Policy p = policies[i];
+            final Policy p = entries[i].policy;
             final bool vigente = p.status == 'Vigente';
             final Color statusColor = vigente ? AppPalette.success : Colors.orange;
-            return Card(
+            return InkWell(
+              borderRadius: BorderRadius.circular(12),
+              onTap: () {
+                final PolicySummary summary = PolicySummary(
+                  id: p.id,
+                  clientId: widget.clientId,
+                  folio: p.folio,
+                  clientName: _clientName,
+                  startDate: DateFormat('dd/MM/yyyy').format(p.startDate),
+                  endDate: DateFormat('dd/MM/yyyy').format(p.endDate),
+                  startDateRaw: p.startDate,
+                  endDateRaw: p.endDate,
+                  coveredPrinters: entries[i].coveredPrinters,
+                  status: _derivedStatus(p),
+                );
+                Navigator.of(ctx2).push(MaterialPageRoute<void>(
+                  builder: (_) => PolicyDetailScreen(
+                    database: widget.database,
+                    policy: summary,
+                  ),
+                ));
+              },
+              child: Card(
               color: AppPalette.surfaceDark,
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(12),
@@ -831,6 +891,7 @@ class _PoliciesTabState extends State<_PoliciesTab> {
                   ],
                 ),
               ),
+            ),
             );
           },
         );
@@ -934,7 +995,13 @@ class _ReportsTabState extends State<_ReportsTab> {
           itemBuilder: (BuildContext ctx2, int i) {
             final _ReportItem r = items[i];
             final Color sc = _statusColor(r.status);
-            return Card(
+            return InkWell(
+              borderRadius: BorderRadius.circular(12),
+              onTap: () => context.pushNamed(
+                AppRoutes.reportView,
+                extra: ReportViewArgs(reportId: r.reportId),
+              ),
+              child: Card(
               color: AppPalette.surfaceDark,
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(12),
@@ -995,6 +1062,7 @@ class _ReportsTabState extends State<_ReportsTab> {
                   ],
                 ),
               ),
+            ),
             );
           },
         );

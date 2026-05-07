@@ -39,6 +39,13 @@ final printerAssignmentProvider = FutureProvider.family<
   rows.sort((a, b) => b.assignedAt.compareTo(a.assignedAt));
   final PolicyPrinterAssignment assignment = rows.first;
 
+  // Only warn if the assignment's policy has an active (in_progress) visit.
+  // Completed or scheduled visits don't block the report flow.
+  final List<PolicyVisit> visits = await (db.select(db.policyVisits)
+        ..where((v) => v.policyId.equals(assignment.policyId)))
+      .get();
+  if (!visits.any((v) => v.status == 'in_progress')) return null;
+
   final User? tech = await (db.select(db.users)
         ..where((Users u) => u.id.equals(assignment.technicianId)))
       .getSingleOrNull();

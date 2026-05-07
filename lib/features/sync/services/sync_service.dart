@@ -8,6 +8,7 @@ import 'package:http/http.dart' as http;
 import 'package:industrial_service_reports/core/constants.dart';
 import 'package:industrial_service_reports/data/local/app_database.dart';
 import 'package:industrial_service_reports/features/auth/services/auth_service.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 // ---------------------------------------------------------------------------
 // Result
@@ -54,11 +55,14 @@ class SyncService {
 
   /// Process every item whose [SyncQueueData.estadoPeticion] is `'pending'`.
   ///
-  /// [baseUrl]    – server root URL, e.g. `http://10.0.2.2:8000`.
-  /// [onProgress] – called after each item with a human-readable status string.
+  /// [baseUrl]     – server root URL, e.g. `http://10.0.2.2:8000`.
+  /// [onProgress]  – called after each item with a human-readable status string.
+  /// [retryFailed] – when true, resets all 'failed' items to 'pending' with
+  ///                 0 attempts before processing, giving them fresh retries.
   Future<SyncResult> runSync({
     String baseUrl = kServerBaseUrlDevice,
     void Function(String message)? onProgress,
+    bool retryFailed = false,
   }) async {
     // ignore: avoid_print
     print('[SyncService] runSync → baseUrl=$baseUrl');
@@ -77,6 +81,18 @@ class SyncService {
       // ignore: avoid_print
       debugPrint('[Sync] downloadData error: $e');
       onProgress?.call('Sin conexión — usando datos locales');
+    }
+
+    // Reset 'failed' items so they get fresh attempts in this run
+    if (retryFailed) {
+      await (_db.update(_db.syncQueue)
+            ..where((SyncQueue q) => q.estadoPeticion.equals('failed')))
+          .write(SyncQueueCompanion(
+        estadoPeticion: const Value<String>('pending'),
+        intentosFallidos: const Value<int>(0),
+        lastError: const Value<String?>(null),
+        updatedAt: Value<DateTime>(DateTime.now()),
+      ));
     }
 
     final List<SyncQueueData> pending = await (_db.select(_db.syncQueue)
@@ -130,8 +146,13 @@ class SyncService {
 
     // Stamp lastSyncAt on all user records when at least one item succeeded
     if (succeeded > 0) {
+      final DateTime now = DateTime.now();
       await (_db.update(_db.users))
-          .write(UsersCompanion(lastSyncAt: Value<DateTime>(DateTime.now())));
+          .write(UsersCompanion(lastSyncAt: Value<DateTime>(now)));
+      try {
+        final SharedPreferences prefs = await SharedPreferences.getInstance();
+        await prefs.setString('last_sync_timestamp', now.toIso8601String());
+      } catch (_) {}
     }
 
     return SyncResult(
@@ -160,6 +181,8 @@ class SyncService {
         await _syncFile(item, baseUrl, authToken);
       case 'policy_delivery':
         await _syncPolicyDelivery(item, baseUrl, authToken);
+      case 'report_update':
+        await _syncReportUpdate(item, baseUrl, authToken);
     }
   }
 
@@ -791,6 +814,64 @@ class SyncService {
   }
 
   // ---------------------------------------------------------------------------
+  // Report update — PATCH /api/reports/{entityId}
+  // ---------------------------------------------------------------------------
+
+  Future<void> _syncReportUpdate(
+    SyncQueueData item,
+    String baseUrl,
+    String? authToken,
+  ) async {
+    final String url = '$baseUrl/api/reports/${item.entityId}';
+    // ignore: avoid_print
+    print('[SyncService] PATCH $url (entity: ${item.entityId})');
+    final Object payload = jsonDecode(item.payloadJson);
+
+    final http.Response response = await http.patch(
+      Uri.parse(url),
+      headers: <String, String>{
+        'Content-Type': 'application/json',
+        if (authToken != null) 'Authorization': 'Bearer $authToken',
+      },
+      body: jsonEncode(payload),
+    );
+
+    // ignore: avoid_print
+    print('[SyncService] PATCH response ${response.statusCode}: ${response.body}');
+    if (response.statusCode != 200 && response.statusCode != 201) {
+      throw Exception('HTTP ${response.statusCode}: ${response.body}');
+    }
+
+    // Apply server response to local Drift DB
+    final Map<String, dynamic> data =
+        jsonDecode(response.body) as Map<String, dynamic>;
+
+    final String checkboxJson =
+        data['technical_checkboxes'] as String? ?? '{}';
+    final Map<String, bool> checkboxMap = <String, bool>{};
+    try {
+      final Map<String, dynamic> raw =
+          jsonDecode(checkboxJson) as Map<String, dynamic>;
+      raw.forEach((String k, dynamic v) {
+        checkboxMap[k] = v == true;
+      });
+    } catch (_) {}
+
+    await (_db.update(_db.reports)
+          ..where((Reports r) => r.id.equals(item.entityId)))
+        .write(ReportsCompanion(
+      serviceType: data['service_type'] != null
+          ? Value<String>(data['service_type'] as String)
+          : const Value<String>.absent(),
+      notes: Value<String?>(data['notes'] as String?),
+      linearInchesCounter: data['linear_inches_counter'] != null
+          ? Value<int>(data['linear_inches_counter'] as int)
+          : const Value<int>.absent(),
+      darknessLevel: Value<int?>(data['darkness_level'] as int?),
+    ));
+  }
+
+  // ---------------------------------------------------------------------------
   // Helpers
   // ---------------------------------------------------------------------------
 
@@ -800,6 +881,7 @@ class SyncService {
         'signature' => 'Firma',
         'pdf' => 'PDF',
         'policy_delivery' => 'Entrega póliza',
+        'report_update' => 'Actualizar reporte',
         _ => entityType,
       };
 }

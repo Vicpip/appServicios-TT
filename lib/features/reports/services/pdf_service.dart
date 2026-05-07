@@ -358,11 +358,11 @@ class PdfService {
       crossAxisAlignment: pw.CrossAxisAlignment.start,
       children: <pw.Widget>[
         _buildSectionTitle('INFORMACIÓN DEL CLIENTE'),
-        _buildInfoRow('Nombre', client?.name ?? '—'),
-        _buildInfoRow('RFC', client?.rfc ?? '—'),
-        _buildInfoRow('Dirección', client?.address ?? '—'),
-        _buildInfoRow('Planta', plant?.name ?? '—'),
-        _buildInfoRow('Área', area?.name ?? '—'),
+        _buildInfoRow('Nombre', client?.name ?? ' - '),
+        _buildInfoRow('RFC', client?.rfc ?? ' - '),
+        _buildInfoRow('Dirección', client?.address ?? ' - '),
+        _buildInfoRow('Planta', plant?.name ?? ' - '),
+        _buildInfoRow('Área', area?.name ?? ' - '),
       ],
     );
   }
@@ -374,18 +374,18 @@ class PdfService {
     Report report,
     CatalogLabelType? catalogLabelType,
   ) {
-    final String serialNumber = printer?.serialNumber ?? '—';
+    final String serialNumber = printer?.serialNumber ?? ' - ';
     final String modelName = catalogModel != null
         ? '${catalogModel.brand} ${catalogModel.modelName} '
             '${catalogModel.dpi}dpi'
-        : '—';
+        : ' - ';
     final String printerCode = printer == null
-        ? '—'
+        ? ' - '
         : (printer.code ?? printer.id.substring(0, 8));
     final String counter = '${report.linearInchesCounter} pulg.';
     final String darkness =
-        report.darknessLevel != null ? '${report.darknessLevel}' : '—';
-    final String labelType = catalogLabelType?.name ?? '—';
+        report.darknessLevel != null ? '${report.darknessLevel}' : ' - ';
+    final String labelType = catalogLabelType?.name ?? ' - ';
 
     return pw.Column(
       crossAxisAlignment: pw.CrossAxisAlignment.start,
@@ -650,9 +650,9 @@ class PdfService {
 
   /// Genera el PDF de entrega global de póliza.
   ///
-  /// Página 1 — portada: datos de la póliza, tabla de impresoras atendidas y
+  /// Página 1  - portada: datos de la póliza, tabla de impresoras atendidas y
   /// firma global del cliente.
-  /// Páginas siguientes — una por reporte: datos de impresora + checklist +
+  /// Páginas siguientes  - una por reporte: datos de impresora + checklist +
   /// notas (sin firma individual; la firma ya está en la portada).
   static Future<Uint8List> generateDeliveryPdf({
     required PolicyDelivery delivery,
@@ -756,7 +756,7 @@ class PdfService {
     // ── Construir PDF ─────────────────────────────────────────────────────────
     final pw.Document pdf = pw.Document();
 
-    // Página 1 — portada de entrega
+    // Página 1  - portada de entrega
     pdf.addPage(
       pw.MultiPage(
         pageFormat: PdfPageFormat.a4,
@@ -770,8 +770,6 @@ class PdfService {
             pw.SizedBox(height: 16),
             _buildDeliveryPrinterTable(reportData),
             pw.SizedBox(height: 16),
-            _buildEquipmentStatusTable(reportData),
-            pw.SizedBox(height: 16),
             _buildSignaturesSection(
               signerName: delivery.signatureName,
               signerRole: delivery.signatureRole,
@@ -784,7 +782,7 @@ class PdfService {
       ),
     );
 
-    // Páginas siguientes — una por reporte
+    // Páginas siguientes  - una por reporte
     for (int i = 0; i < reportData.length; i++) {
       final _DeliveryReportData rd = reportData[i];
       pdf.addPage(
@@ -998,7 +996,7 @@ class PdfService {
               crossAxisAlignment: pw.CrossAxisAlignment.end,
               children: <pw.Widget>[
                 pw.Text(
-                  'RESUMEN DE SERVICIO — Equipo $index/$total',
+                  'RESUMEN DE SERVICIO  - Equipo $index/$total',
                   style: pw.TextStyle(
                     fontSize: 13,
                     fontWeight: pw.FontWeight.bold,
@@ -1045,9 +1043,9 @@ class PdfService {
             crossAxisAlignment: pw.CrossAxisAlignment.start,
             children: <pw.Widget>[
               _buildSectionTitle('DATOS DEL CLIENTE'),
-              _buildInfoRow('Cliente', client?.name ?? '—'),
-              _buildInfoRow('RFC', client?.rfc ?? '—'),
-              _buildInfoRow('Dirección', client?.address ?? '—'),
+              _buildInfoRow('Cliente', client?.name ?? ' - '),
+              _buildInfoRow('RFC', client?.rfc ?? ' - '),
+              _buildInfoRow('Dirección', client?.address ?? ' - '),
             ],
           ),
         ),
@@ -1061,7 +1059,7 @@ class PdfService {
               _buildInfoRow('Cobertura', policy.coverageType),
               _buildInfoRow(
                 'Vigencia',
-                '${_formatDate(policy.startDate)} — ${_formatDate(policy.endDate)}',
+                '${_formatDate(policy.startDate)}  - ${_formatDate(policy.endDate)}',
               ),
               _buildInfoRow('Técnico', technicianName),
             ],
@@ -1071,8 +1069,8 @@ class PdfService {
     );
   }
 
-  // ── Tabla de estado de equipos ──────────────────────────────────────────────
-  static pw.Widget _buildEquipmentStatusTable(
+  // ── Tabla de impresoras atendidas ───────────────────────────────────────────
+  static pw.Widget _buildDeliveryPrinterTable(
     List<_DeliveryReportData> reportData,
   ) {
     const List<String> damageKeys = <String>[
@@ -1082,113 +1080,7 @@ class PdfService {
       'Sensor papel dañado',
       'Otros',
     ];
-    final List<_DeliveryReportData> withWarnings = reportData
-        .where((rd) => damageKeys.any(
-              (String k) => rd.report.technicalCheckboxes[k] == true,
-            ))
-        .toList();
 
-    return pw.Column(
-      crossAxisAlignment: pw.CrossAxisAlignment.start,
-      children: <pw.Widget>[
-        _buildSectionTitle('ESTADO DE EQUIPOS'),
-        pw.Table(
-          border: pw.TableBorder.all(color: PdfColors.blueGrey200),
-          columnWidths: <int, pw.TableColumnWidth>{
-            0: const pw.FlexColumnWidth(3),
-            1: const pw.FlexColumnWidth(2),
-            2: const pw.FlexColumnWidth(2),
-            3: const pw.FlexColumnWidth(2),
-          },
-          children: <pw.TableRow>[
-            pw.TableRow(
-              decoration: const pw.BoxDecoration(color: PdfColors.blueGrey100),
-              children: <pw.Widget>[
-                _tableCell('Modelo', bold: true),
-                _tableCell('Serie', bold: true),
-                _tableCell('Tipo servicio', bold: true),
-                _tableCell('Estado', bold: true),
-              ],
-            ),
-            ...reportData.map((rd) {
-              final bool isSigned =
-                  rd.report.status == 'signed' || rd.report.status == 'Signed';
-              final String modelName = rd.catalogModel != null
-                  ? '${rd.catalogModel!.brand} ${rd.catalogModel!.modelName}'
-                  : '—';
-              return pw.TableRow(
-                children: <pw.Widget>[
-                  _tableCell(modelName),
-                  _tableCell(rd.printer?.serialNumber ?? '—'),
-                  _tableCell(rd.report.serviceType),
-                  pw.Padding(
-                    padding: const pw.EdgeInsets.symmetric(
-                        horizontal: 6, vertical: 4),
-                    child: pw.Container(
-                      decoration: pw.BoxDecoration(
-                        color: isSigned ? PdfColors.blue50 : PdfColors.orange50,
-                        borderRadius:
-                            const pw.BorderRadius.all(pw.Radius.circular(3)),
-                      ),
-                      padding: const pw.EdgeInsets.symmetric(
-                          horizontal: 4, vertical: 2),
-                      child: pw.Text(
-                        isSigned ? 'Firmado' : 'Pendiente',
-                        style: pw.TextStyle(
-                          fontSize: 9,
-                          color: isSigned
-                              ? PdfColors.blue800
-                              : PdfColors.orange800,
-                          fontWeight: pw.FontWeight.bold,
-                        ),
-                        textAlign: pw.TextAlign.center,
-                      ),
-                    ),
-                  ),
-                ],
-              );
-            }),
-          ],
-        ),
-        if (withWarnings.isNotEmpty) ...<pw.Widget>[
-          pw.SizedBox(height: 12),
-          _buildSectionTitle('EQUIPOS CON ADVERTENCIAS (${withWarnings.length})'),
-          pw.Table(
-            border: pw.TableBorder.all(color: PdfColors.orange200),
-            columnWidths: <int, pw.TableColumnWidth>{
-              0: const pw.FlexColumnWidth(2),
-              1: const pw.FlexColumnWidth(5),
-            },
-            children: <pw.TableRow>[
-              pw.TableRow(
-                decoration: const pw.BoxDecoration(color: PdfColors.orange50),
-                children: <pw.Widget>[
-                  _tableCell('Serie', bold: true),
-                  _tableCell('Daños reportados', bold: true),
-                ],
-              ),
-              ...withWarnings.map((rd) {
-                final String damages = damageKeys
-                    .where((k) => rd.report.technicalCheckboxes[k] == true)
-                    .join(', ');
-                return pw.TableRow(
-                  children: <pw.Widget>[
-                    _tableCell(rd.printer?.serialNumber ?? '—'),
-                    _tableCell(damages),
-                  ],
-                );
-              }),
-            ],
-          ),
-        ],
-      ],
-    );
-  }
-
-  // ── Tabla de impresoras atendidas ───────────────────────────────────────────
-  static pw.Widget _buildDeliveryPrinterTable(
-    List<_DeliveryReportData> reportData,
-  ) {
     return pw.Column(
       crossAxisAlignment: pw.CrossAxisAlignment.start,
       children: <pw.Widget>[
@@ -1201,6 +1093,7 @@ class PdfService {
             2: const pw.FlexColumnWidth(2),
             3: const pw.FlexColumnWidth(2),
             4: const pw.FlexColumnWidth(2),
+            5: const pw.FlexColumnWidth(2),
           },
           children: <pw.TableRow>[
             // Encabezado
@@ -1213,6 +1106,7 @@ class PdfService {
                 _tableCell('Serie', bold: true),
                 _tableCell('Planta', bold: true),
                 _tableCell('Tipo servicio', bold: true),
+                _tableCell('Estado', bold: true),
               ],
             ),
             // Filas de datos
@@ -1222,9 +1116,12 @@ class PdfService {
                 final _DeliveryReportData rd = entry.value;
                 final String modelName = rd.catalogModel != null
                     ? '${rd.catalogModel!.brand} ${rd.catalogModel!.modelName}'
-                    : '—';
+                    : ' - ';
                 final String serial =
                     rd.printer?.serialNumber ?? rd.report.printerId;
+                final bool hasWarning = damageKeys.any(
+                  (String k) => rd.report.technicalCheckboxes[k] == true,
+                );
                 return pw.TableRow(
                   decoration: pw.BoxDecoration(
                     color: idx.isEven ? PdfColors.white : PdfColors.blueGrey50,
@@ -1233,8 +1130,34 @@ class PdfService {
                     _tableCell('${idx + 1}'),
                     _tableCell(modelName),
                     _tableCell(serial),
-                    _tableCell(rd.plant?.name ?? '—'),
+                    _tableCell(rd.plant?.name ?? ' - '),
                     _tableCell(rd.report.serviceType),
+                    pw.Padding(
+                      padding: const pw.EdgeInsets.symmetric(
+                          horizontal: 6, vertical: 4),
+                      child: pw.Container(
+                        decoration: pw.BoxDecoration(
+                          color: hasWarning
+                              ? PdfColors.orange50
+                              : PdfColors.green100,
+                          borderRadius: const pw.BorderRadius.all(
+                              pw.Radius.circular(3)),
+                        ),
+                        padding: const pw.EdgeInsets.symmetric(
+                            horizontal: 4, vertical: 2),
+                        child: pw.Text(
+                          hasWarning ? 'Advertencia' : 'Correcto',
+                          style: pw.TextStyle(
+                            fontSize: 9,
+                            color: hasWarning
+                                ? PdfColors.orange800
+                                : PdfColors.green800,
+                            fontWeight: pw.FontWeight.bold,
+                          ),
+                          textAlign: pw.TextAlign.center,
+                        ),
+                      ),
+                    ),
                   ],
                 );
               },

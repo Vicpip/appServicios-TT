@@ -5,7 +5,7 @@ import 'package:industrial_service_reports/data/local/local_database.dart';
 
 /// Retorna la visita con status='in_progress' más reciente para la póliza dada, o null.
 final activeVisitProvider =
-    FutureProvider.family<PolicyVisit?, String>((ref, policyId) async {
+    FutureProvider.autoDispose.family<PolicyVisit?, String>((ref, policyId) async {
   final db = localDatabase;
   final results = await (db.select(db.policyVisits)
         ..where((v) =>
@@ -18,7 +18,7 @@ final activeVisitProvider =
 
 /// Retorna todas las visitas de la póliza ordenadas por visit_number.
 final policyVisitsProvider =
-    FutureProvider.family<List<PolicyVisit>, String>((ref, policyId) async {
+    FutureProvider.autoDispose.family<List<PolicyVisit>, String>((ref, policyId) async {
   final db = localDatabase;
   final result = await (db.select(db.policyVisits)
         ..where((v) => v.policyId.equals(policyId))

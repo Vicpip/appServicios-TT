@@ -131,7 +131,9 @@ class _PrinterDetailScreenState extends State<PrinterDetailScreen> {
     final _ServiceTypeVisual lastServiceVisual =
         _serviceTypeVisual(lastServiceType);
     final String lastServiceDate = _lastService != null ? _formatDate(_lastService!.serviceDate) : 'Sin registros';
-    final String counter = _lastService?.linearInchesCounter.toString() ?? '0';
+    final String counter = _lastService != null
+        ? _lastService!.linearInchesCounter.toString()
+        : 'N/A';
     final String displayCode = _printerCode ?? widget.printerId.substring(0, 8);
 
     return Scaffold(
@@ -224,9 +226,9 @@ class _PrinterDetailScreenState extends State<PrinterDetailScreen> {
                               letterSpacing: 0.7,
                             ),
                           ),
-                          const Text(
-                            '145,000 in',
-                            style: TextStyle(
+                          Text(
+                            _lastService != null ? '$counter in' : counter,
+                            style: const TextStyle(
                               color: Colors.white,
                               fontSize: 20,
                               fontWeight: FontWeight.w900,

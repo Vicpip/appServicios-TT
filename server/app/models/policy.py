@@ -68,6 +68,9 @@ class PolicyDelivery(Base):
         String, ForeignKey("users.id"), nullable=False
     )
     signature_image_path: Mapped[str | None] = mapped_column(String, nullable=True)
+    visit_id: Mapped[str | None] = mapped_column(
+        String, ForeignKey("policy_visits.id", ondelete="SET NULL"), nullable=True
+    )
 
     # Relationships
     policy: Mapped["Policy"] = relationship("Policy", back_populates="deliveries")
@@ -76,6 +79,9 @@ class PolicyDelivery(Base):
     )
     delivery_reports: Mapped[list] = relationship(
         "PolicyDeliveryReport", back_populates="delivery"
+    )
+    visit: Mapped["PolicyVisit | None"] = relationship(
+        "PolicyVisit", back_populates="deliveries", foreign_keys=[visit_id]
     )
 
 
@@ -117,6 +123,7 @@ class PolicyVisit(Base):
 
     # Relationships
     policy: Mapped["Policy"] = relationship("Policy", back_populates="visits")
+    deliveries: Mapped[list] = relationship("PolicyDelivery", back_populates="visit", foreign_keys="PolicyDelivery.visit_id")
 
 
 class PolicyPrinterAssignment(Base):

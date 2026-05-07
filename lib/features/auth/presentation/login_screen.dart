@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:industrial_service_reports/features/auth/providers/auth_provider.dart';
+import 'package:industrial_service_reports/features/sync/providers/startup_sync_provider.dart';
 
 class LoginScreen extends ConsumerStatefulWidget {
   const LoginScreen({super.key});
@@ -15,7 +16,6 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   static const Color _cardBorder = Color(0xFF293445);
   static const Color _primaryBlue = Color(0xFF136DEC);
   static const Color _mutedText = Color(0xFFA2ADBC);
-  static const Color _softText = Color(0xFFD7DCE3);
 
   final GlobalKey<FormState> _formKey = GlobalKey<FormState>();
   final TextEditingController _userController = TextEditingController();
@@ -30,7 +30,10 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final bool isLoading = ref.watch(authProvider).isLoading;
+    final bool isAuthLoading = ref.watch(authProvider).isLoading;
+    final StartupSyncState syncState = ref.watch(startupSyncProvider);
+    // Block login while a sync is in flight (capped at 10 s by the notifier).
+    final bool isBlocked = isAuthLoading || syncState.isRunning;
 
     ref.listen<AsyncValue<void>>(authProvider, (_, next) {
       if (next is AsyncError) {
@@ -164,12 +167,12 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                                     height: 52,
                                     child: FilledButton(
                                       onPressed:
-                                          isLoading ? null : _onLoginPressed,
+                                          isBlocked ? null : _onLoginPressed,
                                       style: FilledButton.styleFrom(
                                         backgroundColor: _primaryBlue,
                                         foregroundColor: Colors.white,
                                       ),
-                                      child: isLoading
+                                      child: isAuthLoading
                                           ? const SizedBox(
                                               width: 22,
                                               height: 22,
@@ -178,9 +181,11 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                                                 color: Colors.white,
                                               ),
                                             )
-                                          : const Text(
-                                              'INICIAR SESIÓN',
-                                              style: TextStyle(
+                                          : Text(
+                                              syncState.isRunning
+                                                  ? 'Sincronizando...'
+                                                  : 'INICIAR SESIÓN',
+                                              style: const TextStyle(
                                                 fontWeight: FontWeight.w800,
                                                 fontSize: 16,
                                               ),
@@ -221,68 +226,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                 ),
               ),
             ),
-            Container(
-              width: double.infinity,
-              margin: const EdgeInsets.fromLTRB(14, 0, 14, 14),
-              padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
-              decoration: BoxDecoration(
-                color: _cardBg,
-                borderRadius: BorderRadius.circular(14),
-                border: Border.all(color: _cardBorder),
-              ),
-              child: Row(
-                children: <Widget>[
-                  const Icon(
-                    Icons.cloud_done_rounded,
-                    color: Color(0xFF4CFF8C),
-                    size: 24,
-                  ),
-                  const SizedBox(width: 12),
-                  const Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: <Widget>[
-                        Text(
-                          'Base de Datos Local: Lista',
-                          style: TextStyle(
-                            color: _softText,
-                            fontSize: 14,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                        SizedBox(height: 2),
-                        Text(
-                          'Última sincronización: Hoy, 07:30 AM',
-                          style: TextStyle(
-                            color: _mutedText,
-                            fontSize: 12,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  SizedBox(
-                    height: 36,
-                    child: FilledButton.tonalIcon(
-                      onPressed: _onForceSyncPressed,
-                      style: FilledButton.styleFrom(
-                        backgroundColor: const Color(0xFF243041),
-                        foregroundColor: Colors.white,
-                      ),
-                      icon: const Icon(Icons.sync_rounded, size: 16),
-                      label: const Text(
-                        'Forzar Sync',
-                        style: TextStyle(
-                          fontSize: 12,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
+            _SyncStatusCard(syncState: syncState, onSync: _onForceSyncPressed),
           ],
         ),
       ),
@@ -306,11 +250,140 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   }
 
   void _onForceSyncPressed() {
-    ScaffoldMessenger.of(context).hideCurrentSnackBar();
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Sincronizando catálogos desde el servidor...'),
-        behavior: SnackBarBehavior.floating,
+    ref.read(startupSyncProvider.notifier).runAutoSync();
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Sync status card (bottom of login screen)
+// ---------------------------------------------------------------------------
+
+class _SyncStatusCard extends StatelessWidget {
+  const _SyncStatusCard({
+    required this.syncState,
+    required this.onSync,
+  });
+
+  static const Color _cardBg = Color(0xFF161B22);
+  static const Color _cardBorder = Color(0xFF293445);
+  static const Color _softText = Color(0xFFD7DCE3);
+  static const Color _mutedText = Color(0xFFA2ADBC);
+
+  final StartupSyncState syncState;
+  final VoidCallback onSync;
+
+  @override
+  Widget build(BuildContext context) {
+    final bool isRunning = syncState.isRunning;
+
+    final IconData iconData;
+    final Color iconColor;
+    final String title;
+    final String subtitle;
+
+    switch (syncState.phase) {
+      case StartupSyncPhase.running:
+        iconData = Icons.sync_rounded;
+        iconColor = const Color(0xFF60A5FA);
+        title = 'Sincronizando datos...';
+        subtitle = 'Descargando catálogos del servidor';
+      case StartupSyncPhase.done:
+        iconData = Icons.cloud_done_rounded;
+        iconColor = const Color(0xFF4CFF8C);
+        title = 'Base de Datos Local: Lista';
+        subtitle = syncState.syncedThisSession
+            ? 'Datos actualizados correctamente'
+            : 'Usando datos almacenados localmente';
+      case StartupSyncPhase.failed:
+        iconData = Icons.wifi_off_rounded;
+        iconColor = const Color(0xFFF59E0B);
+        title = 'Sin conexión al servidor';
+        subtitle = syncState.message.isNotEmpty
+            ? syncState.message
+            : 'Usando datos locales almacenados';
+      case StartupSyncPhase.idle:
+        iconData = Icons.cloud_done_rounded;
+        iconColor = const Color(0xFF4CFF8C);
+        title = 'Base de Datos Local';
+        subtitle = 'Verificando conexión...';
+    }
+
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.fromLTRB(14, 0, 14, 14),
+      padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+      decoration: BoxDecoration(
+        color: _cardBg,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: _cardBorder),
+      ),
+      child: Row(
+        children: <Widget>[
+          if (isRunning)
+            const SizedBox(
+              width: 24,
+              height: 24,
+              child: CircularProgressIndicator(
+                strokeWidth: 2.5,
+                color: Color(0xFF60A5FA),
+              ),
+            )
+          else
+            Icon(iconData, color: iconColor, size: 24),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                Text(
+                  title,
+                  style: const TextStyle(
+                    color: _softText,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  subtitle,
+                  style: const TextStyle(
+                    color: _mutedText,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 8),
+          SizedBox(
+            height: 36,
+            child: FilledButton.tonalIcon(
+              onPressed: isRunning ? null : onSync,
+              style: FilledButton.styleFrom(
+                backgroundColor: const Color(0xFF243041),
+                foregroundColor: Colors.white,
+              ),
+              icon: isRunning
+                  ? const SizedBox(
+                      width: 12,
+                      height: 12,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2.2,
+                        color: Colors.white,
+                      ),
+                    )
+                  : const Icon(Icons.sync_rounded, size: 16),
+              label: Text(
+                isRunning ? 'En curso' : 'Forzar Sync',
+                style: const TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }

@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:industrial_service_reports/app.dart';
 import 'package:industrial_service_reports/features/auth/providers/session_provider.dart';
 import 'package:industrial_service_reports/features/auth/services/auth_service.dart';
+import 'package:industrial_service_reports/features/sync/providers/startup_sync_provider.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -19,6 +20,13 @@ void main() async {
           techId: stored.techId,
         );
   }
+
+  // Kick off startup sync in the background. The login screen watches
+  // startupSyncProvider and blocks the login button (max 10 s) until it
+  // resolves so fresh catalog data is available before the first login.
+  // If there is no token or no connectivity the sync fails silently and
+  // the offline flow continues unchanged.
+  container.read(startupSyncProvider.notifier).runAutoSync();
 
   runApp(
     UncontrolledProviderScope(

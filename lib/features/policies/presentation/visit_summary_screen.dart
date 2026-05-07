@@ -1,6 +1,3 @@
-import 'dart:io' as io;
-import 'dart:typed_data';
-
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:industrial_service_reports/core/router/app_routes.dart';
@@ -8,7 +5,7 @@ import 'package:industrial_service_reports/core/router/route_args.dart';
 import 'package:industrial_service_reports/core/theme/app_palette.dart';
 import 'package:industrial_service_reports/data/local/app_database.dart';
 import 'package:industrial_service_reports/data/local/local_database.dart';
-import 'package:path_provider/path_provider.dart';
+import 'package:industrial_service_reports/features/reports/services/pdf_service.dart';
 import 'package:printing/printing.dart' as printing_pkg;
 
 class VisitSummaryScreen extends StatefulWidget {
@@ -22,9 +19,9 @@ class VisitSummaryScreen extends StatefulWidget {
 
 class _VisitSummaryScreenState extends State<VisitSummaryScreen> {
   bool _loading = true;
+  bool _isDownloadingDeliveryPdf = false;
   PolicyDelivery? _delivery;
   List<_ReportRow> _rows = const <_ReportRow>[];
-  String? _summaryPdfPath;
 
   @override
   void initState() {
@@ -91,22 +88,10 @@ class _VisitSummaryScreenState extends State<VisitSummaryScreen> {
         ));
       }
 
-      // Buscar PDF de resumen
-      String? summaryPath;
-      try {
-        final io.Directory appDir = await getApplicationDocumentsDirectory();
-        final String path =
-            '${appDir.path}/deliveries/delivery_${widget.args.deliveryId}_resumen.pdf';
-        if (await io.File(path).exists()) {
-          summaryPath = path;
-        }
-      } catch (_) {}
-
       if (mounted) {
         setState(() {
           _delivery = delivery;
           _rows = rows;
-          _summaryPdfPath = summaryPath;
           _loading = false;
         });
       }
@@ -116,10 +101,74 @@ class _VisitSummaryScreenState extends State<VisitSummaryScreen> {
     }
   }
 
-  Future<void> _shareSummaryPdf() async {
-    if (_summaryPdfPath == null) return;
+  // ── Generate report PDF locally ─────────────────────────────────────────────
+
+  Future<void> _fetchReportPdf(String reportId) async {
     try {
-      final Uint8List bytes = await io.File(_summaryPdfPath!).readAsBytes();
+      final bytes = await PdfService.generateReportPdf(
+        reportId: reportId,
+        database: localDatabase,
+      );
+      if (!mounted) return;
+      await printing_pkg.Printing.layoutPdf(
+        onLayout: (_) async => bytes,
+        name: 'reporte_$reportId',
+      );
+    } catch (e) {
+      if (!mounted) return;
+      final String message = e.toString().contains('no encontrado')
+          ? 'Reporte no encontrado'
+          : 'Error al generar PDF';
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(message)),
+      );
+    }
+  }
+
+  // ── Generate delivery PDF locally ────────────────────────────────────────────
+
+  Future<void> _fetchDeliveryPdf() async {
+    setState(() => _isDownloadingDeliveryPdf = true);
+    try {
+      final AppDatabase db = localDatabase;
+      final PolicyDelivery delivery = _delivery!;
+
+      final Policy? policy = await (db.select(db.policies)
+            ..where((Policies p) => p.id.equals(delivery.policyId)))
+          .getSingleOrNull();
+
+      if (policy == null) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Datos no disponibles')),
+          );
+        }
+        return;
+      }
+
+      final List<PolicyDeliveryReport> deliveryReports =
+          await (db.select(db.policyDeliveryReports)
+                ..where((PolicyDeliveryReports r) =>
+                    r.deliveryId.equals(widget.args.deliveryId)))
+              .get();
+
+      final List<Report> reports = <Report>[];
+      for (final PolicyDeliveryReport dr in deliveryReports) {
+        final Report? report = await (db.select(db.reports)
+              ..where((Reports r) => r.id.equals(dr.reportId)))
+            .getSingleOrNull();
+        if (report != null) reports.add(report);
+      }
+
+      final bytes = await PdfService.generateDeliveryPdf(
+        delivery: delivery,
+        reports: reports,
+        policy: policy,
+        database: db,
+      );
+
+      if (!mounted) return;
+
       await printing_pkg.Printing.layoutPdf(
         onLayout: (_) async => bytes,
         name: 'entrega_${widget.args.policyFolio}',
@@ -127,8 +176,10 @@ class _VisitSummaryScreenState extends State<VisitSummaryScreen> {
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error al abrir PDF: $e')),
+        const SnackBar(content: Text('Error al generar PDF')),
       );
+    } finally {
+      if (mounted) setState(() => _isDownloadingDeliveryPdf = false);
     }
   }
 
@@ -174,17 +225,13 @@ class _VisitSummaryScreenState extends State<VisitSummaryScreen> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: <Widget>[
-                          // Header card
                           _buildHeaderCard(),
                           const SizedBox(height: 16),
-                          // Progreso
                           _buildProgressCard(),
                           const SizedBox(height: 16),
-                          // Lista de reportes
                           _buildReportsList(),
                           const SizedBox(height: 16),
-                          // Botón PDF resumen
-                          if (_summaryPdfPath != null) _buildPdfButton(),
+                          _buildPdfButton(),
                           const SizedBox(height: 24),
                         ],
                       ),
@@ -324,6 +371,7 @@ class _VisitSummaryScreenState extends State<VisitSummaryScreen> {
                   AppRoutes.reportView,
                   extra: ReportViewArgs(reportId: r.reportId),
                 ),
+                onViewPdf: () => _fetchReportPdf(r.reportId),
               ),
             )),
       ],
@@ -335,8 +383,15 @@ class _VisitSummaryScreenState extends State<VisitSummaryScreen> {
       width: double.infinity,
       height: 52,
       child: FilledButton.icon(
-        onPressed: _shareSummaryPdf,
-        icon: const Icon(Icons.picture_as_pdf_rounded, size: 20),
+        onPressed: _isDownloadingDeliveryPdf ? null : _fetchDeliveryPdf,
+        icon: _isDownloadingDeliveryPdf
+            ? const SizedBox(
+                width: 18,
+                height: 18,
+                child: CircularProgressIndicator(
+                    strokeWidth: 2, color: Colors.white),
+              )
+            : const Icon(Icons.picture_as_pdf_rounded, size: 20),
         label: const Text(
           'Ver / Compartir PDF de resumen',
           style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700),
@@ -419,25 +474,46 @@ class _HeaderRow extends StatelessWidget {
   }
 }
 
-class _ReportCard extends StatelessWidget {
-  const _ReportCard({required this.row, required this.onViewReport});
+class _ReportCard extends StatefulWidget {
+  const _ReportCard({
+    required this.row,
+    required this.onViewReport,
+    required this.onViewPdf,
+  });
 
   final _ReportRow row;
   final VoidCallback onViewReport;
+  final Future<void> Function() onViewPdf;
+
+  @override
+  State<_ReportCard> createState() => _ReportCardState();
+}
+
+class _ReportCardState extends State<_ReportCard> {
+  bool _isPdfLoading = false;
+
+  Future<void> _handleViewPdf() async {
+    setState(() => _isPdfLoading = true);
+    try {
+      await widget.onViewPdf();
+    } finally {
+      if (mounted) setState(() => _isPdfLoading = false);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
     final bool isSigned =
-        row.status == 'signed' || row.status == 'Signed';
+        widget.row.status == 'signed' || widget.row.status == 'Signed';
 
     return Container(
       decoration: BoxDecoration(
-        color: row.hasWarning
+        color: widget.row.hasWarning
             ? const Color(0xFF2A2500)
             : AppPalette.surfaceDark,
         borderRadius: BorderRadius.circular(12),
         border: Border.all(
-          color: row.hasWarning
+          color: widget.row.hasWarning
               ? AppPalette.warning
               : AppPalette.surfaceDarkHighlight,
         ),
@@ -453,7 +529,7 @@ class _ReportCard extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: <Widget>[
                     Text(
-                      row.model,
+                      widget.row.model,
                       style: const TextStyle(
                         color: AppPalette.backgroundLight,
                         fontWeight: FontWeight.w700,
@@ -463,7 +539,7 @@ class _ReportCard extends StatelessWidget {
                     ),
                     const SizedBox(height: 2),
                     Text(
-                      'S/N: ${row.serial}',
+                      'S/N: ${widget.row.serial}',
                       style: const TextStyle(
                         color: AppPalette.primary,
                         fontWeight: FontWeight.w600,
@@ -503,10 +579,10 @@ class _ReportCard extends StatelessWidget {
               const Icon(Icons.build_rounded, size: 14, color: Colors.white54),
               const SizedBox(width: 6),
               Text(
-                row.serviceType,
+                widget.row.serviceType,
                 style: const TextStyle(color: Colors.white70, fontSize: 13),
               ),
-              if (row.hasWarning) ...<Widget>[
+              if (widget.row.hasWarning) ...<Widget>[
                 const SizedBox(width: 10),
                 const Icon(Icons.warning_amber_rounded,
                     size: 14, color: AppPalette.warning),
@@ -522,22 +598,55 @@ class _ReportCard extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 8),
-          Align(
-            alignment: Alignment.centerRight,
-            child: OutlinedButton.icon(
-              onPressed: onViewReport,
-              icon: const Icon(Icons.visibility_outlined, size: 16),
-              label: const Text('Ver reporte'),
-              style: OutlinedButton.styleFrom(
-                foregroundColor: AppPalette.backgroundLight,
-                side:
-                    const BorderSide(color: AppPalette.surfaceDarkHighlight),
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                minimumSize: Size.zero,
-                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+          Row(
+            mainAxisAlignment: MainAxisAlignment.end,
+            children: <Widget>[
+              // Ver PDF — fetches fresh from server
+              SizedBox(
+                height: 32,
+                child: TextButton.icon(
+                  onPressed: _isPdfLoading ? null : _handleViewPdf,
+                  icon: _isPdfLoading
+                      ? const SizedBox(
+                          width: 14,
+                          height: 14,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.picture_as_pdf_outlined, size: 15),
+                  label: const Text('Ver PDF'),
+                  style: TextButton.styleFrom(
+                    foregroundColor: AppPalette.primary,
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                    minimumSize: Size.zero,
+                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    textStyle: const TextStyle(
+                        fontSize: 12, fontWeight: FontWeight.w600),
+                  ),
+                ),
               ),
-            ),
+              const SizedBox(width: 6),
+              // Ver reporte — navigates to detail screen
+              SizedBox(
+                height: 32,
+                child: OutlinedButton.icon(
+                  onPressed: widget.onViewReport,
+                  icon: const Icon(Icons.visibility_outlined, size: 15),
+                  label: const Text('Ver reporte'),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: AppPalette.backgroundLight,
+                    side: const BorderSide(
+                        color: AppPalette.surfaceDarkHighlight),
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                    minimumSize: Size.zero,
+                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    textStyle: const TextStyle(
+                        fontSize: 12, fontWeight: FontWeight.w600),
+                  ),
+                ),
+              ),
+            ],
           ),
         ],
       ),

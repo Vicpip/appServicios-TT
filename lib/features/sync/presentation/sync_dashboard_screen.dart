@@ -1,80 +1,49 @@
-import 'package:drift/drift.dart' show OrderingTerm;
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:industrial_service_reports/core/constants.dart';
 import 'package:industrial_service_reports/core/theme/app_palette.dart';
 import 'package:industrial_service_reports/data/local/app_database.dart';
 import 'package:industrial_service_reports/features/auth/services/auth_service.dart';
 import 'package:industrial_service_reports/features/sync/presentation/sync_history_screen.dart';
+import 'package:industrial_service_reports/features/sync/providers/sync_queue_provider.dart';
 import 'package:industrial_service_reports/features/sync/services/sync_service.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
-class SyncDashboardScreen extends StatefulWidget {
+class SyncDashboardScreen extends ConsumerStatefulWidget {
   const SyncDashboardScreen({super.key, required this.database});
 
   final AppDatabase database;
 
   @override
-  State<SyncDashboardScreen> createState() => _SyncDashboardScreenState();
+  ConsumerState<SyncDashboardScreen> createState() =>
+      _SyncDashboardScreenState();
 }
 
-class _SyncDashboardScreenState extends State<SyncDashboardScreen> {
+class _SyncDashboardScreenState extends ConsumerState<SyncDashboardScreen> {
   bool _isSyncing = false;
   String _progressMessage = '';
-  int _pendingReports = 0;
-  int _pendingFiles = 0;
-  int _pendingSignatures = 0;
-  String? _lastReportError;
-  String? _lastFileError;
-  String? _lastSignatureError;
-  bool _loading = true;
   DateTime? _lastSync;
 
   @override
   void initState() {
     super.initState();
-    _loadSyncData();
+    _loadLastSync();
   }
 
-  Future<void> _loadSyncData() async {
-    // Fetch pending items (for counts) and any item with a recorded error
-    // (pending or failed) to surface the last failure message in the UI.
-    final List<SyncQueueData> allPending =
-        await (widget.database.select(widget.database.syncQueue)
-              ..where((q) => q.estadoPeticion.equals('pending')))
-            .get();
-
-    final List<SyncQueueData> withErrors =
-        await (widget.database.select(widget.database.syncQueue)
-              ..where((q) => q.lastError.isNotNull())
-              ..where((q) => q.estadoPeticion.isIn(<String>['pending', 'failed']))
-              ..orderBy(<OrderingTerm Function(SyncQueue)>[
-                (q) => OrderingTerm.desc(q.updatedAt),
-              ]))
-            .get();
-
-    int reports = 0, files = 0, signatures = 0;
-    for (final SyncQueueData item in allPending) {
-      if (item.entityType == 'report') {
-        reports++;
-      } else if (item.entityType == 'file') {
-        files++;
-      } else if (item.entityType == 'signature') {
-        signatures++;
+  Future<void> _loadLastSync() async {
+    // Prefer SharedPreferences (written by SyncService after each successful sync)
+    try {
+      final SharedPreferences prefs = await SharedPreferences.getInstance();
+      final String? ts = prefs.getString('last_sync_timestamp');
+      if (ts != null) {
+        final DateTime dt = DateTime.parse(ts);
+        if (mounted) setState(() => _lastSync = dt);
+        return;
       }
-    }
-
-    // Pick the most-recent error per entity type.
-    String? reportError, fileError, signatureError;
-    for (final SyncQueueData item in withErrors) {
-      if (item.entityType == 'report' && reportError == null) {
-        reportError = item.lastError;
-      } else if (item.entityType == 'file' && fileError == null) {
-        fileError = item.lastError;
-      } else if (item.entityType == 'signature' && signatureError == null) {
-        signatureError = item.lastError;
-      }
-    }
-
-    // Get last sync from users table
+    } catch (_) {}
+    // Fallback: read lastSyncAt from users table
     final List<User> users =
         await widget.database.select(widget.database.users).get();
     DateTime? lastSync;
@@ -85,19 +54,7 @@ class _SyncDashboardScreenState extends State<SyncDashboardScreen> {
         }
       }
     }
-
-    if (mounted) {
-      setState(() {
-        _pendingReports = reports;
-        _pendingFiles = files;
-        _pendingSignatures = signatures;
-        _lastReportError = reportError;
-        _lastFileError = fileError;
-        _lastSignatureError = signatureError;
-        _lastSync = lastSync;
-        _loading = false;
-      });
-    }
+    if (mounted) setState(() => _lastSync = lastSync);
   }
 
   String _formatLastSync(DateTime dt) {
@@ -113,17 +70,19 @@ class _SyncDashboardScreenState extends State<SyncDashboardScreen> {
     return '$day $month $year, $hour:$minute';
   }
 
-  Future<void> _startSync() async {
+  Future<void> _startSync({bool retryFailed = false}) async {
     if (_isSyncing) return;
 
     setState(() {
       _isSyncing = true;
-      _progressMessage = 'Conectando al servidor…';
+      _progressMessage =
+          retryFailed ? 'Reintentando fallidos…' : 'Conectando al servidor…';
     });
 
     try {
       final SyncResult result = await SyncService(widget.database).runSync(
         baseUrl: kServerBaseUrlDevice,
+        retryFailed: retryFailed,
         onProgress: (String msg) {
           if (mounted) setState(() => _progressMessage = msg);
         },
@@ -131,11 +90,9 @@ class _SyncDashboardScreenState extends State<SyncDashboardScreen> {
 
       if (!mounted) return;
 
-      // Capture messenger before async gap
       final ScaffoldMessengerState messenger = ScaffoldMessenger.of(context);
 
-      // Refresh pending counts after sync
-      await _loadSyncData();
+      await _loadLastSync();
 
       setState(() {
         _isSyncing = false;
@@ -217,7 +174,6 @@ class _SyncDashboardScreenState extends State<SyncDashboardScreen> {
     } catch (e) {
       if (!mounted) return;
 
-      // Capture messenger before setState (which may trigger rebuilds)
       final ScaffoldMessengerState messenger = ScaffoldMessenger.of(context);
 
       setState(() {
@@ -250,14 +206,26 @@ class _SyncDashboardScreenState extends State<SyncDashboardScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final String lastSyncText = _lastSync != null
-        ? 'Última sincronización exitosa: ${_formatLastSync(_lastSync!)}'
-        : 'Sin sincronización aún';
+    final AsyncValue<List<SyncQueueData>> asyncItems =
+        ref.watch(pendingSyncItemsProvider);
+
+    final int failedCount = asyncItems.maybeWhen(
+      data: (List<SyncQueueData> items) => items
+          .where((SyncQueueData i) => i.estadoPeticion == 'failed')
+          .length,
+      orElse: () => 0,
+    );
+
+    final String lastSyncText = _isSyncing && _progressMessage.isNotEmpty
+        ? _progressMessage
+        : _lastSync != null
+            ? 'Última sync: ${_formatLastSync(_lastSync!)}'
+            : 'Sin sincronización aún';
 
     return Scaffold(
       appBar: AppBar(
-        title: Row(
-          children: const <Widget>[
+        title: const Row(
+          children: <Widget>[
             Icon(Icons.sync_rounded, size: 22),
             SizedBox(width: 8),
             Text('Centro de Sincronización'),
@@ -281,102 +249,436 @@ class _SyncDashboardScreenState extends State<SyncDashboardScreen> {
         child: Column(
           children: <Widget>[
             Expanded(
-              child: _loading
-                  ? const Center(child: CircularProgressIndicator())
-                  : SingleChildScrollView(
-                      padding: const EdgeInsets.fromLTRB(16, 14, 16, 24),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: <Widget>[
-                          // ── Estado de conexión ────────────────────────────────
-                          _NetworkStatusCard(
-                            isSyncing: _isSyncing,
-                            lastSyncText: _isSyncing && _progressMessage.isNotEmpty
-                                ? _progressMessage
-                                : lastSyncText,
-                          ),
-                          const SizedBox(height: 20),
+              child: asyncItems.when(
+                loading: () =>
+                    const Center(child: CircularProgressIndicator()),
+                error: (Object e, _) => Center(child: Text('Error: $e')),
+                data: (List<SyncQueueData> items) {
+                  final List<SyncQueueData> reports = items
+                      .where(
+                          (SyncQueueData i) => i.entityType == 'report')
+                      .toList();
+                  final List<SyncQueueData> files = items
+                      .where((SyncQueueData i) =>
+                          i.entityType == 'file' ||
+                          i.entityType == 'signature' ||
+                          i.entityType == 'pdf')
+                      .toList();
+                  final List<SyncQueueData> deliveries = items
+                      .where((SyncQueueData i) =>
+                          i.entityType == 'policy_delivery')
+                      .toList();
 
-                          // ── Cola local (por subir) ────────────────────────────
-                          const _SectionLabel(
-                              text: 'EN LA COLA LOCAL (POR SUBIR)'),
-                          const SizedBox(height: 8),
-                          Card(
-                            color: AppPalette.surfaceDark,
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(14),
-                              side: const BorderSide(
-                                  color: AppPalette.surfaceDarkHighlight),
-                            ),
-                            child: Column(
-                              children: <Widget>[
-                                _SyncItem(
-                                  icon: Icons.upload_file_rounded,
-                                  label: 'Reportes de Servicio',
-                                  count: _pendingReports,
-                                  badge: _BadgeType.pending,
-                                  lastError: _lastReportError,
-                                ),
-                                const _Divider(),
-                                _SyncItem(
-                                  icon: Icons.image_rounded,
-                                  label: 'Evidencias Fotográficas',
-                                  count: _pendingFiles,
-                                  badge: _BadgeType.pending,
-                                  lastError: _lastFileError,
-                                ),
-                                const _Divider(),
-                                _SyncItem(
-                                  icon: Icons.draw_rounded,
-                                  label: 'Firmas de Clientes',
-                                  count: _pendingSignatures,
-                                  badge: _BadgeType.pending,
-                                  lastError: _lastSignatureError,
-                                ),
-                              ],
-                            ),
-                          ),
-                          const SizedBox(height: 20),
+                  return SingleChildScrollView(
+                    padding: const EdgeInsets.fromLTRB(16, 14, 16, 24),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: <Widget>[
+                        // ── Estado y último sync ────────────────────────────
+                        _NetworkStatusCard(
+                          isSyncing: _isSyncing,
+                          lastSyncText: lastSyncText,
+                        ),
+                        const SizedBox(height: 12),
 
-                          // ── Disponible en servidor (por bajar) ────────────────
+                        // ── Resumen de conteos ──────────────────────────────
+                        _SummaryCard(
+                          reportCount: reports.length,
+                          fileCount: files.length,
+                          deliveryCount: deliveries.length,
+                          isSyncing: _isSyncing,
+                        ),
+                        const SizedBox(height: 20),
+
+                        // ── Contenido principal ─────────────────────────────
+                        if (items.isEmpty) ...<Widget>[
+                          const SizedBox(height: 24),
+                          const _EmptyState(),
+                        ] else ...<Widget>[
                           const _SectionLabel(
-                              text:
-                                  'DISPONIBLE EN SERVIDOR (POR DESCARGAR)'),
+                              text: 'PENDIENTES DE SUBIR'),
                           const SizedBox(height: 8),
-                          Card(
-                            color: AppPalette.surfaceDark,
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(14),
-                              side: const BorderSide(
-                                  color: AppPalette.surfaceDarkHighlight),
+                          if (reports.isNotEmpty) ...<Widget>[
+                            _PendingGroup(
+                              title: 'Reportes de Servicio',
+                              icon: Icons.description_rounded,
+                              items: reports,
                             ),
-                            child: Column(
-                              children: const <Widget>[
-                                _SyncItem(
-                                  icon: Icons.cloud_download_rounded,
-                                  label: 'Nuevas Asignaciones',
-                                  count: 0,
-                                  badge: _BadgeType.newItem,
-                                ),
-                                _Divider(),
-                                _SyncItem(
-                                  icon: Icons.list_alt_rounded,
-                                  label: 'Actualización de Catálogos',
-                                  count: 0,
-                                  badge: _BadgeType.upToDate,
-                                ),
-                              ],
+                            const SizedBox(height: 12),
+                          ],
+                          if (files.isNotEmpty) ...<Widget>[
+                            _PendingGroup(
+                              title: 'Archivos y Firmas',
+                              icon: Icons.folder_rounded,
+                              items: files,
                             ),
-                          ),
+                            const SizedBox(height: 12),
+                          ],
+                          if (deliveries.isNotEmpty) ...<Widget>[
+                            _PendingGroup(
+                              title: 'Entregas de Póliza',
+                              icon: Icons.assignment_turned_in_rounded,
+                              items: deliveries,
+                            ),
+                          ],
                         ],
-                      ),
+                      ],
                     ),
+                  );
+                },
+              ),
             ),
 
-            // ── Botón principal fijo ──────────────────────────────────────
-            _SyncButton(isSyncing: _isSyncing, onTap: _startSync),
+            // ── Botones fijos ───────────────────────────────────────────
+            _SyncButton(
+              isSyncing: _isSyncing,
+              onTap: _startSync,
+              failedCount: failedCount,
+              onRetry: () => _startSync(retryFailed: true),
+            ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+// ─── Resumen de conteos ───────────────────────────────────────────────────────
+
+class _SummaryCard extends StatelessWidget {
+  const _SummaryCard({
+    required this.reportCount,
+    required this.fileCount,
+    required this.deliveryCount,
+    required this.isSyncing,
+  });
+
+  final int reportCount;
+  final int fileCount;
+  final int deliveryCount;
+  final bool isSyncing;
+
+  @override
+  Widget build(BuildContext context) {
+    final int total = reportCount + fileCount + deliveryCount;
+
+    final List<String> parts = <String>[];
+    if (reportCount > 0) {
+      parts.add(
+          '$reportCount ${reportCount == 1 ? 'reporte' : 'reportes'}');
+    }
+    if (fileCount > 0) {
+      parts.add(
+          '$fileCount ${fileCount == 1 ? 'archivo' : 'archivos'}');
+    }
+    if (deliveryCount > 0) {
+      parts.add(
+          '$deliveryCount ${deliveryCount == 1 ? 'entrega' : 'entregas'}');
+    }
+
+    final String label = isSyncing
+        ? 'Sincronizando...'
+        : total == 0
+            ? 'Sin elementos pendientes'
+            : parts.join(' · ');
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+      decoration: BoxDecoration(
+        color: AppPalette.surfaceDarkHighlight,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Row(
+        children: <Widget>[
+          Icon(
+            isSyncing
+                ? Icons.sync_rounded
+                : total > 0
+                    ? Icons.pending_actions_rounded
+                    : Icons.check_circle_rounded,
+            size: 18,
+            color: isSyncing
+                ? AppPalette.primary
+                : total > 0
+                    ? AppPalette.warning
+                    : AppPalette.success,
+          ),
+          const SizedBox(width: 8),
+          Text(
+            label,
+            style: TextStyle(
+              color: isSyncing
+                  ? AppPalette.primary
+                  : total > 0
+                      ? AppPalette.warning
+                      : AppPalette.success,
+              fontSize: 13,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          if (total > 0) ...<Widget>[
+            const Spacer(),
+            Container(
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+              decoration: BoxDecoration(
+                color: AppPalette.warningDark,
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: AppPalette.warning),
+              ),
+              child: Text(
+                '$total total',
+                style: const TextStyle(
+                  color: AppPalette.warning,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+// ─── Grupo de items pendientes ────────────────────────────────────────────────
+
+class _PendingGroup extends StatelessWidget {
+  const _PendingGroup({
+    required this.title,
+    required this.icon,
+    required this.items,
+  });
+
+  final String title;
+  final IconData icon;
+  final List<SyncQueueData> items;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: <Widget>[
+        Padding(
+          padding: const EdgeInsets.only(left: 4, bottom: 6),
+          child: Row(
+            children: <Widget>[
+              Icon(icon, size: 13, color: Colors.blueGrey),
+              const SizedBox(width: 5),
+              Text(
+                '${title.toUpperCase()} (${items.length})',
+                style: const TextStyle(
+                  color: Colors.blueGrey,
+                  fontSize: 11,
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: 0.8,
+                ),
+              ),
+            ],
+          ),
+        ),
+        Card(
+          color: AppPalette.surfaceDark,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(14),
+            side: const BorderSide(color: AppPalette.surfaceDarkHighlight),
+          ),
+          child: Column(
+            children: <Widget>[
+              for (int i = 0; i < items.length; i++) ...<Widget>[
+                _PendingItemRow(item: items[i]),
+                if (i < items.length - 1) const _Divider(),
+              ],
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+// ─── Fila individual de item pendiente ───────────────────────────────────────
+
+class _PendingItemRow extends StatelessWidget {
+  const _PendingItemRow({required this.item});
+
+  final SyncQueueData item;
+
+  static Map<String, dynamic> _decodePayload(String json) {
+    try {
+      return jsonDecode(json) as Map<String, dynamic>;
+    } catch (_) {
+      return <String, dynamic>{};
+    }
+  }
+
+  static String _basename(String path) {
+    if (path.isEmpty) return '—';
+    return path.replaceAll('\\', '/').split('/').last;
+  }
+
+  static String _shortId(String id) =>
+      id.length > 14 ? '${id.substring(0, 14)}…' : id;
+
+  @override
+  Widget build(BuildContext context) {
+    final Map<String, dynamic> p = _decodePayload(item.payloadJson);
+    final bool isFailed = item.estadoPeticion == 'failed';
+
+    final IconData icon;
+    final String title;
+    final String subtitle;
+
+    if (item.entityType == 'report') {
+      icon = Icons.description_rounded;
+      title = (p['code'] as String?) ?? 'R-???';
+      final String? printerCode = p['printerCode'] as String?;
+      final String? serial = p['printerSerial'] as String?;
+      final String? pid = p['printerId'] as String?;
+      subtitle =
+          'Impresora: ${printerCode ?? serial ?? (pid != null ? _shortId(pid) : '—')}';
+    } else if (item.entityType == 'file') {
+      icon = Icons.image_rounded;
+      title = 'Foto';
+      subtitle = _basename(p['localPath'] as String? ?? '');
+    } else if (item.entityType == 'signature') {
+      icon = Icons.draw_rounded;
+      title = 'Firma';
+      subtitle = _basename(p['localPath'] as String? ?? '');
+    } else if (item.entityType == 'pdf') {
+      icon = Icons.picture_as_pdf_rounded;
+      title = 'PDF';
+      subtitle = _basename(p['localPath'] as String? ?? '');
+    } else if (item.entityType == 'policy_delivery') {
+      icon = Icons.assignment_turned_in_rounded;
+      title = 'Entrega de Póliza';
+      final String? vid = p['visitId'] as String?;
+      final String? polId = p['policyId'] as String?;
+      subtitle = _shortId(vid ?? polId ?? item.entityId);
+    } else {
+      icon = Icons.sync_rounded;
+      title = item.entityType;
+      subtitle = _shortId(item.entityId);
+    }
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Container(
+            width: 40,
+            height: 40,
+            decoration: BoxDecoration(
+              color: AppPalette.surfaceDarkHighlight,
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Icon(icon, size: 20, color: AppPalette.backgroundLight),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                Text(
+                  title,
+                  style: const TextStyle(
+                    color: AppPalette.backgroundLight,
+                    fontWeight: FontWeight.w700,
+                    fontSize: 15,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  subtitle,
+                  style: const TextStyle(
+                    color: Colors.white54,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+                if (isFailed && item.lastError != null) ...<Widget>[
+                  const SizedBox(height: 4),
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: <Widget>[
+                      const Icon(
+                        Icons.error_outline_rounded,
+                        size: 13,
+                        color: Colors.redAccent,
+                      ),
+                      const SizedBox(width: 4),
+                      Expanded(
+                        child: Text(
+                          item.lastError!,
+                          style: const TextStyle(
+                            color: Colors.redAccent,
+                            fontSize: 11,
+                            fontWeight: FontWeight.w600,
+                          ),
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ],
+            ),
+          ),
+          const SizedBox(width: 8),
+          _Badge(
+              type: isFailed ? _BadgeType.error : _BadgeType.pending),
+        ],
+      ),
+    );
+  }
+}
+
+// ─── Estado vacío ─────────────────────────────────────────────────────────────
+
+class _EmptyState extends StatelessWidget {
+  const _EmptyState();
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: <Widget>[
+          Container(
+            width: 80,
+            height: 80,
+            decoration: const BoxDecoration(
+              color: AppPalette.successDark,
+              shape: BoxShape.circle,
+            ),
+            child: const Icon(
+              Icons.cloud_done_rounded,
+              size: 44,
+              color: AppPalette.success,
+            ),
+          ),
+          const SizedBox(height: 20),
+          const Text(
+            'Todo sincronizado',
+            style: TextStyle(
+              color: AppPalette.backgroundLight,
+              fontSize: 20,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+          const SizedBox(height: 8),
+          const Text(
+            'No hay elementos pendientes de subir al servidor',
+            style: TextStyle(
+              color: Colors.white54,
+              fontSize: 14,
+            ),
+            textAlign: TextAlign.center,
+          ),
+        ],
       ),
     );
   }
@@ -492,90 +794,9 @@ class _SectionLabel extends StatelessWidget {
 
 // ─── Tipos de badge ───────────────────────────────────────────────────────────
 
-enum _BadgeType { pending, newItem, upToDate }
+enum _BadgeType { pending, error, upToDate }
 
-// ─── Item de sincronización ───────────────────────────────────────────────────
-
-class _SyncItem extends StatelessWidget {
-  const _SyncItem({
-    required this.icon,
-    required this.label,
-    required this.count,
-    required this.badge,
-    this.lastError,
-  });
-
-  final IconData icon;
-  final String label;
-  final int count;
-  final _BadgeType badge;
-  final String? lastError;
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: <Widget>[
-          Container(
-            width: 40,
-            height: 40,
-            decoration: BoxDecoration(
-              color: AppPalette.surfaceDarkHighlight,
-              borderRadius: BorderRadius.circular(10),
-            ),
-            child: Icon(icon, size: 20, color: AppPalette.backgroundLight),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: <Widget>[
-                Text(
-                  count > 0 ? '$label ($count)' : label,
-                  style: const TextStyle(
-                    color: AppPalette.backgroundLight,
-                    fontWeight: FontWeight.w700,
-                    fontSize: 15,
-                  ),
-                ),
-                if (lastError != null) ...<Widget>[
-                  const SizedBox(height: 4),
-                  Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: <Widget>[
-                      const Icon(
-                        Icons.error_outline_rounded,
-                        size: 13,
-                        color: Colors.orangeAccent,
-                      ),
-                      const SizedBox(width: 4),
-                      Expanded(
-                        child: Text(
-                          lastError!,
-                          style: const TextStyle(
-                            color: Colors.orangeAccent,
-                            fontSize: 11,
-                            fontWeight: FontWeight.w600,
-                          ),
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
-              ],
-            ),
-          ),
-          const SizedBox(width: 8),
-          _Badge(type: badge),
-        ],
-      ),
-    );
-  }
-}
+// ─── Badge ────────────────────────────────────────────────────────────────────
 
 class _Badge extends StatelessWidget {
   const _Badge({required this.type});
@@ -584,26 +805,28 @@ class _Badge extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final (Color bg, Color border, Color text, String label) = switch (type) {
-      _BadgeType.pending => (
-          AppPalette.warningDark,
-          AppPalette.warning,
-          AppPalette.warning,
-          'Pendiente',
-        ),
-      _BadgeType.newItem => (
-          AppPalette.successDark,
-          AppPalette.success,
-          AppPalette.success,
-          'Nuevo',
-        ),
-      _BadgeType.upToDate => (
-          AppPalette.surfaceDarkHighlight,
-          Colors.white30,
-          Colors.white60,
-          'Al día',
-        ),
-    };
+    final Color bg;
+    final Color border;
+    final Color textColor;
+    final String label;
+
+    switch (type) {
+      case _BadgeType.pending:
+        bg = AppPalette.warningDark;
+        border = AppPalette.warning;
+        textColor = AppPalette.warning;
+        label = 'Pendiente';
+      case _BadgeType.error:
+        bg = const Color(0xFF5C1A1A);
+        border = Colors.redAccent;
+        textColor = Colors.redAccent;
+        label = 'Error';
+      case _BadgeType.upToDate:
+        bg = AppPalette.surfaceDarkHighlight;
+        border = Colors.white30;
+        textColor = Colors.white60;
+        label = 'Al día';
+    }
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
@@ -615,7 +838,7 @@ class _Badge extends StatelessWidget {
       child: Text(
         label,
         style: TextStyle(
-          color: text,
+          color: textColor,
           fontSize: 12,
           fontWeight: FontWeight.w800,
         ),
@@ -623,6 +846,8 @@ class _Badge extends StatelessWidget {
     );
   }
 }
+
+// ─── Divisor ──────────────────────────────────────────────────────────────────
 
 class _Divider extends StatelessWidget {
   const _Divider();
@@ -645,10 +870,14 @@ class _SyncButton extends StatelessWidget {
   const _SyncButton({
     required this.isSyncing,
     required this.onTap,
+    required this.failedCount,
+    required this.onRetry,
   });
 
   final bool isSyncing;
   final VoidCallback onTap;
+  final int failedCount;
+  final VoidCallback onRetry;
 
   @override
   Widget build(BuildContext context) {
@@ -658,12 +887,42 @@ class _SyncButton extends StatelessWidget {
         color: AppPalette.surfaceDark,
         border: Border(top: BorderSide(color: AppPalette.surfaceDarkHighlight)),
       ),
-      child: SizedBox(
-        height: 56,
-        width: double.infinity,
-        child: FilledButton(
-          onPressed: isSyncing ? null : onTap,
-          child: isSyncing
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: <Widget>[
+          // Botón secundario: solo visible cuando hay fallidos y no se está sincronizando
+          if (failedCount > 0 && !isSyncing) ...<Widget>[
+            SizedBox(
+              height: 44,
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                onPressed: onRetry,
+                icon: const Icon(Icons.refresh_rounded, size: 18),
+                label: Text(
+                  'Reintentar $failedCount fallido${failedCount != 1 ? 's' : ''}',
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w700,
+                    fontSize: 14,
+                  ),
+                ),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: AppPalette.warning,
+                  side: const BorderSide(color: AppPalette.warning),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(height: 8),
+          ],
+          // Botón principal
+          SizedBox(
+            height: 56,
+            width: double.infinity,
+            child: FilledButton(
+              onPressed: isSyncing ? null : onTap,
+              child: isSyncing
               ? const Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: <Widget>[
@@ -699,7 +958,9 @@ class _SyncButton extends StatelessWidget {
                     ),
                   ],
                 ),
-        ),
+            ),
+          ),
+        ],
       ),
     );
   }

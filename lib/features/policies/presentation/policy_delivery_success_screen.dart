@@ -30,7 +30,7 @@ class PolicyDeliverySuccessScreen extends StatelessWidget {
     return PopScope(
       canPop: false,
       onPopInvokedWithResult: (bool didPop, _) {
-        if (!didPop) context.go('/');
+        if (!didPop) context.goNamed(AppRoutes.dashboard);
       },
       child: Scaffold(
         body: SafeArea(
@@ -114,7 +114,7 @@ class PolicyDeliverySuccessScreen extends StatelessWidget {
                     width: double.infinity,
                     height: 52,
                     child: FilledButton(
-                      onPressed: () => context.go('/'),
+                      onPressed: () => context.goNamed(AppRoutes.dashboard),
                       style: FilledButton.styleFrom(
                         backgroundColor: AppPalette.primary,
                         foregroundColor: AppPalette.backgroundLight,

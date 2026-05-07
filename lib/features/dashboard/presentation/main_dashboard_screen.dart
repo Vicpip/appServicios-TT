@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 import 'package:industrial_service_reports/core/router/app_routes.dart';
 import 'package:industrial_service_reports/core/theme/app_palette.dart';
 import 'package:industrial_service_reports/features/auth/providers/session_provider.dart';
+import 'package:industrial_service_reports/features/sync/providers/sync_queue_provider.dart';
 
 class MainDashboardScreen extends ConsumerWidget {
   const MainDashboardScreen({super.key});
@@ -116,7 +117,8 @@ class MainDashboardScreen extends ConsumerWidget {
               child: Column(
                 children: <Widget>[
                   _PendingSyncBanner(
-                    pendingCount: session.pendingSyncCount,
+                    pendingCount:
+                        ref.watch(pendingSyncCountProvider).valueOrNull ?? 0,
                     onSyncTap: () => context.pushNamed(AppRoutes.sync),
                   ),
                   const SizedBox(height: 14),

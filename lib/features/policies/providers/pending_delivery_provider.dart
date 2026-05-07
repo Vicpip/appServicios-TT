@@ -67,6 +67,12 @@ final pendingDeliveryProvider =
     final String policyId = entry.key;
     if (policyId == '__no_policy__') continue;
 
+    // Only show the button when there is an active (in_progress) visit.
+    final List<PolicyVisit> visits = await (db.select(db.policyVisits)
+          ..where((v) => v.policyId.equals(policyId)))
+        .get();
+    if (!visits.any((v) => v.status == 'in_progress')) continue;
+
     final Policy? policy = await (db.select(db.policies)
           ..where((Policies t) => t.id.equals(policyId)))
         .getSingleOrNull();

@@ -11,6 +11,7 @@ from app.config import get_settings
 from app.database import Base, engine
 from app.api.routers.auth import router as auth_router
 from app.api.routers.sync import router as sync_router
+from app.api.routers.reports import router as reports_router
 from app.api.routers.admin import router as admin_router
 
 settings = get_settings()
@@ -53,6 +54,7 @@ app.add_middleware(
 # Routers
 app.include_router(auth_router)
 app.include_router(sync_router)
+app.include_router(reports_router)
 app.include_router(admin_router)
 
 # Static files — serve uploaded photos/signatures/PDFs

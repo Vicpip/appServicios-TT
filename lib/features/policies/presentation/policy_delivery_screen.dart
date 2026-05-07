@@ -243,8 +243,8 @@ class _DeliveryCard extends StatelessWidget {
               const SizedBox(height: 14),
               OutlinedButton.icon(
                 onPressed: () => context.pushNamed(
-                  AppRoutes.reportSummary,
-                  extra: report.id,
+                  AppRoutes.reportView,
+                  extra: ReportViewArgs(reportId: report.id),
                 ),
                 icon: const Icon(Icons.visibility_outlined, size: 18),
                 label: const Text('Ver reporte completo'),

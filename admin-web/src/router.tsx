@@ -6,6 +6,7 @@ import ClientsPage from '@/pages/ClientsPage'
 import TechniciansPage from '@/pages/TechniciansPage'
 import PrintersPage from '@/pages/PrintersPage'
 import PoliciesPage from '@/pages/PoliciesPage'
+import PolicyDetailPage from '@/pages/PolicyDetailPage'
 import SyncPage from '@/pages/SyncPage'
 import PrinterDetailPage from '@/pages/PrinterDetailPage'
 import TechnicianProfilePage from '@/pages/TechnicianProfilePage'
@@ -23,6 +24,7 @@ export const router = createBrowserRouter([
       { path: 'printers', element: <PrintersPage /> },
       { path: 'printers/:id', element: <PrinterDetailPage /> },
       { path: 'policies', element: <PoliciesPage /> },
+      { path: 'policies/:id', element: <PolicyDetailPage /> },
       { path: 'sync', element: <SyncPage /> },
     ],
   },

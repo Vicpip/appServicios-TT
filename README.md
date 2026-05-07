@@ -91,7 +91,8 @@ lib/
    ├─ reports/
    │  ├─ presentation/
    │  │  ├─ express_capture_screen.dart    # Captura rápida de reporte
-   │  │  └─ report_summary_screen.dart     # Resumen antes de firmar
+   │  │  ├─ report_summary_screen.dart     # Resumen antes de firmar
+   │  │  └─ report_view_screen.dart        # Ver + editar reporte (modo lectura/edición)
    │  ├─ providers/
    │  │  └─ capture_provider.dart          # Estado del reporte en curso
    │  └─ services/
@@ -99,8 +100,11 @@ lib/
    ├─ signature/
    │  └─ signature_screen.dart             # Canvas firma + lógica pending_delivery
    └─ sync/
+      ├─ providers/
+      │  ├─ sync_queue_provider.dart       # Stream reactivo de la cola de sync
+      │  └─ startup_sync_provider.dart     # Sync automático al iniciar sesión
       └─ services/
-         └─ sync_service.dart              # Upload + download bidireccional
+         └─ sync_service.dart              # Upload + download + retryFailed + report_update
 ```
 
 ### Base de datos local (Drift SQLite v9)
@@ -137,14 +141,18 @@ server/
 │  └─ api/routers/
 │     ├─ auth.py           # POST /api/auth/login
 │     ├─ sync.py           # POST /api/reports, /files, GET /sync/status, /sync/download
+│     ├─ reports.py        # GET + PATCH /api/reports/{id}
 │     └─ admin.py          # CRUD completo de todas las entidades
+│  ├─ services/
+│  │  └─ pdf_service.py    # Generación de PDF en servidor
 └─ alembic/versions/
    ├─ 000_initial_schema.py
    ├─ 001_drop_report_fk_constraints.py
    ├─ 002_add_crud_fields.py          # password_hash en users
    ├─ 003_policy_printer_assignments.py
    ├─ 004_add_frequency_maintenance.py
-   └─ 005_add_policy_visits.py
+   ├─ 005_add_policy_visits.py
+   └─ 006_add_visit_id_to_policy_deliveries.py
 ```
 
 ### Endpoints principales
@@ -161,6 +169,7 @@ POST /api/reports/bulk        → Subir múltiples reportes
 POST /api/files               → Subir foto o firma (multipart)
 GET  /api/sync/status         → Contadores pending/synced/failed
 GET  /api/sync/download       → Descarga pólizas, visitas e impresoras asignadas
+PATCH /api/reports/{id}       → Editar reporte (tipo, notas, contador, oscuridad)
 ```
 
 #### Admin — Reportes
@@ -237,6 +246,7 @@ admin-web/src/
 │  ├─ TechnicianProfilePage.tsx  # Perfil detallado de técnico
 │  ├─ PrintersPage.tsx       # Tabla + modal (selectores client→plant→area→model) + búsqueda
 │  ├─ PoliciesPage.tsx       # CRUD pólizas + asignación impresoras + gestión visitas
+│  ├─ PolicyDetailPage.tsx   # Detalle de póliza (visitas, impresoras asignadas)
 │  └─ SyncPage.tsx           # Contadores + historial paginado con filtros
 └─ router.tsx                # React Router con todas las rutas
 ```
@@ -316,6 +326,22 @@ UPLOAD_DIR=./uploads
 | Sprint 1 | ✅ Completado | App Flutter base: reportes, PDF, firma, QR, historial |
 | Sprint 2 | ✅ Completado | Backend FastAPI + panel Admin Web + sync bidireccional + JWT |
 | Sprint 3 | ✅ Completado | Módulo pólizas completo: visitas, entrega, firma global, PDF entrega |
+| Sprint 4 | ✅ Completado | Edición de reportes, sync mejorado (retry/startup), detalle de pólizas web |
+
+### Sprint 4 — detalle
+
+- **Flutter:** `report_view_screen.dart` con modo edición (tipo, notas, contador, oscuridad) y sincronización PATCH
+- **Flutter:** `sync_dashboard_screen.dart` migrado a `ConsumerStatefulWidget` (Riverpod), timestamp de último sync via `SharedPreferences`
+- **Flutter:** `sync_service.dart` agrega `retryFailed`, tipo `report_update` (PATCH), y persiste timestamp post-sync
+- **Flutter:** nuevos providers `sync_queue_provider.dart` y `startup_sync_provider.dart`
+- **Flutter:** `shared_preferences: ^2.3.2` añadido a pubspec
+- **Backend:** nuevo router `reports.py` con `GET` y `PATCH /api/reports/{id}`
+- **Backend:** `ReportUpdate` schema en `schemas/report.py` (edición parcial)
+- **Backend:** `services/pdf_service.py` para generación de PDF en servidor
+- **Backend:** migración `006_add_visit_id_to_policy_deliveries.py`
+- **Backend:** `fpdf2==2.7.9` añadido a requirements
+- **Admin Web:** nueva página `PolicyDetailPage.tsx` con detalle de póliza
+- **Admin Web:** `router.tsx` agrega ruta a `PolicyDetailPage`
 
 ### Sprint 3 — detalle
 

@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import Optional
 
 from pydantic import BaseModel, ConfigDict, alias_generators
 
@@ -51,3 +52,12 @@ class ReportRead(ReportCreate):
         populate_by_name=True,
         alias_generator=alias_generators.to_camel,
     )
+
+
+class ReportUpdate(BaseModel):
+    """Partial-update schema for PATCH /api/reports/{id}. Only sent fields are applied."""
+
+    service_type: Optional[str] = None
+    notes: Optional[str] = None
+    linear_inches_counter: Optional[int] = None
+    darkness_level: Optional[int] = None

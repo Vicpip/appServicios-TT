@@ -276,6 +276,7 @@ class PolicyDeliveryCreate(BaseModel):
     tech_id: str
     report_ids: list[str]
     signature_image_path: str | None = None
+    visit_id: str | None = None
 
 
 class PolicyDeliveryItem(BaseModel):

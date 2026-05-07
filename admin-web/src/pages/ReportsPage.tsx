@@ -157,7 +157,7 @@ interface DetailModalProps {
   onClose: () => void
 }
 
-function DetailModal({ reportId, onClose }: DetailModalProps) {
+export function DetailModal({ reportId, onClose }: DetailModalProps) {
   const [lightboxIdx, setLightboxIdx] = useState<number | null>(null)
 
   const { data: report, isLoading } = useQuery({
