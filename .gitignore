@@ -26,3 +26,7 @@ server/*.db
 .claude/agents/
 .claude/skills/
 .claude/commands/
+
+
+server/.env
+admin-web/.env
