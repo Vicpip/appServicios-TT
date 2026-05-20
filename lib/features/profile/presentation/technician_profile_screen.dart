@@ -124,46 +124,6 @@ class _TechnicianProfileScreenState
                   ),
                   const SizedBox(height: 20),
                   _ProfileCard(
-                    child: ListTile(
-                      contentPadding: const EdgeInsets.symmetric(
-                        horizontal: 2,
-                        vertical: 2,
-                      ),
-                      leading: const Icon(
-                        Icons.lock_outline_rounded,
-                        color: TechnicianProfileScreen._softBlue,
-                      ),
-                      title: const Text(
-                        'Cambiar PIN de Acceso',
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                      subtitle: const Text(
-                        'Actualiza tu código de 4 dígitos para acceso offline',
-                        style: TextStyle(
-                          color: TechnicianProfileScreen._mutedText,
-                          fontWeight: FontWeight.w500,
-                        ),
-                      ),
-                      trailing: const Icon(
-                        Icons.chevron_right_rounded,
-                        color: Colors.white54,
-                      ),
-                      onTap: () {
-                        ScaffoldMessenger.of(context).hideCurrentSnackBar();
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(
-                            content: Text('Cambio de PIN (mock)'),
-                            behavior: SnackBarBehavior.floating,
-                          ),
-                        );
-                      },
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  _ProfileCard(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: <Widget>[
