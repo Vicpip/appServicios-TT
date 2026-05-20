@@ -2,7 +2,7 @@ import hashlib
 import json
 import secrets
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, time, timedelta, timezone
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -668,6 +668,18 @@ def list_policies(
 # GET /api/admin/sync/history
 # ---------------------------------------------------------------------------
 
+def _enrich_sync_item(row: SyncLog, db: Session) -> tuple[str | None, str | None]:
+    """Return (tech_name, detalle) for a SyncLog row by looking up the linked report."""
+    if row.entity_type != "report":
+        return None, None
+    report = db.get(Report, row.entity_id)
+    if not report:
+        return None, None
+    detalle = report.code
+    tech = db.get(User, report.tech_id) if report.tech_id else None
+    return (tech.name if tech else None), detalle
+
+
 @router.get("/sync/history", response_model=dict)
 def sync_history(
     status: str | None = Query(None),
@@ -687,19 +699,23 @@ def sync_history(
     total = q.count()
     rows = q.order_by(SyncLog.synced_at.desc()).offset(offset).limit(limit).all()
 
-    items = [
-        SyncHistoryItem(
-            id=row.id,
-            entity_type=row.entity_type,
-            entity_id=row.entity_id,
-            action=row.action,
-            status=row.status,
-            error_message=row.error_message,
-            synced_at=row.synced_at,
-            server_response=row.server_response,
+    items = []
+    for row in rows:
+        tech_name, detalle = _enrich_sync_item(row, db)
+        items.append(
+            SyncHistoryItem(
+                id=row.id,
+                entity_type=row.entity_type,
+                entity_id=row.entity_id,
+                action=row.action,
+                status=row.status,
+                error_message=row.error_message,
+                synced_at=row.synced_at,
+                server_response=row.server_response,
+                tech_name=tech_name,
+                detalle=detalle,
+            )
         )
-        for row in rows
-    ]
 
     return {"total": total, "offset": offset, "limit": limit, "items": [i.model_dump() for i in items]}
 
@@ -1852,3 +1868,144 @@ def delete_policy_visit(
         raise HTTPException(status_code=404, detail="Visit not found")
     db.delete(visit)
     db.commit()
+
+
+# ===========================================================================
+# Dashboard — endpoints de resumen rápido
+# ===========================================================================
+
+@router.get("/dashboard/reports-by-day", response_model=list)
+def dashboard_reports_by_day(db: Session = Depends(get_db)) -> list:
+    """Return last 7 days of reports grouped by service type. Always returns all 7 days."""
+    today = date.today()
+    days = [today - timedelta(days=i) for i in range(6, -1, -1)]
+    start_dt = datetime.combine(days[0], time.min)
+    end_dt = datetime.combine(today, time.max)
+
+    rows = (
+        db.query(
+            func.date(Report.service_date).label("fecha"),
+            Report.service_type,
+            func.count(Report.id).label("total"),
+        )
+        .filter(Report.service_date >= start_dt, Report.service_date <= end_dt)
+        .group_by(func.date(Report.service_date), Report.service_type)
+        .all()
+    )
+
+    # Build a lookup: date_str → { service_type: count }
+    data_map: dict[str, dict[str, int]] = {}
+    for fecha, service_type, total in rows:
+        fecha_str = str(fecha)
+        if fecha_str not in data_map:
+            data_map[fecha_str] = {}
+        data_map[fecha_str][service_type or ""] = total
+
+    result = []
+    for d in days:
+        fecha_str = str(d)
+        counts = data_map.get(fecha_str, {})
+        result.append({
+            "fecha": fecha_str,
+            "total": sum(counts.values()),
+            "preventivos": counts.get("Preventivo", 0),
+            "correctivos": counts.get("Correctivo", 0),
+            "diagnosticos": counts.get("Diagnóstico", 0),
+        })
+    return result
+
+
+@router.get("/dashboard/printers-attention", response_model=list)
+def dashboard_printers_attention(db: Session = Depends(get_db)) -> list:
+    """Return up to 5 active printers whose latest report has at least one damage key true."""
+    latest_report_sq = (
+        db.query(
+            Report.printer_id,
+            func.max(Report.service_date).label("max_date"),
+        )
+        .group_by(Report.printer_id)
+        .subquery()
+    )
+    latest_full_sq = (
+        db.query(Report.printer_id, Report.technical_checkboxes)
+        .join(
+            latest_report_sq,
+            (Report.printer_id == latest_report_sq.c.printer_id)
+            & (Report.service_date == latest_report_sq.c.max_date),
+        )
+        .subquery()
+    )
+
+    rows = (
+        db.query(
+            Printer,
+            Client.name.label("client_name"),
+            CatalogModel.brand.label("model_brand"),
+            CatalogModel.model_name.label("model_name"),
+            latest_full_sq.c.technical_checkboxes.label("last_checkboxes"),
+        )
+        .outerjoin(Client, Printer.client_id == Client.id)
+        .outerjoin(CatalogModel, Printer.model_id == CatalogModel.id)
+        .join(latest_full_sq, Printer.id == latest_full_sq.c.printer_id)
+        .filter(Printer.is_active.is_(True))
+        .all()
+    )
+
+    result = []
+    for printer, client_name, model_brand, model_name, last_checkboxes in rows:
+        if not last_checkboxes:
+            continue
+        try:
+            checkboxes = json.loads(last_checkboxes)
+            advertencias = [k for k in _DAMAGE_KEYS if checkboxes.get(k) is True]
+        except (json.JSONDecodeError, AttributeError):
+            continue
+        if not advertencias:
+            continue
+
+        model_full = " ".join(filter(None, [model_brand, model_name])) or None
+        result.append({
+            "id": printer.id,
+            "code": printer.code,
+            "serial_number": printer.serial_number,
+            "model_name": model_full,
+            "client_name": client_name,
+            "advertencias": advertencias,
+        })
+        if len(result) >= 5:
+            break
+
+    return result
+
+
+@router.get("/dashboard/policies-expiring", response_model=list)
+def dashboard_policies_expiring(db: Session = Depends(get_db)) -> list:
+    """Return up to 5 policies expiring within the next 30 days (not Deleted)."""
+    now = _now_utc()
+    thirty_days_later = now + timedelta(days=30)
+
+    rows = (
+        db.query(Policy, Client.name.label("client_name"))
+        .join(Client, Policy.client_id == Client.id)
+        .filter(
+            Policy.end_date >= now,
+            Policy.end_date <= thirty_days_later,
+            Policy.status != "Deleted",
+        )
+        .order_by(Policy.end_date)
+        .limit(5)
+        .all()
+    )
+
+    result = []
+    for policy, client_name in rows:
+        end = policy.end_date.replace(tzinfo=None)
+        dias_restantes = max(0, (end.date() - now.date()).days)
+        result.append({
+            "id": policy.id,
+            "folio": policy.folio,
+            "client_name": client_name,
+            "end_date": end.date().isoformat(),
+            "dias_restantes": dias_restantes,
+        })
+    return result

@@ -61,5 +61,10 @@ export const API = {
     history: '/api/admin/sync/history',
     status: '/api/sync/status',
   },
+  dashboard: {
+    reportsByDay: '/api/admin/dashboard/reports-by-day',
+    printersAttention: '/api/admin/dashboard/printers-attention',
+    policiesExpiring: '/api/admin/dashboard/policies-expiring',
+  },
   health: '/api/health',
 } as const

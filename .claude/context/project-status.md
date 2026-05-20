@@ -520,6 +520,18 @@ dart run build_runner build --delete-conflicting-outputs
 
 ---
 
+## ✅ Mejoras Dashboard Admin Web (20/05/2026)
+
+| Cambio | Descripción |
+|--------|-------------|
+| KPI cards clickeables | Las 4 cards navegan a /reports, /clients, /printers, /policies con hover:shadow-md |
+| Gráfica reportes 7 días | Nuevo endpoint `GET /api/admin/dashboard/reports-by-day` + BarChart apilado (Preventivo/Correctivo/Diagnóstico) con recharts |
+| Impresoras en atención | Nuevo endpoint `GET /api/admin/dashboard/printers-attention` (máx 5) + lista compacta con badges de advertencia → /printers/{id} |
+| Pólizas próximas a vencer | Nuevo endpoint `GET /api/admin/dashboard/policies-expiring` (máx 5, últimos 30 días) + lista con badge rojo ≤7d / amarillo >7d → /policies/{id} |
+| Tabla sync mejorada | Backend: `SyncHistoryItem` agrega `tech_name` y `detalle` (join Report→User). Frontend: columnas Técnico y Detalle + traducción de acciones (Insert→"Reporte nuevo", etc.) |
+
+---
+
 ## ✅ Fixes UI/UX Flutter (20/05/2026)
 
 | Fix | Archivo | Cambio |

@@ -32,7 +32,8 @@
       "Read(//c/Users/Victor/Documents/app/.claude/worktrees/eloquent-tesla/**)",
       "Bash(done)",
       "Bash(venv/Scripts/activate)",
-      "Bash(alembic revision:*)"
+      "Bash(alembic revision:*)",
+      "Bash(Get-ChildItem *)"
     ]
   }
 }

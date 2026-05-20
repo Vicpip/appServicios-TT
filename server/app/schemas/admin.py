@@ -111,6 +111,8 @@ class SyncHistoryItem(BaseModel):
     error_message: str | None
     synced_at: datetime
     server_response: str | None
+    tech_name: str | None = None
+    detalle: str | None = None
 
 
 class PaginatedResponse(BaseModel):
