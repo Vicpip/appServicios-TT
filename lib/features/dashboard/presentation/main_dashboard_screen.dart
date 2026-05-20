@@ -15,6 +15,8 @@ class MainDashboardScreen extends ConsumerWidget {
     final ThemeData theme = Theme.of(context);
     final bool isLandscape =
         MediaQuery.of(context).orientation == Orientation.landscape;
+    final int pendingCount =
+        ref.watch(pendingSyncCountProvider).valueOrNull ?? 0;
 
     return Scaffold(
       appBar: AppBar(
@@ -116,12 +118,13 @@ class MainDashboardScreen extends ConsumerWidget {
               constraints: const BoxConstraints(maxWidth: 1200),
               child: Column(
                 children: <Widget>[
-                  _PendingSyncBanner(
-                    pendingCount:
-                        ref.watch(pendingSyncCountProvider).valueOrNull ?? 0,
-                    onSyncTap: () => context.pushNamed(AppRoutes.sync),
-                  ),
-                  const SizedBox(height: 14),
+                  if (pendingCount > 0) ...<Widget>[
+                    _PendingSyncBanner(
+                      pendingCount: pendingCount,
+                      onSyncTap: () => context.pushNamed(AppRoutes.sync),
+                    ),
+                    const SizedBox(height: 14),
+                  ],
                   GridView.count(
                     shrinkWrap: true,
                     physics: const NeverScrollableScrollPhysics(),
