@@ -45,27 +45,33 @@ class MainDashboardScreen extends ConsumerWidget {
                   ),
                 ),
                 const SizedBox(width: 12),
-                InkWell(
-                  borderRadius: BorderRadius.circular(12),
-                  onTap: () => context.pushNamed(AppRoutes.profile),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: <Widget>[
-                      Text(
-                        session.userName,
-                        style: theme.textTheme.titleMedium?.copyWith(
-                          fontSize: 20,
-                          fontWeight: FontWeight.w700,
+                Flexible(
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(12),
+                    onTap: () => context.pushNamed(AppRoutes.profile),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: <Widget>[
+                        Text(
+                          session.userName,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: theme.textTheme.titleMedium?.copyWith(
+                            fontSize: 20,
+                            fontWeight: FontWeight.w700,
+                          ),
                         ),
-                      ),
-                      Text(
-                        'Tech ID: ${session.techId}',
-                        style: theme.textTheme.bodyMedium?.copyWith(
-                          fontSize: 13,
-                          color: Colors.white70,
+                        Text(
+                          'Tech ID: ${session.techId}',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: theme.textTheme.bodyMedium?.copyWith(
+                            fontSize: 13,
+                            color: Colors.white70,
+                          ),
                         ),
-                      ),
-                    ],
+                      ],
+                    ),
                   ),
                 ),
               ],
