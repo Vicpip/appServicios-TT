@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 import 'package:industrial_service_reports/core/router/app_routes.dart';
 import 'package:industrial_service_reports/core/theme/app_palette.dart';
 import 'package:industrial_service_reports/features/auth/providers/session_provider.dart';
+import 'package:industrial_service_reports/features/sync/providers/startup_sync_provider.dart';
 import 'package:industrial_service_reports/features/sync/providers/sync_queue_provider.dart';
 
 class MainDashboardScreen extends ConsumerWidget {
@@ -17,6 +18,8 @@ class MainDashboardScreen extends ConsumerWidget {
         MediaQuery.of(context).orientation == Orientation.landscape;
     final int pendingCount =
         ref.watch(pendingSyncCountProvider).valueOrNull ?? 0;
+    final bool isOnline =
+        ref.watch(startupSyncProvider).phase == StartupSyncPhase.done;
 
     return Scaffold(
       appBar: AppBar(
@@ -77,7 +80,7 @@ class MainDashboardScreen extends ConsumerWidget {
                       width: 12,
                       height: 12,
                       decoration: BoxDecoration(
-                        color: session.isOnline
+                        color: isOnline
                             ? AppPalette.success
                             : AppPalette.warning,
                         shape: BoxShape.circle,
@@ -85,10 +88,10 @@ class MainDashboardScreen extends ConsumerWidget {
                     ),
                     const SizedBox(width: 8),
                     Text(
-                      session.isOnline ? 'ONLINE' : 'OFFLINE',
+                      isOnline ? 'ONLINE' : 'OFFLINE',
                       style: theme.textTheme.titleMedium?.copyWith(
                         fontSize: 14,
-                        color: session.isOnline
+                        color: isOnline
                             ? AppPalette.success
                             : AppPalette.warning,
                         fontWeight: FontWeight.w800,
