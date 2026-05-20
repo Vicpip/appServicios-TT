@@ -27,10 +27,10 @@ class MainDashboardScreen extends ConsumerWidget {
         backgroundColor: AppPalette.surfaceDark,
         titleSpacing: 20,
         title: Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: <Widget>[
-            Row(
-              children: <Widget>[
+            Expanded(
+              child: Row(
+                children: <Widget>[
                 InkWell(
                   borderRadius: BorderRadius.circular(34),
                   onTap: () => context.pushNamed(AppRoutes.profile),
@@ -74,7 +74,8 @@ class MainDashboardScreen extends ConsumerWidget {
                     ),
                   ),
                 ),
-              ],
+                ],
+              ),
             ),
             Column(
               crossAxisAlignment: CrossAxisAlignment.end,
