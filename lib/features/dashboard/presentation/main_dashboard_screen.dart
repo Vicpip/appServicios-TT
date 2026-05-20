@@ -149,7 +149,7 @@ class MainDashboardScreen extends ConsumerWidget {
                         onTap: () => context.pushNamed(AppRoutes.qrScanner),
                       ),
                       DashboardButton(
-                        title: 'Pendientes Sync',
+                        title: 'Por Sync',
                         icon: Icons.sync_problem_rounded,
                         onTap: () => context.pushNamed(AppRoutes.sync),
                       ),
