@@ -520,6 +520,19 @@ dart run build_runner build --delete-conflicting-outputs
 
 ---
 
+## ✅ Fixes UI/UX Flutter (20/05/2026)
+
+| Fix | Archivo | Cambio |
+|-----|---------|--------|
+| Banner sync oculto cuando 0 pendientes | `main_dashboard_screen.dart` | Condicional `if (pendingCount > 0)` alrededor del banner + SizedBox |
+| Indicador ONLINE/OFFLINE real | `main_dashboard_screen.dart` | Deriva `isOnline` de `startupSyncProvider.phase == done` |
+| Nombre técnico sin overflow | `main_dashboard_screen.dart` | `Flexible` + `TextOverflow.ellipsis` en el nombre del header |
+| Label tile sync acortado | `main_dashboard_screen.dart` | `'Pendientes Sync'` → `'Por Sync'` |
+| StatusBanner responsivo | `report_summary_screen.dart` | `Row` → `Wrap` en `_StatusBanner` para evitar overflow en pantallas angostas |
+| Eliminar tile PIN en perfil | `technician_profile_screen.dart` | Eliminado tile "Cambiar PIN de Acceso" (mock sin funcionalidad) |
+
+---
+
 ## ✅ Sprint 2 — Avance actual
 
 ### ✅ Fases 1, 2, 3 y 4 — COMPLETADAS (16/03/2026)
