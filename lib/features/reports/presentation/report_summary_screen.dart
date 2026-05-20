@@ -359,7 +359,10 @@ class _StatusBanner extends StatelessWidget {
         borderRadius: BorderRadius.circular(12),
         border: Border.all(color: AppPalette.surfaceDarkHighlight),
       ),
-      child: Row(
+      child: Wrap(
+        alignment: WrapAlignment.spaceBetween,
+        crossAxisAlignment: WrapCrossAlignment.center,
+        runSpacing: 8,
         children: <Widget>[
           RichText(
             text: const TextSpan(
@@ -384,7 +387,6 @@ class _StatusBanner extends StatelessWidget {
               ],
             ),
           ),
-          const Spacer(),
           Chip(
             backgroundColor: AppPalette.warningDark,
             side: const BorderSide(color: AppPalette.warning),
