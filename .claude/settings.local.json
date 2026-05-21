@@ -33,7 +33,8 @@
       "Bash(done)",
       "Bash(venv/Scripts/activate)",
       "Bash(alembic revision:*)",
-      "Bash(Get-ChildItem *)"
+      "Bash(Get-ChildItem *)",
+      "Bash(npx tsc *)"
     ]
   }
 }

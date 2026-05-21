@@ -738,6 +738,25 @@ def _next_code(db: Session, model, prefix: str, digits: int = 4) -> str:
     return f"{prefix}-{max(nums, default=0) + 1:0{digits}d}"
 
 
+_SPECIAL_CHARS = set("!@#$%^&*()_+-=[]{}|;':\",./<>?`~\\")
+
+
+def _validate_password(password: str, username: str) -> None:
+    """Raise HTTP 400 if password doesn't meet security rules."""
+    if len(password) < 10:
+        raise HTTPException(status_code=400, detail="La contraseña debe tener al menos 10 caracteres.")
+    if not any(c.isupper() for c in password):
+        raise HTTPException(status_code=400, detail="La contraseña debe contener al menos una letra mayúscula.")
+    if not any(c.islower() for c in password):
+        raise HTTPException(status_code=400, detail="La contraseña debe contener al menos una letra minúscula.")
+    if not any(c.isdigit() for c in password):
+        raise HTTPException(status_code=400, detail="La contraseña debe contener al menos un número.")
+    if not any(c in _SPECIAL_CHARS for c in password):
+        raise HTTPException(status_code=400, detail="La contraseña debe contener al menos un carácter especial (!@#$%^&*...).")
+    if username and username.lower() in password.lower():
+        raise HTTPException(status_code=400, detail="La contraseña no puede contener el nombre del usuario.")
+
+
 def _hash_password(password: str) -> str:
     """Hash a password using PBKDF2-HMAC-SHA256 with a random salt."""
     salt = secrets.token_hex(16)
@@ -1257,6 +1276,8 @@ def create_technician(body: TechnicianCreate, db: Session = Depends(get_db)) -> 
     if db.query(User).filter(User.email == body.email).first():
         raise HTTPException(status_code=409, detail=f"Email '{body.email}' already exists")
 
+    _validate_password(body.password, body.name)
+
     tech = User(
         id=str(uuid.uuid4()),
         code=_next_code(db, User, "T"),
@@ -1298,6 +1319,9 @@ def update_technician(
         tech.name = body.name
     if body.role is not None:
         tech.role = body.role
+    if body.password is not None:
+        _validate_password(body.password, tech.name)
+        tech.password_hash = _hash_password(body.password)
 
     db.commit()
     db.refresh(tech)

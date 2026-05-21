@@ -181,6 +181,7 @@ class TechnicianUpdate(BaseModel):
     name: str | None = None
     email: str | None = None
     role: str | None = None
+    password: str | None = None
 
 
 class ClientCreate(BaseModel):

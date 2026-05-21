@@ -1,8 +1,9 @@
-import { useLocation } from 'react-router-dom'
+import { useLocation, useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { Menu, Wifi, WifiOff } from 'lucide-react'
+import { LogOut, Menu, Wifi, WifiOff } from 'lucide-react'
 import apiClient from '@/api/client'
 import { API } from '@/api/endpoints'
+import { useAuth } from '@/auth/AuthContext'
 
 const SECTION_LABELS: Record<string, string> = {
   '/': 'Dashboard',
@@ -32,7 +33,14 @@ interface HeaderProps {
 
 const Header = ({ onMobileMenuToggle }: HeaderProps) => {
   const location = useLocation()
+  const navigate = useNavigate()
+  const { logout } = useAuth()
   const sectionTitle = getSectionTitle(location.pathname)
+
+  const handleLogout = () => {
+    logout()
+    navigate('/login', { replace: true })
+  }
 
   const { data: healthData, isError } = useQuery({
     queryKey: ['health'],
@@ -78,40 +86,52 @@ const Header = ({ onMobileMenuToggle }: HeaderProps) => {
         </h1>
       </div>
 
-      {/* Right: API health status chip */}
-      <div
-        className={[
-          'flex items-center gap-2 px-3 py-1.5 rounded-full border text-sm font-medium font-sans',
-          'transition-colors duration-300',
-          isConnected
-            ? 'bg-green-50 border-green-200 text-green-700'
-            : 'bg-red-50 border-red-200 text-red-600',
-        ].join(' ')}
-        role="status"
-        aria-label={isConnected ? 'API conectada' : 'API desconectada'}
-        title={isConnected ? 'Servidor respondiendo correctamente' : 'No se puede conectar al servidor'}
-      >
-        {isConnected ? (
-          <>
-            <span
-              className="w-2 h-2 rounded-full bg-green-500 animate-pulse shrink-0"
-              aria-hidden="true"
-            />
-            <Wifi size={13} className="shrink-0" aria-hidden="true" />
-            <span className="hidden sm:inline">API Conectada</span>
-            <span className="sm:hidden">Online</span>
-          </>
-        ) : (
-          <>
-            <span
-              className="w-2 h-2 rounded-full bg-red-500 shrink-0"
-              aria-hidden="true"
-            />
-            <WifiOff size={13} className="shrink-0" aria-hidden="true" />
-            <span className="hidden sm:inline">API Desconectada</span>
-            <span className="sm:hidden">Offline</span>
-          </>
-        )}
+      {/* Right: logout + API health status */}
+      <div className="flex items-center gap-2">
+        <button
+          onClick={handleLogout}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium text-gray-600 hover:text-red-600 hover:bg-red-50 transition-colors"
+          title="Cerrar sesión"
+          aria-label="Cerrar sesión"
+        >
+          <LogOut size={15} aria-hidden="true" />
+          <span className="hidden sm:inline">Cerrar sesión</span>
+        </button>
+
+        <div
+          className={[
+            'flex items-center gap-2 px-3 py-1.5 rounded-full border text-sm font-medium font-sans',
+            'transition-colors duration-300',
+            isConnected
+              ? 'bg-green-50 border-green-200 text-green-700'
+              : 'bg-red-50 border-red-200 text-red-600',
+          ].join(' ')}
+          role="status"
+          aria-label={isConnected ? 'API conectada' : 'API desconectada'}
+          title={isConnected ? 'Servidor respondiendo correctamente' : 'No se puede conectar al servidor'}
+        >
+          {isConnected ? (
+            <>
+              <span
+                className="w-2 h-2 rounded-full bg-green-500 animate-pulse shrink-0"
+                aria-hidden="true"
+              />
+              <Wifi size={13} className="shrink-0" aria-hidden="true" />
+              <span className="hidden sm:inline">API Conectada</span>
+              <span className="sm:hidden">Online</span>
+            </>
+          ) : (
+            <>
+              <span
+                className="w-2 h-2 rounded-full bg-red-500 shrink-0"
+                aria-hidden="true"
+              />
+              <WifiOff size={13} className="shrink-0" aria-hidden="true" />
+              <span className="hidden sm:inline">API Desconectada</span>
+              <span className="sm:hidden">Offline</span>
+            </>
+          )}
+        </div>
       </div>
     </header>
   )

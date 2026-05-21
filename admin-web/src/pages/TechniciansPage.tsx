@@ -56,6 +56,38 @@ function InitialAvatar({ name }: { name: string }) {
 }
 
 // ---------------------------------------------------------------------------
+// Password rules
+// ---------------------------------------------------------------------------
+
+const PWD_RULES = [
+  { label: 'Mínimo 10 caracteres', test: (p: string) => p.length >= 10 },
+  { label: 'Una mayúscula', test: (p: string) => /[A-Z]/.test(p) },
+  { label: 'Una minúscula', test: (p: string) => /[a-z]/.test(p) },
+  { label: 'Un número', test: (p: string) => /\d/.test(p) },
+  { label: 'Un carácter especial', test: (p: string) => /[!@#$%^&*()_+\-=[\]{}|;':",./<>?`~\\]/.test(p) },
+]
+
+function isPwdValid(p: string) {
+  return PWD_RULES.every((r) => r.test(p))
+}
+
+function PwdRules({ password }: { password: string }) {
+  return (
+    <ul className="mt-2 space-y-0.5">
+      {PWD_RULES.map((rule) => {
+        const ok = rule.test(password)
+        return (
+          <li key={rule.label} className={`flex items-center gap-1.5 text-xs font-sans transition-colors ${ok ? 'text-green-600' : 'text-gray-400'}`}>
+            <span className="font-bold w-3 shrink-0">{ok ? '✓' : '○'}</span>
+            {rule.label}
+          </li>
+        )
+      })}
+    </ul>
+  )
+}
+
+// ---------------------------------------------------------------------------
 // Technician modal (create / edit)
 // ---------------------------------------------------------------------------
 
@@ -93,6 +125,7 @@ function TechModal({ tech, onClose }: TechModalProps) {
         if (form.name !== tech!.name) payload.name = form.name
         if (form.email !== tech!.email) payload.email = form.email
         if (form.role !== tech!.role) payload.role = form.role
+        if (form.password) payload.password = form.password
         await apiClient.put(API.technicians.detail(tech!.id), payload)
       } else {
         await apiClient.post(API.technicians.create, {
@@ -120,11 +153,22 @@ function TechModal({ tech, onClose }: TechModalProps) {
       setError('Nombre y email son obligatorios.')
       return
     }
-    if (!isEdit) {
+
+    const pwdFilled = form.password.length > 0
+    const confirmFilled = form.confirmPassword.length > 0
+
+    if (isEdit) {
+      if (pwdFilled || confirmFilled) {
+        if (!pwdFilled || !confirmFilled) { setError('Completa ambos campos de contraseña.'); return }
+        if (form.password !== form.confirmPassword) { setError('Las contraseñas no coinciden.'); return }
+        if (!isPwdValid(form.password)) { setError('La contraseña no cumple los requisitos de seguridad.'); return }
+      }
+    } else {
       if (!form.password) { setError('La contraseña es obligatoria.'); return }
       if (form.password !== form.confirmPassword) { setError('Las contraseñas no coinciden.'); return }
-      if (form.password.length < 6) { setError('La contraseña debe tener al menos 6 caracteres.'); return }
+      if (!isPwdValid(form.password)) { setError('La contraseña no cumple los requisitos de seguridad.'); return }
     }
+
     saveMutation.mutate()
   }
 
@@ -135,7 +179,7 @@ function TechModal({ tech, onClose }: TechModalProps) {
     <>
       <div className="fixed inset-0 bg-black/40 z-40" onClick={onClose} />
       <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-        <div className="bg-white rounded-xl shadow-2xl w-full max-w-md flex flex-col">
+        <div className="bg-white rounded-xl shadow-2xl w-full max-w-md flex flex-col max-h-[90vh]">
           {/* Header */}
           <div className="flex items-center justify-between px-6 py-4 border-b border-border shrink-0">
             <div className="flex items-center gap-2">
@@ -149,8 +193,8 @@ function TechModal({ tech, onClose }: TechModalProps) {
             </button>
           </div>
 
-          <form onSubmit={handleSubmit}>
-            <div className="px-6 py-5 space-y-4">
+          <form onSubmit={handleSubmit} className="flex flex-col min-h-0">
+            <div className="px-6 py-5 space-y-4 overflow-y-auto">
               <div>
                 <label className={labelCls}>Nombre completo *</label>
                 <input type="text" value={form.name} onChange={(e) => setForm((p) => ({ ...p, name: e.target.value }))} className={inputCls} placeholder="Juan García López" />
@@ -167,6 +211,7 @@ function TechModal({ tech, onClose }: TechModalProps) {
                 </select>
               </div>
 
+              {/* Password section — required for create, optional for edit */}
               {!isEdit && (
                 <>
                   <div>
@@ -174,25 +219,68 @@ function TechModal({ tech, onClose }: TechModalProps) {
                     <div className="relative">
                       <input
                         type={showPwd ? 'text' : 'password'}
+                        autoComplete="new-password"
                         value={form.password}
                         onChange={(e) => setForm((p) => ({ ...p, password: e.target.value }))}
                         className={`${inputCls} pr-10`}
-                        placeholder="Mínimo 6 caracteres"
+                        placeholder="Mínimo 10 caracteres"
                       />
                       <button type="button" onClick={() => setShowPwd((v) => !v)} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">
                         {showPwd ? <EyeOff size={15} /> : <Eye size={15} />}
                       </button>
                     </div>
+                    {form.password && <PwdRules password={form.password} />}
                   </div>
                   <div>
                     <label className={labelCls}>Confirmar contraseña *</label>
                     <input
                       type={showPwd ? 'text' : 'password'}
+                      autoComplete="new-password"
                       value={form.confirmPassword}
                       onChange={(e) => setForm((p) => ({ ...p, confirmPassword: e.target.value }))}
                       className={inputCls}
                       placeholder="Repite la contraseña"
                     />
+                  </div>
+                </>
+              )}
+
+              {isEdit && (
+                <>
+                  <div className="border-t border-dashed border-gray-200 pt-4">
+                    <p className="text-xs font-semibold text-gray-400 font-sans uppercase tracking-wide mb-3">
+                      Cambiar contraseña <span className="normal-case font-normal">(opcional)</span>
+                    </p>
+                    <div className="space-y-3">
+                      <div>
+                        <label className={labelCls}>Nueva contraseña</label>
+                        <div className="relative">
+                          <input
+                            type={showPwd ? 'text' : 'password'}
+                            autoComplete="new-password"
+                            value={form.password}
+                            onChange={(e) => setForm((p) => ({ ...p, password: e.target.value }))}
+                            className={`${inputCls} pr-10`}
+                            placeholder="Dejar vacío para no cambiar"
+                          />
+                          <button type="button" onClick={() => setShowPwd((v) => !v)} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">
+                            {showPwd ? <EyeOff size={15} /> : <Eye size={15} />}
+                          </button>
+                        </div>
+                        {form.password && <PwdRules password={form.password} />}
+                      </div>
+                      <div>
+                        <label className={labelCls}>Confirmar contraseña</label>
+                        <input
+                          type={showPwd ? 'text' : 'password'}
+                          autoComplete="new-password"
+                          value={form.confirmPassword}
+                          onChange={(e) => setForm((p) => ({ ...p, confirmPassword: e.target.value }))}
+                          className={inputCls}
+                          placeholder="Repite la nueva contraseña"
+                        />
+                      </div>
+                    </div>
                   </div>
                 </>
               )}
@@ -205,7 +293,7 @@ function TechModal({ tech, onClose }: TechModalProps) {
               )}
             </div>
 
-            <div className="px-6 py-4 border-t border-border bg-gray-50 flex gap-2 justify-end">
+            <div className="px-6 py-4 border-t border-border bg-gray-50 flex gap-2 justify-end shrink-0">
               <button type="button" onClick={onClose} className="px-4 py-2 text-sm font-semibold text-gray-600 font-sans rounded-lg hover:bg-gray-100 transition-colors">
                 Cancelar
               </button>

@@ -520,6 +520,30 @@ dart run build_runner build --delete-conflicting-outputs
 
 ---
 
+## ✅ Autenticación Admin Web (20/05/2026)
+
+| Cambio | Descripción |
+|--------|-------------|
+| `src/auth/authToken.ts` | Utilidades de token: `getToken/setToken/clearToken` en `localStorage` con clave `smp_admin_token` |
+| `src/auth/AuthContext.tsx` | Context React: `login`, `logout`, `sessionExpired`, idle timeout 60 min con eventos de actividad, listener de evento `auth:unauthorized` |
+| `src/pages/LoginPage.tsx` | Pantalla `/login`: email + contraseña, rate limiting 5 intentos → bloqueo 30s con contador, error genérico "Credenciales inválidas", spinner, aviso sesión expirada |
+| `src/components/ProtectedRoute.tsx` | Guard de rutas: redirige a `/login` si no autenticado |
+| `src/api/client.ts` | Interceptor request: inyecta `Authorization: Bearer {token}`. Interceptor response: 401 → clearToken + dispatchEvent `auth:unauthorized` |
+| `src/router.tsx` | Ruta `/login` libre + rutas bajo `/` envueltas en `<ProtectedRoute>` |
+| `src/main.tsx` | `<AuthProvider>` wrapping `<RouterProvider>` |
+| `src/components/layout/Header.tsx` | Botón "Cerrar sesión" con ícono LogOut en el header |
+
+**Seguridad implementada:**
+- Rate limiting: 5 intentos fallidos → bloqueo 30s con countdown visible
+- Error siempre "Credenciales inválidas" (sin revelar si es usuario o contraseña)
+- Password limpiado en cada error; foco devuelto al campo
+- Token nunca aparece en logs ni URLs
+- `autocomplete="off"` en campo contraseña, `type="password"`
+- Interceptor global 401 → cierra sesión automáticamente desde cualquier página
+- Idle timeout 60 min → cierra sesión y muestra aviso "Sesión expirada"
+
+---
+
 ## ✅ Mejoras Dashboard Admin Web (20/05/2026)
 
 | Cambio | Descripción |
