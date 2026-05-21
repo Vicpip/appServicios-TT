@@ -9,6 +9,7 @@ export const API = {
     list: '/api/admin/clients',
     create: '/api/admin/clients',
     detail: (id: string) => `/api/admin/clients/${id}`,
+    clientDetail: (id: string) => `/api/admin/clients/${id}/detail`,
   },
   technicians: {
     list: '/api/admin/technicians',
@@ -21,6 +22,9 @@ export const API = {
     create: '/api/admin/printers',
     detail: (id: string) => `/api/admin/printers/${id}`,
     reports: (id: string) => `/api/admin/printers/${id}/reports`,
+    stats: (id: string) => `/api/admin/printers/${id}/stats`,
+    downloadTemplate: '/api/admin/printers/template/download',
+    bulkUpload: '/api/admin/printers/bulk-upload',
   },
   plants: {
     list: '/api/admin/plants',

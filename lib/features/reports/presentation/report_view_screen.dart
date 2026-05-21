@@ -4,6 +4,7 @@ import 'dart:io' as io;
 import 'dart:typed_data';
 
 import 'package:drift/drift.dart' show Value;
+import 'package:industrial_service_reports/core/utils/date_utils.dart' show formatLocalCDMX;
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:http/http.dart' as http;
@@ -49,11 +50,6 @@ class _ReportViewScreenState extends State<ReportViewScreen> {
     'Sensor papel dañado',
     'Pruebas',
     'Otros',
-  ];
-
-  static const List<String> _monthNames = <String>[
-    'Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun',
-    'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic',
   ];
 
   static const List<String> _serviceTypeOptions = <String>[
@@ -309,8 +305,12 @@ class _ReportViewScreenState extends State<ReportViewScreen> {
         // Overwrite local PDF file if it exists
         try {
           final io.Directory appDir = await getApplicationDocumentsDirectory();
+          final User? techForName = await (widget.database
+                  .select(widget.database.users)
+                ..where((Users u) => u.id.equals(report.techId)))
+              .getSingleOrNull();
           final String pdfPath =
-              '${appDir.path}/reports/pdfs/report_${widget.reportId}.pdf';
+              '${appDir.path}/reports/pdfs/${PdfService.reportPdfName(report, techForName)}';
           if (io.File(pdfPath).existsSync()) {
             await io.File(pdfPath).writeAsBytes(pdfBytes);
           }
@@ -394,10 +394,7 @@ class _ReportViewScreenState extends State<ReportViewScreen> {
 
   // ── Helpers ────────────────────────────────────────────────────────────────
 
-  String _formatDate(DateTime date) {
-    return '${date.day.toString().padLeft(2, '0')} '
-        '${_monthNames[date.month - 1]} ${date.year}';
-  }
+  String _formatDate(DateTime date) => formatLocalCDMX(date);
 
   InputDecoration _editDecoration(String label) {
     return InputDecoration(

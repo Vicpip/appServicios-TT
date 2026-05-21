@@ -1,6 +1,7 @@
 import 'dart:io' as io;
 
 import 'package:flutter/material.dart';
+import 'package:industrial_service_reports/core/utils/date_utils.dart' show formatLocalCDMX;
 import 'package:go_router/go_router.dart';
 import 'package:industrial_service_reports/core/router/app_routes.dart';
 import 'package:industrial_service_reports/core/theme/app_palette.dart';
@@ -208,9 +209,7 @@ class _DeliveryCard extends StatelessWidget {
                 const SizedBox(width: 6),
                 Text(
                   '${report.serviceType}  •  '
-                  '${report.serviceDate.day.toString().padLeft(2, '0')}/'
-                  '${report.serviceDate.month.toString().padLeft(2, '0')}/'
-                  '${report.serviceDate.year}',
+                  '${formatLocalCDMX(report.serviceDate)}',
                   style: const TextStyle(color: Colors.white70),
                 ),
               ]),

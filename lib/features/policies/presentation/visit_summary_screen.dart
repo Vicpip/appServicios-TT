@@ -1,4 +1,8 @@
+import 'dart:convert';
+import 'dart:io' as io;
+
 import 'package:flutter/material.dart';
+import 'package:industrial_service_reports/core/utils/date_utils.dart' show formatLocalCDMX;
 import 'package:go_router/go_router.dart';
 import 'package:industrial_service_reports/core/router/app_routes.dart';
 import 'package:industrial_service_reports/core/router/route_args.dart';
@@ -6,7 +10,9 @@ import 'package:industrial_service_reports/core/theme/app_palette.dart';
 import 'package:industrial_service_reports/data/local/app_database.dart';
 import 'package:industrial_service_reports/data/local/local_database.dart';
 import 'package:industrial_service_reports/features/reports/services/pdf_service.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:printing/printing.dart' as printing_pkg;
+import 'package:uuid/uuid.dart';
 
 class VisitSummaryScreen extends StatefulWidget {
   const VisitSummaryScreen({super.key, required this.args});
@@ -20,6 +26,7 @@ class VisitSummaryScreen extends StatefulWidget {
 class _VisitSummaryScreenState extends State<VisitSummaryScreen> {
   bool _loading = true;
   bool _isDownloadingDeliveryPdf = false;
+  bool _isEnqueuingDeliveryPdf = false;
   PolicyDelivery? _delivery;
   List<_ReportRow> _rows = const <_ReportRow>[];
 
@@ -183,13 +190,56 @@ class _VisitSummaryScreenState extends State<VisitSummaryScreen> {
     }
   }
 
-  String _formatDate(DateTime date) {
-    const List<String> months = <String>[
-      'Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun',
-      'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic',
-    ];
-    return '${date.day.toString().padLeft(2, '0')} ${months[date.month - 1]} ${date.year}';
+  // ── Encolar PDF de entrega para sync ────────────────────────────────────────
+
+  Future<void> _enqueueDeliveryPdf() async {
+    setState(() => _isEnqueuingDeliveryPdf = true);
+    try {
+      final AppDatabase db = localDatabase;
+      final User? technician = await (db.select(db.users)
+            ..where((Users u) => u.id.equals(_delivery!.techId)))
+          .getSingleOrNull();
+      final String fileName =
+          PdfService.deliveryPdfName(widget.args.policyFolio, technician);
+      final io.Directory dir = await getApplicationDocumentsDirectory();
+      final String summaryPath = '${dir.path}/deliveries/$fileName';
+      if (!io.File(summaryPath).existsSync()) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('PDF no encontrado en el dispositivo')),
+        );
+        return;
+      }
+      await db.into(db.syncQueue).insert(
+        SyncQueueCompanion.insert(
+          id: const Uuid().v4(),
+          methodHttp: 'POST',
+          endpointDestino: '/api/files',
+          payloadJson: jsonEncode(<String, dynamic>{
+            'localPath': summaryPath,
+            'fileCategory': 'delivery_pdf',
+          }),
+          entityType: 'delivery_pdf',
+          entityId: _delivery!.id,
+        ),
+      );
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+            content: Text('PDF encolado — sincroniza para subirlo')),
+      );
+    } catch (e) {
+      debugPrint('[VisitSummary] _enqueueDeliveryPdf error: $e');
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error: $e')),
+      );
+    } finally {
+      if (mounted) setState(() => _isEnqueuingDeliveryPdf = false);
+    }
   }
+
+  String _formatDate(DateTime date) => formatLocalCDMX(date);
 
   @override
   Widget build(BuildContext context) {
@@ -232,6 +282,8 @@ class _VisitSummaryScreenState extends State<VisitSummaryScreen> {
                           _buildReportsList(),
                           const SizedBox(height: 16),
                           _buildPdfButton(),
+                          const SizedBox(height: 8),
+                          _buildEnqueuePdfButton(),
                           const SizedBox(height: 24),
                         ],
                       ),
@@ -401,6 +453,34 @@ class _VisitSummaryScreenState extends State<VisitSummaryScreen> {
           foregroundColor: AppPalette.backgroundLight,
           shape:
               RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildEnqueuePdfButton() {
+    return SizedBox(
+      width: double.infinity,
+      height: 48,
+      child: OutlinedButton.icon(
+        onPressed:
+            _isEnqueuingDeliveryPdf ? null : _enqueueDeliveryPdf,
+        icon: _isEnqueuingDeliveryPdf
+            ? const SizedBox(
+                width: 16,
+                height: 16,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              )
+            : const Icon(Icons.upload_rounded, size: 18),
+        label: const Text(
+          'Subir PDF de entrega',
+          style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700),
+        ),
+        style: OutlinedButton.styleFrom(
+          foregroundColor: AppPalette.primary,
+          side: const BorderSide(color: AppPalette.primary),
+          shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12)),
         ),
       ),
     );

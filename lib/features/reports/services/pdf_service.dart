@@ -1078,7 +1078,6 @@ class PdfService {
       'Cabezal dañado',
       'Sensor ribbon dañado',
       'Sensor papel dañado',
-      'Otros',
     ];
 
     return pw.Column(
@@ -1146,7 +1145,7 @@ class PdfService {
                         padding: const pw.EdgeInsets.symmetric(
                             horizontal: 4, vertical: 2),
                         child: pw.Text(
-                          hasWarning ? 'Advertencia' : 'Correcto',
+                          hasWarning ? 'En Atención' : 'Correcto',
                           style: pw.TextStyle(
                             fontSize: 9,
                             color: hasWarning
@@ -1180,6 +1179,35 @@ class PdfService {
         ),
       ),
     );
+  }
+
+  // ── Nombres de archivo legibles ─────────────────────────────────────────────
+
+  static String _buildTechInitials(String? techName, String? techCode) {
+    if (techName == null || techName.isEmpty) return 'TEC';
+    final List<String> words = techName.trim().split(RegExp(r'\s+'));
+    final String initials = words.map((String w) => w[0].toUpperCase()).join();
+    final String suffix = (techCode != null && techCode.length >= 6)
+        ? techCode[techCode.length - 1]
+        : '';
+    return '$initials$suffix';
+  }
+
+  static String reportPdfName(Report? report, User? technician) {
+    final String initials =
+        _buildTechInitials(technician?.name, technician?.code);
+    final String num = (report?.code ?? '').replaceAll('R-', '');
+    if (num.isEmpty) {
+      final String fallback = report?.id.substring(0, 8) ?? 'XXX';
+      return 'R-$initials-$fallback.pdf';
+    }
+    return 'R-$initials-$num.pdf';
+  }
+
+  static String deliveryPdfName(String policyFolio, User? technician) {
+    final String initials =
+        _buildTechInitials(technician?.name, technician?.code);
+    return '$policyFolio-$initials.pdf';
   }
 }
 

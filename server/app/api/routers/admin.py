@@ -1,18 +1,24 @@
 import hashlib
+import io
 import json
+import logging
+import re
 import secrets
 import uuid
 from datetime import date, datetime, time, timedelta, timezone
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, File as FastAPIFile, HTTPException, Query, UploadFile
+from fastapi.responses import StreamingResponse
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
 from app.database import get_db
 from app.models.area import Area
-from app.models.catalog import CatalogModel
+from app.models.catalog import CatalogLabelType, CatalogModel
+
+logger = logging.getLogger(__name__)
 from app.models.client import Client
 from app.models.file import EntityFile, File
 from app.models.plant import Plant
@@ -346,6 +352,132 @@ def list_clients(
 
 
 # ---------------------------------------------------------------------------
+# GET /api/admin/clients/{client_id}/detail
+# ---------------------------------------------------------------------------
+
+@router.get("/clients/{client_id}/detail", response_model=dict)
+def get_client_detail(client_id: str, db: Session = Depends(get_db)) -> dict:
+    client = db.get(Client, client_id)
+    if not client:
+        raise HTTPException(status_code=404, detail="Client not found")
+
+    plants = db.query(Plant).filter(Plant.client_id == client_id).all()
+    printers = db.query(Printer).filter(Printer.client_id == client_id).all()
+
+    now = _now_utc()
+    thirty_days_ago = now - timedelta(days=30)
+
+    en_atencion_count = 0
+    printer_rows = []
+
+    for p in printers:
+        last_report = (
+            db.query(Report)
+            .filter(Report.printer_id == p.id)
+            .order_by(Report.service_date.desc())
+            .first()
+        )
+        _en_atencion = False
+        ultimo_contador = None
+        if last_report:
+            ultimo_contador = last_report.linear_inches_counter
+            try:
+                cb = json.loads(last_report.technical_checkboxes or "{}")
+                for key in _DAMAGE_KEYS:
+                    if cb.get(key) is True:
+                        _en_atencion = True
+                        break
+            except (json.JSONDecodeError, AttributeError):
+                pass
+
+        if _en_atencion:
+            en_atencion_count += 1
+
+        total_reportes = (
+            db.query(func.count(Report.id)).filter(Report.printer_id == p.id).scalar() or 0
+        )
+        model = db.get(CatalogModel, p.model_id) if p.model_id else None
+        plant_obj = db.get(Plant, p.plant_id) if p.plant_id else None
+        area_obj = db.get(Area, p.area_id) if p.area_id else None
+        model_name = f"{model.brand} {model.model_name}" if model else None
+
+        printer_rows.append({
+            "id": p.id,
+            "code": p.code,
+            "serial_number": p.serial_number,
+            "is_active": p.is_active,
+            "model_name": model_name,
+            "area_name": area_obj.name if area_obj else None,
+            "plant_name": plant_obj.name if plant_obj else None,
+            "ultimo_contador": ultimo_contador,
+            "en_atencion": _en_atencion,
+            "total_reportes": total_reportes,
+        })
+
+    # Reports last 30 days
+    reports_30d = (
+        db.query(Report)
+        .join(Printer, Report.printer_id == Printer.id)
+        .filter(Printer.client_id == client_id)
+        .filter(Report.service_date >= thirty_days_ago)
+        .all()
+    )
+    r_total = len(reports_30d)
+    r_preventivos = sum(1 for r in reports_30d if (r.service_type or "").lower() == "preventivo")
+    r_correctivos = sum(1 for r in reports_30d if (r.service_type or "").lower() == "correctivo")
+    r_diagnosticos = sum(
+        1 for r in reports_30d
+        if (r.service_type or "").lower() in ("diagnóstico", "diagnostico", "diagnóstico")
+    )
+
+    # Policies
+    all_policies = db.query(Policy).filter(Policy.client_id == client_id).all()
+    polizas_activas = sum(1 for p in all_policies if p.end_date and p.end_date.replace(tzinfo=None) >= now)
+    polizas_vencidas = sum(1 for p in all_policies if p.end_date and p.end_date.replace(tzinfo=None) < now)
+
+    # Top printer (most reports)
+    impresora_mas_servicios = None
+    if printer_rows:
+        top = max(printer_rows, key=lambda x: x["total_reportes"])
+        if top["total_reportes"] > 0:
+            impresora_mas_servicios = {
+                "serial_number": top["serial_number"],
+                "code": top["code"],
+                "model_name": top["model_name"],
+                "total_reportes": top["total_reportes"],
+            }
+
+    return {
+        "client": {
+            "id": client.id,
+            "name": client.name,
+            "rfc": client.rfc,
+            "address": client.address,
+            "is_active": client.is_active,
+        },
+        "plants": [
+            {"id": pl.id, "name": pl.name, "contact_name": pl.contact_name, "phone": pl.phone}
+            for pl in plants
+        ],
+        "stats": {
+            "total_impresoras": len(printers),
+            "impresoras_activas": sum(1 for p in printers if p.is_active),
+            "impresoras_en_atencion": en_atencion_count,
+            "reportes_ultimo_mes": {
+                "total": r_total,
+                "preventivos": r_preventivos,
+                "correctivos": r_correctivos,
+                "diagnosticos": r_diagnosticos,
+            },
+            "polizas_activas": polizas_activas,
+            "polizas_vencidas": polizas_vencidas,
+            "impresora_mas_servicios": impresora_mas_servicios,
+        },
+        "printers": printer_rows,
+    }
+
+
+# ---------------------------------------------------------------------------
 # GET /api/admin/technicians
 # ---------------------------------------------------------------------------
 
@@ -539,6 +671,241 @@ def list_printers(
 
 
 # ---------------------------------------------------------------------------
+# GET /api/admin/printers/template/download  — Excel template
+# MUST be registered before /printers/{printer_id} to avoid route capture
+# ---------------------------------------------------------------------------
+
+_SAFE_STR_RE = re.compile(r"[<>;/*\x00]|--|/\*|\*/")
+
+
+def _sanitize_upload_str(s: str) -> str:
+    return _SAFE_STR_RE.sub("", s).strip()
+
+
+@router.get("/printers/template/download")
+def download_printers_template(db: Session = Depends(get_db)) -> StreamingResponse:
+    import openpyxl
+    from openpyxl.styles import Font, PatternFill
+
+    wb = openpyxl.Workbook()
+
+    # Sheet 1 — Impresoras (data entry)
+    ws = wb.active
+    ws.title = "Impresoras"
+    header = ["serie", "cliente", "planta", "area", "marca", "modelo", "dpi"]
+    ws.append(header)
+    for col, _ in enumerate(header, start=1):
+        ws.cell(1, col).font = Font(bold=True)
+    ws.append(["ZBR-12345", "Mi Cliente S.A.", "Planta Norte", "Almacén", "Zebra", "ZT411", "203"])
+
+    # Sheet 2 — Instrucciones
+    ws2 = wb.create_sheet("Instrucciones")
+    ws2.column_dimensions["A"].width = 12
+    ws2.column_dimensions["B"].width = 50
+    ws2.column_dimensions["C"].width = 20
+    ws2.column_dimensions["D"].width = 12
+    rows_inst = [
+        ("Campo", "Descripción", "Ejemplo", "Obligatorio"),
+        ("serie", "Número de serie de la impresora (debe ser único)", "ZBR-12345", "Sí"),
+        ("cliente", "Nombre exacto del cliente registrado en el sistema", "Mi Cliente S.A.", "Sí"),
+        ("planta", "Nombre de la planta (se crea automáticamente si no existe)", "Planta Norte", "Sí"),
+        ("area", "Nombre del área (se crea automáticamente si no existe)", "Almacén", "Sí"),
+        ("marca", "Marca de la impresora (se crea modelo si no existe)", "Zebra", "No"),
+        ("modelo", "Nombre del modelo de la impresora", "ZT411", "No"),
+        ("dpi", "Resolución en DPI (default: 203 si se omite)", "203", "No"),
+    ]
+    for r in rows_inst:
+        ws2.append(r)
+    for col in range(1, 5):
+        ws2.cell(1, col).font = Font(bold=True)
+
+    # Sheet 3 — Catálogos
+    ws3 = wb.create_sheet("Catálogos")
+    ws3.append(["CLIENTES ACTIVOS", "", "", "MODELOS ACTIVOS", "", ""])
+    ws3.append(["Nombre", "", "", "Marca", "Modelo", "DPI"])
+    for col in [1, 4]:
+        ws3.cell(1, col).font = Font(bold=True)
+        ws3.cell(2, col).font = Font(bold=True)
+
+    clients_q = db.query(Client).filter(Client.is_active.is_(True)).order_by(Client.name).all()
+    models_q = db.query(CatalogModel).order_by(CatalogModel.brand, CatalogModel.model_name).all()
+    max_rows = max(len(clients_q), len(models_q), 1)
+    for i in range(max_rows):
+        c_name = clients_q[i].name if i < len(clients_q) else ""
+        m_brand = models_q[i].brand if i < len(models_q) else ""
+        m_model = models_q[i].model_name if i < len(models_q) else ""
+        m_dpi = str(models_q[i].dpi) if i < len(models_q) else ""
+        ws3.append([c_name, "", "", m_brand, m_model, m_dpi])
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    return StreamingResponse(
+        buf,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": "attachment; filename=plantilla_impresoras.xlsx"},
+    )
+
+
+# ---------------------------------------------------------------------------
+# POST /api/admin/printers/bulk-upload
+# ---------------------------------------------------------------------------
+
+@router.post("/printers/bulk-upload", response_model=dict)
+async def bulk_upload_printers(
+    file: UploadFile = FastAPIFile(...),
+    db: Session = Depends(get_db),
+) -> dict:
+    import csv
+    import openpyxl
+
+    filename = file.filename or ""
+    ext = Path(filename).suffix.lower()
+    if ext not in (".xlsx", ".csv"):
+        raise HTTPException(status_code=400, detail="Solo se aceptan archivos .xlsx o .csv")
+
+    content = await file.read()
+
+    if len(content) > 5 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="El archivo no puede superar 5 MB")
+
+    if ext == ".xlsx" and content[:4] != b"PK\x03\x04":
+        raise HTTPException(status_code=400, detail="El archivo no es un Excel válido (.xlsx)")
+
+    rows: list[dict[str, str]] = []
+    if ext == ".xlsx":
+        wb = openpyxl.load_workbook(io.BytesIO(content), read_only=True, data_only=True)
+        ws = wb.active
+        headers: list[str] | None = None
+        for row in ws.iter_rows(values_only=True):
+            if headers is None:
+                headers = [str(c).strip().lower() if c is not None else "" for c in row]
+                continue
+            if all(c is None for c in row):
+                continue
+            rows.append(dict(zip(headers, [str(c).strip() if c is not None else "" for c in row])))
+        wb.close()
+    else:
+        text = content.decode("utf-8-sig", errors="replace")
+        reader = csv.DictReader(io.StringIO(text))
+        for row in reader:
+            rows.append({k.strip().lower(): v.strip() for k, v in row.items()})
+
+    if len(rows) > 500:
+        raise HTTPException(status_code=400, detail="El archivo no puede tener más de 500 filas")
+
+    total = len(rows)
+    exitosas = 0
+    errores: list[dict] = []
+
+    for i, row in enumerate(rows, start=2):
+        serie = _sanitize_upload_str(row.get("serie", ""))
+        cliente_name = _sanitize_upload_str(row.get("cliente", ""))
+        planta_name = _sanitize_upload_str(row.get("planta", ""))
+        area_name = _sanitize_upload_str(row.get("area", ""))
+        marca = _sanitize_upload_str(row.get("marca", ""))
+        modelo = _sanitize_upload_str(row.get("modelo", ""))
+        dpi_str = _sanitize_upload_str(row.get("dpi", "203"))
+
+        try:
+            if not serie:
+                raise ValueError("Serie requerida")
+
+            existing = db.query(Printer).filter(Printer.serial_number == serie).first()
+            if existing:
+                raise ValueError(f"Serie '{serie}' ya existe")
+
+            if not cliente_name:
+                raise ValueError("Cliente requerido")
+
+            client_obj = (
+                db.query(Client)
+                .filter(func.lower(Client.name) == func.lower(cliente_name))
+                .first()
+            )
+            if not client_obj:
+                raise ValueError(f"Cliente '{cliente_name}' no encontrado")
+
+            plant_obj = None
+            if planta_name:
+                plant_obj = (
+                    db.query(Plant)
+                    .filter(
+                        Plant.client_id == client_obj.id,
+                        func.lower(Plant.name) == func.lower(planta_name),
+                    )
+                    .first()
+                )
+                if not plant_obj:
+                    plant_obj = Plant(id=str(uuid.uuid4()), client_id=client_obj.id, name=planta_name)
+                    db.add(plant_obj)
+                    db.flush()
+
+            area_obj = None
+            if area_name and plant_obj:
+                area_obj = (
+                    db.query(Area)
+                    .filter(
+                        Area.plant_id == plant_obj.id,
+                        func.lower(Area.name) == func.lower(area_name),
+                    )
+                    .first()
+                )
+                if not area_obj:
+                    area_obj = Area(id=str(uuid.uuid4()), plant_id=plant_obj.id, name=area_name)
+                    db.add(area_obj)
+                    db.flush()
+
+            model_obj = None
+            if marca or modelo:
+                dpi_val = int(dpi_str) if dpi_str.isdigit() else 203
+                model_obj = (
+                    db.query(CatalogModel)
+                    .filter(
+                        func.lower(CatalogModel.brand) == func.lower(marca),
+                        func.lower(CatalogModel.model_name) == func.lower(modelo),
+                    )
+                    .first()
+                )
+                if not model_obj:
+                    model_obj = CatalogModel(
+                        id=str(uuid.uuid4()),
+                        brand=marca,
+                        model_name=modelo,
+                        dpi=dpi_val,
+                    )
+                    db.add(model_obj)
+                    db.flush()
+
+            code = _next_code(db, Printer, "I")
+            new_printer = Printer(
+                id=str(uuid.uuid4()),
+                code=code,
+                serial_number=serie,
+                client_id=client_obj.id,
+                plant_id=plant_obj.id if plant_obj else None,
+                area_id=area_obj.id if area_obj else None,
+                model_id=model_obj.id if model_obj else None,
+                qr_uuid=str(uuid.uuid4()),
+                is_active=True,
+            )
+            db.add(new_printer)
+            db.commit()
+            exitosas += 1
+
+        except ValueError as exc:
+            db.rollback()
+            errores.append({"fila": i, "serie": serie or "—", "error": str(exc)})
+            logger.warning("Bulk upload row %d error: %s", i, exc)
+        except Exception as exc:
+            db.rollback()
+            errores.append({"fila": i, "serie": serie or "—", "error": "Error interno al procesar la fila"})
+            logger.error("Bulk upload row %d unexpected error: %s", i, exc)
+
+    return {"total": total, "exitosas": exitosas, "errores": errores}
+
+
+# ---------------------------------------------------------------------------
 # GET /api/admin/printers/{printer_id}  — Detalle
 # ---------------------------------------------------------------------------
 
@@ -603,6 +970,77 @@ def get_printer_reports(
             "photo_count": r.photo_count or 0,
         })
     return {"total": total, "items": items}
+
+
+# ---------------------------------------------------------------------------
+# GET /api/admin/printers/{printer_id}/stats
+# ---------------------------------------------------------------------------
+
+@router.get("/printers/{printer_id}/stats", response_model=dict)
+def get_printer_stats(printer_id: str, db: Session = Depends(get_db)) -> dict:
+    thirty_days_ago = _now_utc() - timedelta(days=30)
+
+    recent_reports = (
+        db.query(Report)
+        .filter(Report.printer_id == printer_id)
+        .filter(Report.service_date >= thirty_days_ago)
+        .order_by(Report.service_date.desc())
+        .all()
+    )
+    last_report = (
+        db.query(Report)
+        .filter(Report.printer_id == printer_id)
+        .order_by(Report.service_date.desc())
+        .first()
+    )
+
+    contador_promedio: int | None = None
+    if recent_reports:
+        counters = [r.linear_inches_counter for r in recent_reports if r.linear_inches_counter is not None]
+        if counters:
+            contador_promedio = int(sum(counters) / len(counters))
+
+    ultimo_contador: int | None = last_report.linear_inches_counter if last_report else None
+
+    oscuridad_promedio: int | None = None
+    if recent_reports:
+        levels = [r.darkness_level for r in recent_reports if r.darkness_level is not None]
+        if levels:
+            oscuridad_promedio = int(sum(levels) / len(levels))
+
+    etiqueta_frecuente: str | None = None
+    if recent_reports:
+        label_counts: dict[str, int] = {}
+        for r in recent_reports:
+            if r.label_type_id:
+                label_counts[r.label_type_id] = label_counts.get(r.label_type_id, 0) + 1
+        if label_counts:
+            top_label_id = max(label_counts, key=lambda k: label_counts[k])
+            label = db.get(CatalogLabelType, top_label_id)
+            if label:
+                etiqueta_frecuente = label.name
+
+    ultima_observacion: str | None = last_report.notes if last_report else None
+
+    _WARNING_KEYS = ["Rodillo dañado", "Cabezal dañado", "Sensor papel dañado", "Otros"]
+    advertencias_activas: list[str] = []
+    if last_report and last_report.technical_checkboxes:
+        try:
+            cb = json.loads(last_report.technical_checkboxes)
+            for key in _WARNING_KEYS:
+                if cb.get(key) is True:
+                    advertencias_activas.append(key)
+        except (json.JSONDecodeError, AttributeError):
+            pass
+
+    return {
+        "contador_promedio": contador_promedio,
+        "ultimo_contador": ultimo_contador,
+        "oscuridad_promedio": oscuridad_promedio,
+        "etiqueta_frecuente": etiqueta_frecuente,
+        "ultima_observacion": ultima_observacion,
+        "advertencias_activas": advertencias_activas,
+    }
 
 
 # ---------------------------------------------------------------------------

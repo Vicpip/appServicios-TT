@@ -1,9 +1,10 @@
-import { useState } from 'react'
+import { useState, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   Printer, ChevronLeft, ChevronRight, Plus, Pencil, Trash2, X,
-  AlertTriangle, Search, RotateCcw,
+  AlertTriangle, Search, RotateCcw, Download, Upload, Loader2,
+  CheckCircle, AlertCircle,
 } from 'lucide-react'
 import apiClient from '@/api/client'
 import { API } from '@/api/endpoints'
@@ -144,6 +145,194 @@ function NewModelModal({ onClose, onCreated }: NewModelModalProps) {
               </button>
             </div>
           </form>
+        </div>
+      </div>
+    </>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// BulkUploadModal
+// ---------------------------------------------------------------------------
+
+interface BulkError { fila: number; serie: string; error: string }
+interface BulkResult { total: number; exitosas: number; errores: BulkError[] }
+
+function BulkUploadModal({ onClose, onDone }: { onClose: () => void; onDone: () => void }) {
+  const [dragging, setDragging] = useState(false)
+  const [file, setFile] = useState<File | null>(null)
+  const [fileError, setFileError] = useState<string | null>(null)
+  const [uploading, setUploading] = useState(false)
+  const [result, setResult] = useState<BulkResult | null>(null)
+  const [uploadError, setUploadError] = useState<string | null>(null)
+  const inputRef = useRef<HTMLInputElement>(null)
+
+  function validateFile(f: File): string | null {
+    const ext = f.name.split('.').pop()?.toLowerCase()
+    if (!['xlsx', 'csv'].includes(ext ?? '')) return 'Solo se aceptan archivos .xlsx o .csv'
+    if (f.size > 5 * 1024 * 1024) return 'El archivo no puede superar 5 MB'
+    return null
+  }
+
+  function handleFileSelect(f: File) {
+    const err = validateFile(f)
+    if (err) { setFileError(err); setFile(null); return }
+    setFile(f)
+    setFileError(null)
+    setResult(null)
+    setUploadError(null)
+  }
+
+  function handleDrop(e: React.DragEvent) {
+    e.preventDefault()
+    setDragging(false)
+    const f = e.dataTransfer.files[0]
+    if (f) handleFileSelect(f)
+  }
+
+  async function handleUpload() {
+    if (!file) return
+    setUploading(true)
+    setUploadError(null)
+    try {
+      const fd = new FormData()
+      fd.append('file', file)
+      const res = await apiClient.post<BulkResult>(API.printers.bulkUpload, fd, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      })
+      setResult(res.data)
+    } catch (err: unknown) {
+      const msg = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail
+      setUploadError(msg ?? 'Error al procesar el archivo')
+    } finally {
+      setUploading(false)
+    }
+  }
+
+  return (
+    <>
+      <div className="fixed inset-0 bg-black/40 z-40" onClick={onClose} />
+      <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+        <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg flex flex-col max-h-[90vh]">
+          {/* Header */}
+          <div className="flex items-center justify-between px-6 py-4 border-b border-border shrink-0">
+            <div className="flex items-center gap-2">
+              <Upload size={16} className="text-primary" />
+              <h3 className="font-semibold text-[#1A1A2E] font-heading">Carga masiva de impresoras</h3>
+            </div>
+            <button onClick={onClose} className="p-1.5 rounded-lg text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition-colors">
+              <X size={18} />
+            </button>
+          </div>
+
+          <div className="flex-1 overflow-y-auto px-6 py-5 space-y-4">
+            {!result ? (
+              <>
+                {/* Dropzone */}
+                <div
+                  onDragOver={(e) => { e.preventDefault(); setDragging(true) }}
+                  onDragLeave={() => setDragging(false)}
+                  onDrop={handleDrop}
+                  onClick={() => inputRef.current?.click()}
+                  className={`border-2 border-dashed rounded-xl p-8 text-center cursor-pointer transition-colors ${
+                    dragging ? 'border-primary bg-primary/5' : 'border-gray-200 hover:border-primary/50 hover:bg-gray-50'
+                  }`}
+                >
+                  <Upload size={28} className="mx-auto mb-2 text-gray-300" />
+                  {file ? (
+                    <p className="text-sm font-medium text-gray-700 font-sans">{file.name}</p>
+                  ) : (
+                    <>
+                      <p className="text-sm font-medium text-gray-600 font-sans">Arrastra tu archivo aquí</p>
+                      <p className="text-xs text-gray-400 font-sans mt-1">o haz clic para seleccionar · .xlsx o .csv · máx 5 MB</p>
+                    </>
+                  )}
+                  <input
+                    ref={inputRef}
+                    type="file"
+                    accept=".xlsx,.csv"
+                    className="hidden"
+                    onChange={(e) => { const f = e.target.files?.[0]; if (f) handleFileSelect(f) }}
+                  />
+                </div>
+
+                {fileError && (
+                  <div className="flex items-center gap-2 bg-red-50 border border-red-200 rounded-lg px-3 py-2.5">
+                    <AlertCircle size={14} className="text-red-500 shrink-0" />
+                    <p className="text-sm text-red-600 font-sans">{fileError}</p>
+                  </div>
+                )}
+
+                {uploadError && (
+                  <div className="flex items-center gap-2 bg-red-50 border border-red-200 rounded-lg px-3 py-2.5">
+                    <AlertCircle size={14} className="text-red-500 shrink-0" />
+                    <p className="text-sm text-red-600 font-sans">{uploadError}</p>
+                  </div>
+                )}
+
+                <p className="text-xs text-gray-400 font-sans">
+                  Descarga la plantilla Excel para ver el formato correcto con instrucciones y catálogos actualizados.
+                </p>
+              </>
+            ) : (
+              /* Result */
+              <div className="space-y-4">
+                <div className={`flex items-center gap-3 p-4 rounded-xl ${result.errores.length === 0 ? 'bg-green-50 border border-green-200' : 'bg-amber-50 border border-amber-200'}`}>
+                  {result.errores.length === 0 ? (
+                    <CheckCircle size={20} className="text-green-600 shrink-0" />
+                  ) : (
+                    <AlertCircle size={20} className="text-amber-600 shrink-0" />
+                  )}
+                  <div>
+                    <p className="font-semibold text-gray-800 font-sans text-sm">
+                      {result.exitosas} de {result.total} impresoras creadas
+                    </p>
+                    {result.errores.length > 0 && (
+                      <p className="text-xs text-amber-700 font-sans">{result.errores.length} fila{result.errores.length !== 1 ? 's' : ''} con error</p>
+                    )}
+                  </div>
+                </div>
+
+                {result.errores.length > 0 && (
+                  <div className="space-y-1.5 max-h-52 overflow-y-auto">
+                    <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide font-sans">Errores por fila</p>
+                    {result.errores.map((e) => (
+                      <div key={e.fila} className="flex items-start gap-2 bg-red-50 border border-red-100 rounded-lg px-3 py-2">
+                        <span className="text-xs font-mono text-red-500 shrink-0">F{e.fila}</span>
+                        <span className="text-xs text-red-700 font-sans"><span className="font-medium">{e.serie}</span> — {e.error}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* Footer */}
+          <div className="px-6 py-4 border-t border-border bg-gray-50 flex gap-2 justify-end shrink-0">
+            {!result ? (
+              <>
+                <button type="button" onClick={onClose} className="px-4 py-2 text-sm font-semibold text-gray-600 font-sans rounded-lg hover:bg-gray-100 transition-colors">
+                  Cancelar
+                </button>
+                <button
+                  onClick={handleUpload}
+                  disabled={!file || uploading}
+                  className="flex items-center gap-2 px-5 py-2 text-sm font-semibold text-white bg-primary hover:bg-primary-dark disabled:opacity-50 rounded-lg transition-colors font-sans"
+                >
+                  {uploading ? <Loader2 size={14} className="animate-spin" /> : <Upload size={14} />}
+                  {uploading ? 'Procesando…' : 'Cargar'}
+                </button>
+              </>
+            ) : (
+              <button
+                onClick={() => { onDone(); onClose() }}
+                className="px-5 py-2 text-sm font-semibold text-white bg-primary hover:bg-primary-dark rounded-lg transition-colors font-sans"
+              >
+                Cerrar y actualizar
+              </button>
+            )}
+          </div>
         </div>
       </div>
     </>
@@ -515,6 +704,7 @@ function DeletePrinterModal({ printer, onClose }: { printer: PrinterListItem; on
 
 export default function PrintersPage() {
   const navigate = useNavigate()
+  const qc = useQueryClient()
   const [search, setSearch] = useState('')
   const [debouncedSearch, setDebouncedSearch] = useState('')
   const [clientFilter, setClientFilter] = useState('')
@@ -523,6 +713,7 @@ export default function PrintersPage() {
   const [showCreate, setShowCreate] = useState(false)
   const [editPrinter, setEditPrinter] = useState<PrinterListItem | null>(null)
   const [deletePrinter, setDeletePrinter] = useState<PrinterListItem | null>(null)
+  const [showBulkUpload, setShowBulkUpload] = useState(false)
   const [debounceTimer, setDebounceTimer] = useState<ReturnType<typeof setTimeout> | null>(null)
 
   function handleSearch(value: string) {
@@ -584,13 +775,30 @@ export default function PrintersPage() {
             {isFetching ? 'Actualizando…' : `${items.length} impresora${items.length !== 1 ? 's' : ''} mostrada${items.length !== 1 ? 's' : ''}`}
           </p>
         </div>
-        <button
-          onClick={() => setShowCreate(true)}
-          className="flex items-center gap-2 bg-primary hover:bg-primary-dark text-white text-sm font-semibold font-sans rounded-lg px-4 py-2 transition-colors"
-        >
-          <Plus size={15} />
-          Nueva impresora
-        </button>
+        <div className="flex items-center gap-2 flex-wrap">
+          <a
+            href={`${(import.meta.env.VITE_API_URL as string ?? '').replace(/\/$/, '')}${API.printers.downloadTemplate}`}
+            download="plantilla_impresoras.xlsx"
+            className="flex items-center gap-2 border border-border text-gray-600 hover:text-primary hover:border-primary text-sm font-semibold font-sans rounded-lg px-4 py-2 transition-colors"
+          >
+            <Download size={15} />
+            Plantilla
+          </a>
+          <button
+            onClick={() => setShowBulkUpload(true)}
+            className="flex items-center gap-2 border border-border text-gray-600 hover:text-primary hover:border-primary text-sm font-semibold font-sans rounded-lg px-4 py-2 transition-colors"
+          >
+            <Upload size={15} />
+            Carga masiva
+          </button>
+          <button
+            onClick={() => setShowCreate(true)}
+            className="flex items-center gap-2 bg-primary hover:bg-primary-dark text-white text-sm font-semibold font-sans rounded-lg px-4 py-2 transition-colors"
+          >
+            <Plus size={15} />
+            Nueva impresora
+          </button>
+        </div>
       </div>
 
       {/* Status quick-filter chips */}
@@ -745,6 +953,12 @@ export default function PrintersPage() {
       {showCreate && <PrinterModal onClose={() => setShowCreate(false)} />}
       {editPrinter && <PrinterModal printer={editPrinter} onClose={() => setEditPrinter(null)} />}
       {deletePrinter && <DeletePrinterModal printer={deletePrinter} onClose={() => setDeletePrinter(null)} />}
+      {showBulkUpload && (
+        <BulkUploadModal
+          onClose={() => setShowBulkUpload(false)}
+          onDone={() => { qc.invalidateQueries({ queryKey: ['printers'] }) }}
+        />
+      )}
     </div>
   )
 }

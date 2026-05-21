@@ -650,7 +650,15 @@ class _SignatureScreenState extends ConsumerState<SignatureScreen> {
         final io.Directory appDir = await getApplicationDocumentsDirectory();
         final String pdfDir = '${appDir.path}/reports/pdfs';
         await io.Directory(pdfDir).create(recursive: true);
-        pdfPath = '$pdfDir/report_$reportId.pdf';
+        final Report? rptForName = await (localDatabase.select(localDatabase.reports)
+              ..where((Reports r) => r.id.equals(reportId)))
+            .getSingleOrNull();
+        final User? techForName = rptForName == null
+            ? null
+            : await (localDatabase.select(localDatabase.users)
+                  ..where((Users u) => u.id.equals(rptForName.techId)))
+                .getSingleOrNull();
+        pdfPath = '$pdfDir/${PdfService.reportPdfName(rptForName, techForName)}';
         await io.File(pdfPath).writeAsBytes(pdfBytes);
         // ignore: avoid_print
         print('[SignatureScreen] PDF guardado: $pdfPath');

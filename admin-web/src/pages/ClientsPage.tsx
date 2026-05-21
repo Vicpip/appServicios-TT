@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Building2, Search, RotateCcw, ChevronLeft, ChevronRight, Plus, Pencil, Trash2, X, AlertTriangle } from 'lucide-react'
 import apiClient from '@/api/client'
@@ -198,6 +199,7 @@ function DeleteClientModal({ client, onClose }: { client: ClientListItem; onClos
 // ---------------------------------------------------------------------------
 
 export default function ClientsPage() {
+  const navigate = useNavigate()
   const [search, setSearch] = useState('')
   const [debouncedSearch, setDebouncedSearch] = useState('')
   const [page, setPage] = useState(0)
@@ -308,7 +310,11 @@ export default function ClientsPage() {
                 </tr>
               ) : (
                 items.map((row) => (
-                  <tr key={row.id} className="hover:bg-gray-50/60 transition-colors group">
+                  <tr
+                    key={row.id}
+                    onClick={() => navigate(`/clients/${row.id}`)}
+                    className="hover:bg-gray-50/60 transition-colors group cursor-pointer"
+                  >
                     <td className="px-4 py-3.5">
                       <div className="flex items-center gap-2.5">
                         <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
@@ -342,14 +348,14 @@ export default function ClientsPage() {
                     <td className="px-4 py-3.5">
                       <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                         <button
-                          onClick={() => setEditClient(row)}
+                          onClick={(e) => { e.stopPropagation(); setEditClient(row) }}
                           className="p-1.5 rounded-lg text-gray-400 hover:text-primary hover:bg-primary/10 transition-colors"
                           title="Editar"
                         >
                           <Pencil size={14} />
                         </button>
                         <button
-                          onClick={() => setDeleteClient(row)}
+                          onClick={(e) => { e.stopPropagation(); setDeleteClient(row) }}
                           className="p-1.5 rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-50 transition-colors"
                           title="Desactivar"
                         >

@@ -4,6 +4,7 @@ import { useQuery } from '@tanstack/react-query'
 import { ArrowLeft, User, FileText, ChevronLeft, ChevronRight } from 'lucide-react'
 import apiClient from '@/api/client'
 import { API } from '@/api/endpoints'
+import { DetailModal } from '@/pages/ReportsPage'
 
 interface TechnicianDetail {
   id: string
@@ -64,6 +65,7 @@ export default function TechnicianProfilePage() {
   const [customFrom, setCustomFrom] = useState('')
   const [customTo, setCustomTo] = useState('')
   const [offset, setOffset] = useState(0)
+  const [selectedReportId, setSelectedReportId] = useState<string | null>(null)
 
   const now = new Date()
 
@@ -253,7 +255,11 @@ export default function TechnicianProfilePage() {
                   </thead>
                   <tbody className="divide-y divide-gray-50">
                     {reportsData.items.map((r) => (
-                      <tr key={r.id} className="hover:bg-gray-50 transition-colors">
+                      <tr
+                        key={r.id}
+                        onClick={() => setSelectedReportId(r.id)}
+                        className="hover:bg-gray-50 transition-colors cursor-pointer"
+                      >
                         <td className="px-4 py-3 text-gray-700 whitespace-nowrap">{fmtDate(r.service_date)}</td>
                         <td className="px-4 py-3 text-gray-500 font-mono text-xs">{r.code ?? '—'}</td>
                         <td className="px-4 py-3 text-gray-700">{r.service_type}</td>
@@ -287,6 +293,9 @@ export default function TechnicianProfilePage() {
           )}
         </div>
       </div>
+      {selectedReportId && (
+        <DetailModal reportId={selectedReportId} onClose={() => setSelectedReportId(null)} />
+      )}
     </div>
   )
 }

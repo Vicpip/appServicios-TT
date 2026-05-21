@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   ArrowLeft, ShieldCheck, Pencil, Users, CalendarCheck, Info, ClipboardList,
-  Play, X, ChevronDown, ChevronRight, FileText, AlertTriangle,
+  Play, X, ChevronDown, ChevronRight, FileText, FileDown, AlertTriangle,
 } from 'lucide-react'
 import apiClient from '@/api/client'
 import { API } from '@/api/endpoints'
@@ -418,32 +418,45 @@ export default function PolicyDetailPage() {
                   return (
                     <div key={d.id}>
                       {/* Delivery header row */}
-                      <button
-                        onClick={() => setExpandedDeliveryId(isExpanded ? null : d.id)}
-                        className="w-full flex items-center gap-3 px-5 py-4 hover:bg-gray-50/80 transition-colors text-left"
-                      >
-                        <div className="min-w-0 flex-1">
-                          <p className="text-sm font-semibold text-gray-800 font-sans">
-                            {fmtDate(d.delivery_date)}
-                          </p>
-                          <p className="text-xs text-gray-500 font-sans mt-0.5">
-                            Firmado por: {d.signature_name} · {d.signature_role}
-                          </p>
-                          {techName && (
-                            <p className="text-xs text-gray-400 font-sans mt-0.5">
-                              Técnico: {techName}
+                      <div className="flex items-center hover:bg-gray-50/80 transition-colors">
+                        <button
+                          onClick={() => setExpandedDeliveryId(isExpanded ? null : d.id)}
+                          className="flex-1 flex items-center gap-3 px-5 py-4 text-left"
+                        >
+                          <div className="min-w-0 flex-1">
+                            <p className="text-sm font-semibold text-gray-800 font-sans">
+                              {fmtDate(d.delivery_date)}
                             </p>
-                          )}
-                        </div>
-                        <div className="flex items-center gap-2.5 shrink-0">
-                          <span className="inline-flex items-center justify-center rounded-full bg-[#1A4FD6]/10 text-[#1A4FD6] text-xs font-bold font-sans px-2.5 py-0.5">
-                            {d.report_count} equipo{d.report_count !== 1 ? 's' : ''}
-                          </span>
-                          {isExpanded
-                            ? <ChevronDown size={14} className="text-gray-400" />
-                            : <ChevronRight size={14} className="text-gray-400" />}
-                        </div>
-                      </button>
+                            <p className="text-xs text-gray-500 font-sans mt-0.5">
+                              Firmado por: {d.signature_name} · {d.signature_role}
+                            </p>
+                            {techName && (
+                              <p className="text-xs text-gray-400 font-sans mt-0.5">
+                                Técnico: {techName}
+                              </p>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-2.5 shrink-0">
+                            <span className="inline-flex items-center justify-center rounded-full bg-[#1A4FD6]/10 text-[#1A4FD6] text-xs font-bold font-sans px-2.5 py-0.5">
+                              {d.report_count} equipo{d.report_count !== 1 ? 's' : ''}
+                            </span>
+                            {isExpanded
+                              ? <ChevronDown size={14} className="text-gray-400" />
+                              : <ChevronRight size={14} className="text-gray-400" />}
+                          </div>
+                        </button>
+                        <button
+                          onClick={() => {
+                            const base = (import.meta.env.VITE_API_URL as string ?? '').replace('/api', '').replace(/\/$/, '') || 'http://localhost:8000'
+                            window.open(`${base}/uploads/deliveries/delivery_${d.id}_resumen.pdf`, '_blank')
+                          }}
+                          className="flex items-center gap-1.5 px-4 py-4 text-xs font-semibold text-[#1A4FD6] hover:bg-[#1A4FD6]/5 transition-colors shrink-0 font-sans border-l border-gray-100"
+                          title="Descargar PDF de entrega"
+                        >
+                          <FileDown size={14} />
+                          <span className="hidden sm:inline">Descargar PDF</span>
+                        </button>
+                      </div>
 
                       {/* Expanded body */}
                       {isExpanded && (

@@ -1,6 +1,7 @@
 import 'package:drift/drift.dart' hide Column;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:industrial_service_reports/core/utils/date_utils.dart' show formatLocalCDMX;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:industrial_service_reports/core/router/app_routes.dart';
@@ -137,13 +138,7 @@ class _PolicyDashboardScreenState extends ConsumerState<PolicyDashboardScreen> {
     return summaries;
   }
 
-  String _formatDate(DateTime date) {
-    final List<String> monthNames = <String>[
-      'Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun',
-      'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'
-    ];
-    return '${date.day.toString().padLeft(2, '0')} ${monthNames[date.month - 1]} ${date.year}';
-  }
+  String _formatDate(DateTime date) => formatLocalCDMX(date);
 
   List<PolicySummary> _filteredPolicies() {
     final String query = _searchController.text.trim().toLowerCase();
@@ -1175,16 +1170,8 @@ class _AddPolicyScreenState extends State<AddPolicyScreen> {
     });
   }
 
-  String _formatDate(DateTime? date) {
-    if (date == null) return '';
-    const List<String> months = <String>[
-      'Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun',
-      'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic',
-    ];
-    final String day = date.day.toString().padLeft(2, '0');
-    final String month = months[date.month - 1];
-    return '$day $month ${date.year}';
-  }
+  String _formatDate(DateTime? date) =>
+      date == null ? '' : formatLocalCDMX(date);
 
   void _removePrinter(_PolicyPrinterItem printer) {
     setState(() {
@@ -2756,13 +2743,7 @@ class _DeliveryHistoryRow extends StatelessWidget {
 
   final PolicyDelivery delivery;
 
-  String _formatDate(DateTime date) {
-    const List<String> months = <String>[
-      'Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun',
-      'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic',
-    ];
-    return '${date.day.toString().padLeft(2, '0')} ${months[date.month - 1]} ${date.year}';
-  }
+  String _formatDate(DateTime date) => formatLocalCDMX(date);
 
   @override
   Widget build(BuildContext context) {

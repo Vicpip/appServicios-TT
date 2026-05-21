@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import 'package:industrial_service_reports/core/utils/date_utils.dart' show formatLocalCDMX;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:industrial_service_reports/core/constants.dart';
 import 'package:industrial_service_reports/core/theme/app_palette.dart';
@@ -57,18 +58,7 @@ class _SyncDashboardScreenState extends ConsumerState<SyncDashboardScreen> {
     if (mounted) setState(() => _lastSync = lastSync);
   }
 
-  String _formatLastSync(DateTime dt) {
-    const List<String> months = <String>[
-      'Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun',
-      'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic',
-    ];
-    final String day = dt.day.toString().padLeft(2, '0');
-    final String month = months[dt.month - 1];
-    final String year = dt.year.toString();
-    final String hour = dt.hour.toString().padLeft(2, '0');
-    final String minute = dt.minute.toString().padLeft(2, '0');
-    return '$day $month $year, $hour:$minute';
-  }
+  String _formatLastSync(DateTime dt) => formatLocalCDMX(dt, showTime: true);
 
   Future<void> _startSync({bool retryFailed = false}) async {
     if (_isSyncing) return;

@@ -10,6 +10,7 @@ import PrintersPage from '@/pages/PrintersPage'
 import PoliciesPage from '@/pages/PoliciesPage'
 import PolicyDetailPage from '@/pages/PolicyDetailPage'
 import SyncPage from '@/pages/SyncPage'
+import ClientDetailPage from '@/pages/ClientDetailPage'
 import PrinterDetailPage from '@/pages/PrinterDetailPage'
 import TechnicianProfilePage from '@/pages/TechnicianProfilePage'
 
@@ -29,6 +30,7 @@ export const router = createBrowserRouter([
       { index: true, element: <DashboardPage /> },
       { path: 'reports', element: <ReportsPage /> },
       { path: 'clients', element: <ClientsPage /> },
+      { path: 'clients/:id', element: <ClientDetailPage /> },
       { path: 'technicians', element: <TechniciansPage /> },
       { path: 'technicians/:id', element: <TechnicianProfilePage /> },
       { path: 'printers', element: <PrintersPage /> },

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:industrial_service_reports/core/router/app_routes.dart';
+import 'package:industrial_service_reports/core/utils/date_utils.dart' show formatLocalCDMX;
 import 'package:industrial_service_reports/core/router/route_args.dart';
 import 'package:industrial_service_reports/data/local/app_database.dart';
 
@@ -90,13 +91,7 @@ class _ServiceHistoryScreenState extends State<ServiceHistoryScreen> {
     return items;
   }
 
-  String _formatDate(DateTime date) {
-    final List<String> monthNames = <String>[
-      'Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun',
-      'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'
-    ];
-    return '${date.day.toString().padLeft(2, '0')} ${monthNames[date.month - 1]} ${date.year}';
-  }
+  String _formatDate(DateTime date) => formatLocalCDMX(date);
 
   _ServiceType _parseServiceType(String type) {
     final String lower = type.toLowerCase();

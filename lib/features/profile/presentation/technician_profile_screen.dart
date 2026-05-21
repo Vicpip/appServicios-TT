@@ -2,6 +2,7 @@ import 'dart:io' as io;
 import 'dart:typed_data';
 
 import 'package:drift/drift.dart' show Value;
+import 'package:industrial_service_reports/core/utils/date_utils.dart' show formatLocalCDMX;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -51,18 +52,7 @@ class _TechnicianProfileScreenState
     }
   }
 
-  String _formatLastSync(DateTime dt) {
-    const List<String> months = <String>[
-      'Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun',
-      'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic',
-    ];
-    final String day = dt.day.toString().padLeft(2, '0');
-    final String month = months[dt.month - 1];
-    final String year = dt.year.toString();
-    final String hour = dt.hour.toString().padLeft(2, '0');
-    final String minute = dt.minute.toString().padLeft(2, '0');
-    return '$day $month $year, $hour:$minute';
-  }
+  String _formatLastSync(DateTime dt) => formatLocalCDMX(dt, showTime: true);
 
   @override
   Widget build(BuildContext context) {

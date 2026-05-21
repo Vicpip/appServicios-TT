@@ -179,6 +179,8 @@ class SyncService {
       case 'signature':
       case 'pdf':
         await _syncFile(item, baseUrl, authToken);
+      case 'delivery_pdf':
+        await _syncDeliveryPdf(item, baseUrl, authToken);
       case 'policy_delivery':
         await _syncPolicyDelivery(item, baseUrl, authToken);
       case 'report_update':
@@ -880,8 +882,81 @@ class SyncService {
         'file' => 'Archivo',
         'signature' => 'Firma',
         'pdf' => 'PDF',
+        'delivery_pdf' => 'PDF entrega',
         'policy_delivery' => 'Entrega póliza',
         'report_update' => 'Actualizar reporte',
         _ => entityType,
       };
+
+  // ---------------------------------------------------------------------------
+  // Delivery PDF upload — POST /api/files  (multipart/form-data)
+  //
+  // payloadJson must contain:
+  //   { "localPath": "/path/to/file.pdf", "fileCategory": "delivery_pdf" }
+  // ---------------------------------------------------------------------------
+
+  Future<void> _syncDeliveryPdf(
+    SyncQueueData item,
+    String baseUrl,
+    String? authToken,
+  ) async {
+    final Map<String, dynamic> meta =
+        jsonDecode(item.payloadJson) as Map<String, dynamic>;
+    final String? localPath = meta['localPath'] as String?;
+
+    // ignore: avoid_print
+    print(
+      '[SyncService] _syncDeliveryPdf: entityId=${item.entityId}, '
+      'localPath=$localPath',
+    );
+
+    if (localPath == null || localPath.isEmpty) {
+      throw Exception(
+        'localPath ausente en payloadJson para delivery_pdf/${item.entityId}',
+      );
+    }
+
+    final io.File file = io.File(localPath);
+    if (!file.existsSync()) {
+      throw Exception(
+        'Archivo local no encontrado: $localPath '
+        '(delivery_pdf/${item.entityId})',
+      );
+    }
+
+    final String url = '$baseUrl/api/files';
+    final String fileName = localPath.split('/').last;
+    // ignore: avoid_print
+    print('[SyncService] POST $url (delivery_pdf: $fileName)');
+
+    try {
+      final http.MultipartRequest request =
+          http.MultipartRequest('POST', Uri.parse(url))
+            ..fields['entity_type'] = 'delivery_pdf'
+            ..fields['entity_id'] = item.entityId
+            ..files.add(
+              await http.MultipartFile.fromPath(
+                'file',
+                localPath,
+                filename: fileName,
+              ),
+            );
+
+      if (authToken != null) {
+        request.headers['Authorization'] = 'Bearer $authToken';
+      }
+
+      final http.StreamedResponse response = await request.send();
+      final String body = await response.stream.bytesToString();
+      // ignore: avoid_print
+      print('[SyncService] delivery_pdf response ${response.statusCode}: $body');
+      if (response.statusCode != 200 && response.statusCode != 201) {
+        throw Exception('HTTP ${response.statusCode}: $body');
+      }
+    } catch (e) {
+      // ignore: avoid_print
+      print('[SyncService] _syncDeliveryPdf error: $e');
+      rethrow;
+    }
+  }
 }

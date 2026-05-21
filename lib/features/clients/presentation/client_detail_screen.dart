@@ -8,7 +8,7 @@ import 'package:industrial_service_reports/core/theme/app_palette.dart';
 import 'package:industrial_service_reports/data/local/app_database.dart';
 import 'package:industrial_service_reports/features/policies/presentation/policy_dashboard_screen.dart'
     show PolicyDetailScreen, PolicySummary, PolicyStatus;
-import 'package:intl/intl.dart';
+import 'package:industrial_service_reports/core/utils/date_utils.dart' show formatLocalCDMX;
 
 class ClientDetailScreen extends StatefulWidget {
   const ClientDetailScreen({
@@ -812,8 +812,8 @@ class _PoliciesTabState extends State<_PoliciesTab> {
                   clientId: widget.clientId,
                   folio: p.folio,
                   clientName: _clientName,
-                  startDate: DateFormat('dd/MM/yyyy').format(p.startDate),
-                  endDate: DateFormat('dd/MM/yyyy').format(p.endDate),
+                  startDate: formatLocalCDMX(p.startDate),
+                  endDate: formatLocalCDMX(p.endDate),
                   startDateRaw: p.startDate,
                   endDateRaw: p.endDate,
                   coveredPrinters: entries[i].coveredPrinters,
@@ -861,7 +861,7 @@ class _PoliciesTabState extends State<_PoliciesTab> {
                           ),
                           const SizedBox(height: 3),
                           Text(
-                            '${DateFormat('dd/MM/yyyy').format(p.startDate)} — ${DateFormat('dd/MM/yyyy').format(p.endDate)}',
+                            '${formatLocalCDMX(p.startDate)} — ${formatLocalCDMX(p.endDate)}',
                             style: const TextStyle(color: Colors.white60, fontSize: 13),
                           ),
                           const SizedBox(height: 4),
@@ -1041,7 +1041,7 @@ class _ReportsTabState extends State<_ReportsTab> {
                           ),
                           const SizedBox(height: 3),
                           Text(
-                            DateFormat('dd/MM/yyyy HH:mm').format(r.createdAt),
+                            formatLocalCDMX(r.createdAt, showTime: true),
                             style: const TextStyle(color: Colors.white54, fontSize: 12),
                           ),
                         ],

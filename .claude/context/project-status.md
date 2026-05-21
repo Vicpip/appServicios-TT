@@ -520,6 +520,15 @@ dart run build_runner build --delete-conflicting-outputs
 
 ---
 
+## ✅ Mejoras UI Admin Web (20/05/2026 — sesión tarde)
+
+| Cambio | Descripción |
+|--------|-------------|
+| `PolicyDetailPage.tsx` | Botón "Descargar PDF" en cada fila del historial de entregas. URL: `{base}/uploads/deliveries/delivery_{id}_resumen.pdf`. Icono `FileDown` (lucide). Fila reestructurada: div wrapper + botón expand (flex-1) + botón PDF (shrink-0, borde separador). |
+| `ClientDetailPage.tsx` | Filtro por plantas ya implementado correctamente (pills dinámicos, bg-primary activo, solo visible si >1 planta). Sin cambios requeridos. |
+
+---
+
 ## ✅ Autenticación Admin Web (20/05/2026)
 
 | Cambio | Descripción |
@@ -541,6 +550,25 @@ dart run build_runner build --delete-conflicting-outputs
 - `autocomplete="off"` en campo contraseña, `type="password"`
 - Interceptor global 401 → cierra sesión automáticamente desde cualquier página
 - Idle timeout 60 min → cierra sesión y muestra aviso "Sesión expirada"
+
+---
+
+## ✅ Funcionalidades reimplementadas Admin Web (20/05/2026)
+
+| Cambio | Descripción |
+|--------|-------------|
+| `GET /api/admin/clients/{id}/detail` | Nuevo endpoint: detalle completo de cliente con stats, impresoras y pólizas |
+| `GET /api/admin/printers/{id}/stats` | Nuevo endpoint: estadísticas técnicas últimos 30d (contador, oscuridad, etiqueta, advertencias) |
+| `GET /api/admin/printers/template/download` | Nuevo endpoint: descarga Excel con 3 hojas (datos, instrucciones, catálogos); registrado ANTES de `/{id}` |
+| `POST /api/admin/printers/bulk-upload` | Nuevo endpoint: carga masiva .xlsx/.csv con seguridad (5MB, 500 filas, sanitización) y respuesta de errores por fila |
+| `openpyxl==3.1.5` | Instalado y agregado a `requirements.txt` |
+| `router.tsx` | Agrega ruta `clients/:id` con `ClientDetailPage` |
+| `ClientsPage.tsx` | Filas clickeables → `/clients/${id}`; `e.stopPropagation()` en botones editar/desactivar |
+| `ClientDetailPage.tsx` | Ya existía completo; ahora accesible via `/clients/:id` |
+| `PrinterDetailPage.tsx` | Sección "Estadísticas Técnicas" con 4 KPIs + observación + advertencias; modal al clic en historial |
+| `TechnicianProfilePage.tsx` | Modal `DetailModal` al clic en filas del historial de reportes |
+| `PrintersPage.tsx` | Botón "Plantilla" (descarga Excel) + botón "Carga masiva" (abre `BulkUploadModal` inline con dropzone, spinner y resultado) |
+| `endpoints.ts` | Agrega `clients.clientDetail`, `printers.stats`, `printers.downloadTemplate`, `printers.bulkUpload` |
 
 ---
 
@@ -566,6 +594,17 @@ dart run build_runner build --delete-conflicting-outputs
 | Label tile sync acortado | `main_dashboard_screen.dart` | `'Pendientes Sync'` → `'Por Sync'` |
 | StatusBanner responsivo | `report_summary_screen.dart` | `Row` → `Wrap` en `_StatusBanner` para evitar overflow en pantallas angostas |
 | Eliminar tile PIN en perfil | `technician_profile_screen.dart` | Eliminado tile "Cambiar PIN de Acceso" (mock sin funcionalidad) |
+
+---
+
+## ✅ Mejoras Flutter (20/05/2026 — sesión noche)
+
+| Cambio | Descripción |
+|--------|-------------|
+| PDF entrega: estado "En Atención" / "Correcto" | `pdf_service.dart` → `_buildDeliveryPrinterTable`: solo 4 claves de daño (sin "Otros"), texto `'En Atención'` cuando hay daño |
+| Timezone CDMX | `pubspec.yaml` agrega `timezone: ^0.9.0`; `main.dart` inicializa `tz.initializeTimeZones()`; nuevo helper `lib/core/utils/date_utils.dart` (`formatLocalCDMX`); 9 pantallas migradas a usar el helper |
+| Ícono app | `pubspec.yaml` agrega `flutter_launcher_icons: ^0.14.1` + config `flutter_launcher_icons` apuntando a `lib/img/logo_smp.png` |
+| Nombre app | `AndroidManifest.xml` ya tenía `android:label="Servicios - SMPC"` — sin cambio |
 
 ---
 

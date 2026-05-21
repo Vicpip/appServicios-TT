@@ -30,6 +30,7 @@ dependencies:
   http: ^1.2.2
   flutter_secure_storage: ^9.0.0
   shared_preferences: ^2.3.2
+  timezone: ^0.9.0
 
 dev_dependencies:
   flutter_test:
@@ -37,8 +38,15 @@ dev_dependencies:
   flutter_lints: ^5.0.0
   drift_dev: ^2.24.0
   build_runner: ^2.4.15
+  flutter_launcher_icons: ^0.14.1
 
 flutter:
   uses-material-design: true
   assets:
     - lib/img/
+
+flutter_launcher_icons:
+  android: true
+  ios: false
+  image_path: "lib/img/logo.png"
+  min_sdk_android: 21

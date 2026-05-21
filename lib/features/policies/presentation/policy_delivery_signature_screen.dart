@@ -210,6 +210,11 @@ class _PolicyDeliverySignatureScreenState
                     .select(localDatabase.reports)
                   ..where((Reports r) => r.id.isIn(widget.args.reportIds)))
                 .get();
+            // Cargar técnico para nombre de archivo legible
+            final User? techForPdf = await (localDatabase
+                    .select(localDatabase.users)
+                  ..where((Users u) => u.id.equals(widget.args.techId)))
+                .getSingleOrNull();
             final Uint8List pdfBytes = await PdfService.generateDeliveryPdf(
               delivery: delivery,
               reports: reports,
@@ -220,10 +225,26 @@ class _PolicyDeliverySignatureScreenState
             final String deliveriesDir = '${appDir.path}/deliveries';
             await io.Directory(deliveriesDir).create(recursive: true);
             final String summaryPath =
-                '$deliveriesDir/delivery_${deliveryId}_resumen.pdf';
+                '$deliveriesDir/${PdfService.deliveryPdfName(widget.args.policyFolio, techForPdf)}';
             await io.File(summaryPath).writeAsBytes(pdfBytes);
             debugPrint(
                 '[PolicyDeliverySignature] PDF resumen guardado: $summaryPath');
+            // Encolar PDF de entrega para sync
+            await localDatabase.into(localDatabase.syncQueue).insert(
+              SyncQueueCompanion.insert(
+                id: const Uuid().v4(),
+                methodHttp: 'POST',
+                endpointDestino: '/api/files',
+                payloadJson: jsonEncode(<String, dynamic>{
+                  'localPath': summaryPath,
+                  'fileCategory': 'delivery_pdf',
+                }),
+                entityType: 'delivery_pdf',
+                entityId: deliveryId,
+              ),
+            );
+            debugPrint(
+                '[PolicyDeliverySignature] PDF entrega encolado para sync');
           }
         }
       } catch (e) {

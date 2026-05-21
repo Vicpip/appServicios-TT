@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io' as io;
 
 import 'package:drift/drift.dart' show Expression, OrderingTerm, innerJoin;
+import 'package:industrial_service_reports/core/utils/date_utils.dart' show formatLocalCDMX;
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -111,13 +112,7 @@ class _SavedReportState {
   final List<String> photoPaths;
 }
 
-String _fmtDate(DateTime date) {
-  const List<String> months = <String>[
-    'Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun',
-    'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic',
-  ];
-  return '${date.day} ${months[date.month - 1]} ${date.year}';
-}
+String _fmtDate(DateTime date) => formatLocalCDMX(date);
 
 final _savedReportDataProvider =
     FutureProvider.family<_SavedReportState?, String>((ref, reportId) async {
@@ -338,13 +333,7 @@ class ReportSummaryScreen extends ConsumerWidget {
     );
   }
 
-  static String _formatDate(DateTime date) {
-    const List<String> months = <String>[
-      'Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun',
-      'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic',
-    ];
-    return '${date.day} ${months[date.month - 1]} ${date.year}';
-  }
+  static String _formatDate(DateTime date) => formatLocalCDMX(date);
 }
 
 class _StatusBanner extends StatelessWidget {

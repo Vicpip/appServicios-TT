@@ -4,9 +4,11 @@ import 'package:industrial_service_reports/app.dart';
 import 'package:industrial_service_reports/features/auth/providers/session_provider.dart';
 import 'package:industrial_service_reports/features/auth/services/auth_service.dart';
 import 'package:industrial_service_reports/features/sync/providers/startup_sync_provider.dart';
+import 'package:timezone/data/latest.dart' as tz;
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  tz.initializeTimeZones();
 
   // Restore session from secure storage so the router skips /login when a
   // valid JWT is already present from a previous session.

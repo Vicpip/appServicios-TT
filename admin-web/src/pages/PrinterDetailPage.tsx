@@ -1,9 +1,10 @@
 import { useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { ArrowLeft, Printer, Trash2, FileText, Download, ChevronLeft, ChevronRight } from 'lucide-react'
+import { ArrowLeft, Printer, Trash2, FileText, Download, ChevronLeft, ChevronRight, AlertTriangle as AlertIcon, BarChart2 } from 'lucide-react'
 import apiClient from '@/api/client'
 import { API } from '@/api/endpoints'
+import { DetailModal } from '@/pages/ReportsPage'
 
 const API_BASE = (import.meta.env.VITE_API_URL as string ?? '').replace(/\/$/, '')
 
@@ -36,6 +37,15 @@ interface ReportRow {
   photo_count: number
 }
 
+interface PrinterStats {
+  contador_promedio: number | null
+  ultimo_contador: number | null
+  oscuridad_promedio: number | null
+  etiqueta_frecuente: string | null
+  ultima_observacion: string | null
+  advertencias_activas: string[]
+}
+
 const PAGE_SIZE = 20
 
 function fmtDate(iso: string) {
@@ -55,11 +65,21 @@ export default function PrinterDetailPage() {
   const [offset, setOffset] = useState(0)
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
   const [deleteError, setDeleteError] = useState<string | null>(null)
+  const [selectedReportId, setSelectedReportId] = useState<string | null>(null)
 
   const { data: printer, isLoading } = useQuery<PrinterDetail>({
     queryKey: ['printer-detail', id],
     queryFn: async () => {
       const res = await apiClient.get(API.printers.detail(id!))
+      return res.data
+    },
+    enabled: !!id,
+  })
+
+  const { data: statsData } = useQuery<PrinterStats>({
+    queryKey: ['printer-stats', id],
+    queryFn: async () => {
+      const res = await apiClient.get(API.printers.stats(id!))
       return res.data
     },
     enabled: !!id,
@@ -207,6 +227,59 @@ export default function PrinterDetailPage() {
         </div>
       </div>
 
+      {/* Technical Stats */}
+      {statsData && (
+        <div className="bg-white rounded-xl border border-border shadow-sm p-5 space-y-4">
+          <div className="flex items-center gap-2">
+            <BarChart2 size={16} className="text-primary" />
+            <h2 className="font-semibold text-[#1A1A2E] font-heading text-sm">Estadísticas Técnicas</h2>
+            <span className="text-xs text-gray-400 font-sans">(últimos 30 días)</span>
+          </div>
+
+          {/* Row 1 — 4 KPIs */}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            {[
+              { label: 'Contador promedio', value: statsData.contador_promedio !== null ? `${statsData.contador_promedio} pulg.` : '—' },
+              { label: 'Último contador', value: statsData.ultimo_contador !== null ? `${statsData.ultimo_contador} pulg.` : '—' },
+              { label: 'Oscuridad promedio', value: statsData.oscuridad_promedio !== null ? String(statsData.oscuridad_promedio) : '—' },
+              { label: 'Etiqueta frecuente', value: statsData.etiqueta_frecuente ?? '—' },
+            ].map((kpi) => (
+              <div key={kpi.label} className="bg-gray-50 rounded-lg px-3 py-2.5">
+                <p className="text-[9px] font-semibold text-gray-400 uppercase tracking-wide font-sans leading-none">{kpi.label}</p>
+                <p className="mt-1 text-base font-bold text-[#1A1A2E] font-heading leading-none">{kpi.value}</p>
+              </div>
+            ))}
+          </div>
+
+          {/* Row 2 — última observación + advertencias */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div className="bg-gray-50 rounded-lg px-3 py-2.5">
+              <p className="text-[9px] font-semibold text-gray-400 uppercase tracking-wide font-sans mb-1">Última observación</p>
+              <p className="text-sm text-gray-700 font-sans leading-snug">
+                {statsData.ultima_observacion ?? <span className="text-gray-400 italic">Sin notas</span>}
+              </p>
+            </div>
+            <div className="bg-gray-50 rounded-lg px-3 py-2.5">
+              <p className="text-[9px] font-semibold text-gray-400 uppercase tracking-wide font-sans mb-1.5">Advertencias activas</p>
+              {statsData.advertencias_activas.length === 0 ? (
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-green-50 text-green-700 border border-green-200 text-xs font-medium rounded-full font-sans">
+                  Sin advertencias
+                </span>
+              ) : (
+                <div className="flex flex-wrap gap-1.5">
+                  {statsData.advertencias_activas.map((adv) => (
+                    <span key={adv} className="inline-flex items-center gap-1 px-2 py-0.5 bg-red-50 text-red-700 border border-red-200 text-xs font-medium rounded-full font-sans">
+                      <AlertIcon size={9} />
+                      {adv}
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Report History */}
       <div className="bg-white rounded-xl border border-border shadow-sm">
         <div className="px-6 py-4 border-b border-border flex items-center justify-between">
@@ -239,7 +312,11 @@ export default function PrinterDetailPage() {
                 </thead>
                 <tbody className="divide-y divide-gray-50">
                   {reportsData.items.map((r) => (
-                    <tr key={r.id} className="hover:bg-gray-50 transition-colors">
+                    <tr
+                      key={r.id}
+                      onClick={() => setSelectedReportId(r.id)}
+                      className="hover:bg-gray-50 transition-colors cursor-pointer"
+                    >
                       <td className="px-6 py-3 text-gray-700 whitespace-nowrap">{fmtDate(r.service_date)}</td>
                       <td className="px-4 py-3 text-gray-500 font-mono text-xs">{r.code ?? '—'}</td>
                       <td className="px-4 py-3 text-gray-700">{r.service_type}</td>
@@ -251,7 +328,7 @@ export default function PrinterDetailPage() {
                       </td>
                       <td className="px-6 py-3 text-right">
                         <button
-                          onClick={() => handleDownloadPdf(r.id)}
+                          onClick={(e) => { e.stopPropagation(); handleDownloadPdf(r.id) }}
                           className="inline-flex items-center gap-1 text-xs text-primary hover:underline font-sans"
                         >
                           <Download size={12} />
@@ -280,6 +357,11 @@ export default function PrinterDetailPage() {
           </>
         )}
       </div>
+
+      {/* Report Detail Modal */}
+      {selectedReportId && (
+        <DetailModal reportId={selectedReportId} onClose={() => setSelectedReportId(null)} />
+      )}
 
       {/* Delete Confirmation Dialog */}
       {showDeleteConfirm && (
