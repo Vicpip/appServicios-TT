@@ -100,7 +100,7 @@ function dayLabel(fechaStr: string): string {
   const days = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb']
   // Parse as local date to avoid timezone offset shifting the day
   const [y, m, d] = fechaStr.split('-').map(Number) as [number, number, number]
-  return days[new Date(y, m - 1, d).getDay()]
+  return days[new Date(y, m - 1, d).getDay()] ?? ''
 }
 
 function translateAction(action: string): string {
