@@ -369,14 +369,14 @@ export default function DashboardPage() {
     },
   ]
 
-  const chartData = (reportsByDay.data as DashboardReportsByDay[]).map(d => ({
+  const chartData = (reportsByDay.data ?? []).map(d => ({
     ...d,
     dia: dayLabel(d.fecha),
   }))
 
-  const printersData = printersAttention.data as DashboardPrinterAttention[]
-  const policiesData = policiesExpiring.data as DashboardPolicyExpiring[]
-  const syncData = syncHistory.data as SyncHistoryItem[]
+  const printersData = (printersAttention.data ?? []) as DashboardPrinterAttention[]
+  const policiesData = (policiesExpiring.data ?? []) as DashboardPolicyExpiring[]
+  const syncData = (syncHistory.data ?? []) as SyncHistoryItem[]
 
   return (
     <div className="space-y-6">
@@ -496,7 +496,7 @@ export default function DashboardPage() {
                         <p className="text-xs text-gray-400 font-sans truncate">{p.client_name}</p>
                       )}
                       <div className="flex flex-wrap gap-1 mt-1">
-                        {p.advertencias.map(adv => (
+                        {(p.advertencias ?? []).map(adv => (
                           <span
                             key={adv}
                             className="inline-block px-1.5 py-0.5 rounded text-[10px] font-medium bg-red-50 text-red-600 border border-red-100"
