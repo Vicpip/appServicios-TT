@@ -196,6 +196,7 @@ class SyncService {
     String baseUrl = kServerBaseUrlDevice,
   }) async {
     final AuthService authService = AuthService();
+    final String? currentUserId = (await authService.getStoredSession())?.userId;
     final String? authToken = await authService.getToken();
     final String url = '$baseUrl/api/sync/download';
     // ignore: avoid_print
@@ -379,12 +380,20 @@ class SyncService {
               id: d['id'] as String,
               code: Value<String?>(d['code'] as String?),
               name: d['name'] as String,
-              email: d['email'] as String,
+              email: d['email'] as String? ?? '',
               role: d['role'] as String,
               isActive: Value<bool>(true),
             ),
           );
     }
+
+    // Lookup map used by Guard-2 recovery below
+    final Map<String, Map<String, dynamic>> techPayloadById =
+        <String, Map<String, dynamic>>{
+      for (final dynamic t in technicians)
+        (t as Map<String, dynamic>)['id'] as String:
+            t as Map<String, dynamic>,
+    };
 
     final List<dynamic> assignments =
         (data['policyPrinterAssignments'] as List<dynamic>?) ?? <dynamic>[];
@@ -416,9 +425,29 @@ class SyncService {
             ..where((Users u) => u.id.equals(technicianId)))
           .getSingleOrNull();
       if (techExists == null) {
-        // ignore: avoid_print
-        debugPrint('[Sync] SKIP assignment $assignmentId: technician $technicianId no existe local');
-        continue;
+        if (technicianId == currentUserId &&
+            techPayloadById.containsKey(technicianId)) {
+          // Usuario autenticado no está en DB local — insertar desde payload y continuar
+          final Map<String, dynamic> td = techPayloadById[technicianId]!;
+          // ignore: avoid_print
+          debugPrint(
+              '[Sync] RECOVER technician $technicianId (usuario actual) desde payload');
+          await _db.into(_db.users).insertOnConflictUpdate(
+                UsersCompanion.insert(
+                  id: technicianId,
+                  code: Value<String?>(td['code'] as String?),
+                  name: td['name'] as String,
+                  email: td['email'] as String? ?? '',
+                  role: td['role'] as String,
+                  isActive: Value<bool>(true),
+                ),
+              );
+        } else {
+          // ignore: avoid_print
+          debugPrint(
+              '[Sync] SKIP assignment $assignmentId: technician $technicianId no existe local');
+          continue;
+        }
       }
 
       // ignore: avoid_print
