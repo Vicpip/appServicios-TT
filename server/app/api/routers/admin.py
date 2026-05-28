@@ -10,6 +10,7 @@ from pathlib import Path
 
 from fastapi import APIRouter, Depends, File as FastAPIFile, HTTPException, Query, UploadFile
 from fastapi.responses import StreamingResponse
+from app.auth import get_current_user
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
@@ -447,6 +448,8 @@ def get_client_detail(client_id: str, db: Session = Depends(get_db)) -> dict:
                 "total_reportes": top["total_reportes"],
             }
 
+    logo_url = f"/uploads/{client.logo_path}" if client.logo_path else None
+
     return {
         "client": {
             "id": client.id,
@@ -454,6 +457,7 @@ def get_client_detail(client_id: str, db: Session = Depends(get_db)) -> dict:
             "rfc": client.rfc,
             "address": client.address,
             "is_active": client.is_active,
+            "logo_url": logo_url,
         },
         "plants": [
             {"id": pl.id, "name": pl.name, "contact_name": pl.contact_name, "phone": pl.phone}
@@ -475,6 +479,81 @@ def get_client_detail(client_id: str, db: Session = Depends(get_db)) -> dict:
         },
         "printers": printer_rows,
     }
+
+
+# ---------------------------------------------------------------------------
+# PATCH /api/admin/clients/{client_id}/logo
+# DELETE /api/admin/clients/{client_id}/logo
+# ---------------------------------------------------------------------------
+
+_LOGO_ALLOWED_TYPES = {"image/png", "image/jpeg"}
+_LOGO_MAX_BYTES = 2 * 1024 * 1024  # 2 MB
+_LOGO_MAGIC = {
+    "image/png": b"\x89PNG",
+    "image/jpeg": b"\xff\xd8",
+}
+
+
+@router.patch("/clients/{client_id}/logo", response_model=dict)
+async def upload_client_logo(
+    client_id: str,
+    logo: UploadFile = FastAPIFile(...),
+    db: Session = Depends(get_db),
+    _current_user: dict = Depends(get_current_user),
+) -> dict:
+    client = db.get(Client, client_id)
+    if not client:
+        raise HTTPException(status_code=404, detail="Client not found")
+
+    content_type = (logo.content_type or "").split(";")[0].strip()
+    if content_type not in _LOGO_ALLOWED_TYPES:
+        raise HTTPException(status_code=400, detail="Solo se permiten imágenes PNG o JPG")
+
+    content = await logo.read()
+    if len(content) > _LOGO_MAX_BYTES:
+        raise HTTPException(status_code=400, detail="El archivo no puede superar 2 MB")
+
+    magic = _LOGO_MAGIC[content_type]
+    if not content[: len(magic)] == magic:
+        raise HTTPException(status_code=400, detail="El contenido del archivo no coincide con el tipo declarado")
+
+    ext = "png" if content_type == "image/png" else "jpg"
+    logos_dir = Path(settings.upload_dir) / "logos"
+    logos_dir.mkdir(parents=True, exist_ok=True)
+
+    # Remove previous logo (either extension) if it exists
+    for old_ext in ("png", "jpg"):
+        old_path = logos_dir / f"{client_id}.{old_ext}"
+        if old_path.exists():
+            old_path.unlink()
+
+    file_path = logos_dir / f"{client_id}.{ext}"
+    file_path.write_bytes(content)
+
+    client.logo_path = f"logos/{client_id}.{ext}"
+    db.commit()
+
+    return {"logo_url": f"/uploads/logos/{client_id}.{ext}"}
+
+
+@router.delete("/clients/{client_id}/logo", response_model=dict)
+def delete_client_logo(
+    client_id: str,
+    db: Session = Depends(get_db),
+    _current_user: dict = Depends(get_current_user),
+) -> dict:
+    client = db.get(Client, client_id)
+    if not client:
+        raise HTTPException(status_code=404, detail="Client not found")
+
+    if client.logo_path:
+        file_path = Path(settings.upload_dir) / client.logo_path
+        if file_path.exists():
+            file_path.unlink()
+        client.logo_path = None
+        db.commit()
+
+    return {"ok": True}
 
 
 # ---------------------------------------------------------------------------

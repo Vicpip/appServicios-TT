@@ -23,6 +23,11 @@ from app.models.policy import (  # noqa: F401
 )
 from app.models.file import File, EntityFile  # noqa: F401
 from app.models.sync import SyncQueue, SyncLog  # noqa: F401
+from app.models.portal import (  # noqa: F401
+    PortalUser,
+    PortalInvitation,
+    PortalPasswordReset,
+)
 
 __all__ = [
     "User",
@@ -46,4 +51,7 @@ __all__ = [
     "EntityFile",
     "SyncQueue",
     "SyncLog",
+    "PortalUser",
+    "PortalInvitation",
+    "PortalPasswordReset",
 ]

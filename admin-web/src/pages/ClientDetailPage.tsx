@@ -1,9 +1,10 @@
-import { useState } from 'react'
+import { useState, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import {
-  ArrowLeft, Building2, MapPin, Printer,
-  CheckCircle2, AlertTriangle, Award,
+  ArrowLeft, MapPin, Printer,
+  CheckCircle2, AlertTriangle, Award, Mail, X, Users,
+  Upload, Trash2, ImageOff,
 } from 'lucide-react'
 import apiClient from '@/api/client'
 import { API } from '@/api/endpoints'
@@ -18,6 +19,7 @@ interface ClientInfo {
   rfc: string | null
   address: string | null
   is_active: boolean
+  logo_url: string | null
 }
 
 interface PlantInfo {
@@ -71,6 +73,17 @@ interface ClientDetailData {
   printers: PrinterRow[]
 }
 
+interface PortalUserRow {
+  id: string
+  email: string
+  name: string
+  is_active: boolean
+  last_login_at: string | null
+  plant_id: string | null
+  plant_name: string | null
+  created_at: string
+}
+
 // ---------------------------------------------------------------------------
 // KPI card — ultra-compact for grid-cols-6
 // ---------------------------------------------------------------------------
@@ -108,10 +121,134 @@ export default function ClientDetailPage() {
   const navigate = useNavigate()
   const [selectedPlant, setSelectedPlant] = useState<string | null>(null)
 
-  const { data, isLoading } = useQuery<ClientDetailData>({
+  // Portal invite state
+  const [showPortalModal, setShowPortalModal] = useState(false)
+  const [inviteEmail, setInviteEmail] = useState('')
+  const [emailError, setEmailError] = useState<string | null>(null)
+  const [inviteLoading, setInviteLoading] = useState(false)
+  const [inviteError, setInviteError] = useState<string | null>(null)
+  const [successMsg, setSuccessMsg] = useState<string | null>(null)
+
+  // Portal users management state
+  const [togglingIds, setTogglingIds] = useState<Set<string>>(new Set())
+  const [toggleError, setToggleError] = useState<string | null>(null)
+
+  // Logo state
+  const [logoLoading, setLogoLoading] = useState(false)
+  const [logoError, setLogoError] = useState<string | null>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+
+  const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+
+  function fmtDate(iso: string | null): string {
+    if (!iso) return 'Nunca'
+    return new Date(iso).toLocaleDateString('es-MX', {
+      day: '2-digit', month: 'short', year: 'numeric',
+    })
+  }
+
+  async function handleInvite(e: React.FormEvent) {
+    e.preventDefault()
+    setEmailError(null)
+    setInviteError(null)
+    const trimmed = inviteEmail.trim()
+    if (!EMAIL_RE.test(trimmed)) {
+      setEmailError('Ingresa un correo electrónico válido.')
+      return
+    }
+    setInviteLoading(true)
+    try {
+      await apiClient.post(API.portal.invite, { client_id: data!.client.id, email: trimmed })
+      setShowPortalModal(false)
+      setInviteEmail('')
+      setSuccessMsg(`Invitación enviada a ${trimmed}`)
+      setTimeout(() => setSuccessMsg(null), 5000)
+    } catch (err: unknown) {
+      const msg = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail
+      setInviteError(msg ?? 'Error al enviar la invitación.')
+    } finally {
+      setInviteLoading(false)
+    }
+  }
+
+  function openPortalModal(prefilledEmail = '') {
+    setInviteEmail(prefilledEmail)
+    setEmailError(null)
+    setInviteError(null)
+    setShowPortalModal(true)
+  }
+
+  async function handleToggleUser(userId: string, currentActive: boolean) {
+    setTogglingIds((prev) => new Set(prev).add(userId))
+    setToggleError(null)
+    try {
+      await apiClient.patch(API.portal.adminToggleUser(userId), { is_active: !currentActive })
+      await refetchPortalUsers()
+    } catch (err: unknown) {
+      const msg = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail
+      setToggleError(msg ?? 'Error al actualizar el usuario.')
+    } finally {
+      setTogglingIds((prev) => {
+        const next = new Set(prev)
+        next.delete(userId)
+        return next
+      })
+    }
+  }
+
+  const { data, isLoading, refetch: refetchDetail } = useQuery<ClientDetailData>({
     queryKey: ['client-detail', id],
     queryFn: async () => {
       const res = await apiClient.get(API.clients.clientDetail(id!))
+      return res.data
+    },
+    enabled: !!id,
+  })
+
+  async function handleLogoUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (!fileInputRef.current) return
+    fileInputRef.current.value = ''
+    if (!file) return
+    setLogoError(null)
+    setLogoLoading(true)
+    try {
+      const formData = new FormData()
+      formData.append('logo', file)
+      await apiClient.patch(API.clients.uploadLogo(id!), formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      })
+      await refetchDetail()
+    } catch (err: unknown) {
+      const msg = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail
+      setLogoError(msg ?? 'Error al subir el logo.')
+    } finally {
+      setLogoLoading(false)
+    }
+  }
+
+  async function handleLogoDelete() {
+    setLogoError(null)
+    setLogoLoading(true)
+    try {
+      await apiClient.delete(API.clients.deleteLogo(id!))
+      await refetchDetail()
+    } catch (err: unknown) {
+      const msg = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail
+      setLogoError(msg ?? 'Error al eliminar el logo.')
+    } finally {
+      setLogoLoading(false)
+    }
+  }
+
+  const {
+    data: portalUsers,
+    isLoading: portalUsersLoading,
+    refetch: refetchPortalUsers,
+  } = useQuery<PortalUserRow[]>({
+    queryKey: ['portal-users', id],
+    queryFn: async () => {
+      const res = await apiClient.get(API.portal.adminUsers(id!))
       return res.data
     },
     enabled: !!id,
@@ -151,14 +288,68 @@ export default function ClientDetailPage() {
         Volver a Clientes
       </button>
 
+      {/* Success banner */}
+      {successMsg && (
+        <div className="bg-green-50 border border-green-200 text-green-800 text-sm font-sans rounded-lg px-4 py-3 flex items-center gap-2">
+          <CheckCircle2 size={15} className="shrink-0 text-green-600" />
+          {successMsg}
+        </div>
+      )}
+
       {/* ------------------------------------------------------------------ */}
       {/* Client info card                                                     */}
       {/* ------------------------------------------------------------------ */}
       <div className="bg-white rounded-xl border border-border shadow-sm p-4">
         <div className="flex items-start gap-3">
-          <div className="p-2.5 bg-primary/10 rounded-xl shrink-0">
-            <Building2 size={20} className="text-primary" />
+
+          {/* Logo area */}
+          <div className="shrink-0 flex flex-col items-center gap-1.5">
+            {client.logo_url ? (
+              <img
+                src={client.logo_url}
+                alt="Logo del cliente"
+                className="max-h-[120px] w-auto object-contain rounded-lg border border-gray-200 bg-gray-50 p-1"
+              />
+            ) : (
+              <div className="h-[72px] w-[96px] flex flex-col items-center justify-center bg-gray-50 border border-dashed border-gray-200 rounded-lg gap-1">
+                <ImageOff size={18} className="text-gray-300" />
+                <span className="text-[9px] text-gray-400 font-sans">Sin logo</span>
+              </div>
+            )}
+            <div className="flex gap-1">
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                disabled={logoLoading}
+                className="flex items-center gap-1 px-2 py-1 text-[10px] font-semibold font-sans text-primary bg-primary/10 border border-primary/20 hover:bg-primary/20 rounded-lg transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+                title="Subir logo"
+              >
+                <Upload size={11} />
+                {logoLoading ? '...' : 'Subir'}
+              </button>
+              {client.logo_url && (
+                <button
+                  onClick={handleLogoDelete}
+                  disabled={logoLoading}
+                  className="flex items-center gap-1 px-2 py-1 text-[10px] font-semibold font-sans text-red-600 bg-red-50 border border-red-200 hover:bg-red-100 rounded-lg transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+                  title="Eliminar logo"
+                >
+                  <Trash2 size={11} />
+                  Eliminar
+                </button>
+              )}
+            </div>
+            {logoError && (
+              <p className="text-[9px] text-red-600 font-sans max-w-[110px] text-center">{logoError}</p>
+            )}
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/png,image/jpeg"
+              className="hidden"
+              onChange={handleLogoUpload}
+            />
           </div>
+
           <div className="flex-1 min-w-0">
             {/* Name + status */}
             <div className="flex items-center gap-2.5 flex-wrap">
@@ -219,6 +410,127 @@ export default function ClientDetailPage() {
             )}
           </div>
         </div>
+      </div>
+
+      {/* ------------------------------------------------------------------ */}
+      {/* Portal de Clientes card                                             */}
+      {/* ------------------------------------------------------------------ */}
+      <div className="bg-white rounded-xl border border-border shadow-sm p-4">
+        <div className="flex items-start justify-between gap-4">
+          <div className="flex items-start gap-3">
+            <div className="p-2.5 bg-primary/10 rounded-xl shrink-0">
+              <Mail size={20} className="text-primary" />
+            </div>
+            <div>
+              <h2 className="font-semibold text-[#1A1A2E] font-heading text-sm">Portal de Clientes</h2>
+              <p className="mt-1 text-xs text-gray-500 font-sans">
+                Invita a este cliente a acceder al portal para ver sus impresoras, reportes y pólizas.
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={() => openPortalModal()}
+            className="shrink-0 px-4 py-2 bg-primary text-white text-sm font-semibold font-sans rounded-lg hover:bg-primary/90 transition-colors"
+          >
+            Enviar invitación
+          </button>
+        </div>
+      </div>
+
+      {/* ------------------------------------------------------------------ */}
+      {/* Usuarios con acceso al portal                                        */}
+      {/* ------------------------------------------------------------------ */}
+      <div className="bg-white rounded-xl border border-border shadow-sm">
+        <div className="px-4 py-3 border-b border-border flex items-center gap-2">
+          <Users size={15} className="text-primary" />
+          <h2 className="font-semibold text-[#1A1A2E] font-heading text-sm">Usuarios con acceso al portal</h2>
+          {portalUsers && (
+            <span className="px-2 py-0.5 bg-gray-100 text-gray-600 text-xs rounded-full font-sans">
+              {portalUsers.length}
+            </span>
+          )}
+        </div>
+
+        {toggleError && (
+          <div className="mx-4 mt-3 text-xs text-red-600 font-sans bg-red-50 border border-red-200 rounded-lg px-3 py-2">
+            {toggleError}
+          </div>
+        )}
+
+        {portalUsersLoading && (
+          <div className="p-4 space-y-2">
+            {[1, 2].map((i) => (
+              <div key={i} className="h-9 bg-gray-100 rounded-lg animate-pulse" />
+            ))}
+          </div>
+        )}
+
+        {!portalUsersLoading && portalUsers?.length === 0 && (
+          <div className="p-8 text-center text-gray-400 font-sans text-sm">
+            Sin usuarios registrados
+          </div>
+        )}
+
+        {!portalUsersLoading && portalUsers && portalUsers.length > 0 && (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm font-sans">
+              <thead>
+                <tr className="border-b border-border bg-gray-50">
+                  {['Nombre', 'Correo', 'Planta', 'Último acceso', 'Estado', 'Acciones'].map((h) => (
+                    <th
+                      key={h}
+                      className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide whitespace-nowrap"
+                    >
+                      {h}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-50">
+                {portalUsers.map((u) => (
+                  <tr key={u.id} className="hover:bg-gray-50/60 transition-colors">
+                    <td className="px-4 py-2.5 text-gray-800 font-medium whitespace-nowrap">{u.name}</td>
+                    <td className="px-4 py-2.5 text-gray-600 font-mono text-xs">{u.email}</td>
+                    <td className="px-4 py-2.5 text-gray-600">{u.plant_name ?? '—'}</td>
+                    <td className="px-4 py-2.5 text-gray-600 whitespace-nowrap">{fmtDate(u.last_login_at)}</td>
+                    <td className="px-4 py-2.5">
+                      {u.is_active ? (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-semibold rounded-full bg-green-50 text-green-700 border border-green-200 font-sans">
+                          Activo
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-semibold rounded-full bg-red-50 text-red-700 border border-red-200 font-sans">
+                          Inactivo
+                        </span>
+                      )}
+                    </td>
+                    <td className="px-4 py-2.5">
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={() => handleToggleUser(u.id, u.is_active)}
+                          disabled={togglingIds.has(u.id)}
+                          className={`px-3 py-1 text-xs font-semibold font-sans rounded-lg border transition-colors disabled:opacity-60 disabled:cursor-not-allowed ${
+                            u.is_active
+                              ? 'bg-red-50 text-red-700 border-red-200 hover:bg-red-100'
+                              : 'bg-green-50 text-green-700 border-green-200 hover:bg-green-100'
+                          }`}
+                        >
+                          {togglingIds.has(u.id) ? '...' : u.is_active ? 'Desactivar' : 'Activar'}
+                        </button>
+                        <button
+                          onClick={() => openPortalModal(u.email)}
+                          className="px-3 py-1 text-xs font-semibold font-sans text-gray-600 bg-gray-100 border border-gray-200 hover:bg-gray-200 rounded-lg transition-colors"
+                        >
+                          Reenviar
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
 
       {/* ------------------------------------------------------------------ */}
@@ -427,6 +739,70 @@ export default function ClientDetailPage() {
           </div>
         )}
       </div>
+
+      {/* ------------------------------------------------------------------ */}
+      {/* Invite modal                                                        */}
+      {/* ------------------------------------------------------------------ */}
+      {showPortalModal && (
+        <>
+          <div className="fixed inset-0 bg-black/40 z-40" onClick={() => setShowPortalModal(false)} />
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <div className="bg-white rounded-xl shadow-2xl w-full max-w-md">
+              <div className="flex items-center justify-between px-6 py-4 border-b border-border">
+                <div className="flex items-center gap-2">
+                  <Mail size={16} className="text-primary" />
+                  <h3 className="font-semibold text-[#1A1A2E] font-heading">Invitar al portal</h3>
+                </div>
+                <button
+                  onClick={() => setShowPortalModal(false)}
+                  className="p-1.5 rounded-lg text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition-colors"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+              <form onSubmit={handleInvite}>
+                <div className="px-6 py-5 space-y-4">
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-500 font-sans mb-1">
+                      Correo electrónico
+                    </label>
+                    <input
+                      type="email"
+                      value={inviteEmail}
+                      onChange={(e) => { setInviteEmail(e.target.value); setEmailError(null) }}
+                      className="w-full text-sm font-sans border border-border rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-colors"
+                      placeholder="cliente@empresa.com"
+                      autoFocus
+                    />
+                    {emailError && (
+                      <p className="mt-1.5 text-xs text-red-600 font-sans">{emailError}</p>
+                    )}
+                    {inviteError && (
+                      <p className="mt-1.5 text-xs text-red-600 font-sans">{inviteError}</p>
+                    )}
+                  </div>
+                </div>
+                <div className="px-6 pb-5 flex justify-end gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setShowPortalModal(false)}
+                    className="px-4 py-2 text-sm font-semibold font-sans text-gray-600 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={inviteLoading}
+                    className="px-4 py-2 text-sm font-semibold font-sans text-white bg-primary hover:bg-primary/90 disabled:opacity-60 disabled:cursor-not-allowed rounded-lg transition-colors"
+                  >
+                    {inviteLoading ? 'Enviando...' : 'Enviar invitación'}
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        </>
+      )}
 
     </div>
   )

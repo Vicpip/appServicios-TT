@@ -16,6 +16,7 @@ class Client(Base):
     created_at: Mapped[DateTime] = mapped_column(
         DateTime, server_default=func.now(), nullable=False
     )
+    logo_path: Mapped[str | None] = mapped_column(String, nullable=True)
 
     # Relationships
     plants: Mapped[list] = relationship("Plant", back_populates="client")

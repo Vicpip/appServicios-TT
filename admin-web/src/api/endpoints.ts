@@ -10,6 +10,8 @@ export const API = {
     create: '/api/admin/clients',
     detail: (id: string) => `/api/admin/clients/${id}`,
     clientDetail: (id: string) => `/api/admin/clients/${id}/detail`,
+    uploadLogo: (id: string) => `/api/admin/clients/${id}/logo`,
+    deleteLogo: (id: string) => `/api/admin/clients/${id}/logo`,
   },
   technicians: {
     list: '/api/admin/technicians',
@@ -69,6 +71,11 @@ export const API = {
     reportsByDay: '/api/admin/dashboard/reports-by-day',
     printersAttention: '/api/admin/dashboard/printers-attention',
     policiesExpiring: '/api/admin/dashboard/policies-expiring',
+  },
+  portal: {
+    invite: '/api/portal/invite',
+    adminUsers: (clientId: string) => `/api/portal/admin/clients/${clientId}/users`,
+    adminToggleUser: (userId: string) => `/api/portal/admin/users/${userId}/toggle-active`,
   },
   health: '/api/health',
 } as const

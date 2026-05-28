@@ -1,0 +1,104 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ── Base ──────────────────────────────────────────────────────────────────── */
+@layer base {
+  html {
+    font-family: 'DM Sans', sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  body {
+    @apply bg-surface text-[#1A1A2E] m-0 p-0;
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    font-family: 'Inter', sans-serif;
+  }
+
+  * {
+    box-sizing: border-box;
+  }
+}
+
+/* ── Utilities ─────────────────────────────────────────────────────────────── */
+@layer utilities {
+  .scrollbar-thin {
+    scrollbar-width: thin;
+    scrollbar-color: rgba(255,255,255,0.15) transparent;
+  }
+  .scrollbar-thin::-webkit-scrollbar { width: 4px; }
+  .scrollbar-thin::-webkit-scrollbar-track { background: transparent; }
+  .scrollbar-thin::-webkit-scrollbar-thumb {
+    background-color: rgba(255,255,255,0.15);
+    border-radius: 2px;
+  }
+}
+
+/* ── Components ────────────────────────────────────────────────────────────── */
+@layer components {
+
+  /* ── Sidebar nav link — mirrors admin-web Sidebar.tsx styles ── */
+  .sidebar-link {
+    @apply flex items-center gap-3 px-3 py-2.5 rounded-lg
+           text-sm font-medium
+           text-[#E8EDF8] hover:bg-white/[0.08]
+           transition-colors duration-150 no-underline;
+    border-left: 3px solid transparent;
+  }
+  .sidebar-link.active {
+    @apply bg-primary text-white;
+    border-left-color: #3B6FE8;
+  }
+  .sidebar-link svg {
+    @apply text-[#A8BBDE] shrink-0;
+  }
+  .sidebar-link.active svg {
+    @apply text-white;
+  }
+
+  /* ── Card — mirrors admin-web DashboardPage card pattern ── */
+  .card {
+    @apply bg-white rounded-xl border border-border shadow-sm p-5;
+  }
+
+  /* ── KPI card (left-border accent) ── */
+  .kpi-card {
+    @apply bg-white rounded-xl border-l-4 shadow-sm
+           flex items-center gap-4 p-5
+           cursor-pointer hover:shadow-md transition-shadow;
+  }
+
+  /* ── Buttons ── */
+  .btn-primary {
+    @apply inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-lg
+           bg-primary text-white text-sm font-semibold font-sans
+           hover:bg-primary-dark active:scale-95 transition-all duration-150
+           disabled:opacity-50 disabled:pointer-events-none;
+  }
+  .btn-ghost {
+    @apply inline-flex items-center justify-center gap-2 px-3 py-1.5 rounded-lg
+           text-sm font-medium text-gray-600 hover:text-gray-800 hover:bg-gray-100
+           transition-colors duration-150;
+  }
+
+  /* ── Input ── */
+  .input {
+    @apply block w-full rounded-lg border border-border bg-white px-3.5 py-2.5
+           text-sm text-[#1A1A2E] placeholder-gray-400 font-sans
+           focus:border-primary focus:ring-2 focus:ring-primary/20
+           transition duration-150 outline-none;
+  }
+
+  /* ── Table ── */
+  .table-row-hover {
+    @apply hover:bg-gray-50/60 cursor-pointer transition-colors duration-100;
+  }
+
+  /* ── Skeleton ── */
+  .skeleton {
+    @apply animate-pulse bg-gray-100 rounded-md;
+  }
+}

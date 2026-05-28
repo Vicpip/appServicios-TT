@@ -13,6 +13,7 @@ from app.api.routers.auth import router as auth_router
 from app.api.routers.sync import router as sync_router
 from app.api.routers.reports import router as reports_router
 from app.api.routers.admin import router as admin_router
+from app.api.routers.portal import router as portal_router
 
 settings = get_settings()
 
@@ -27,9 +28,10 @@ async def lifespan(app: FastAPI):
     Base.metadata.create_all(bind=engine)
     logger.info("Database tables ready")
 
-    # Ensure upload directory exists
+    # Ensure upload directory and logos subdirectory exist
     upload_path = Path(settings.upload_dir)
     upload_path.mkdir(parents=True, exist_ok=True)
+    (upload_path / "logos").mkdir(parents=True, exist_ok=True)
     logger.info("Upload directory ready: %s", settings.upload_dir)
     yield
     # Shutdown (nothing to clean up)
@@ -56,6 +58,7 @@ app.include_router(auth_router)
 app.include_router(sync_router)
 app.include_router(reports_router)
 app.include_router(admin_router)
+app.include_router(portal_router)
 
 # Static files — serve uploaded photos/signatures/PDFs
 _upload_path = Path(settings.upload_dir)
