@@ -1,11 +1,11 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { useNavigate } from 'react-router-dom'
 import { FileText, ChevronLeft, ChevronRight } from 'lucide-react'
 import apiClient from '@/api/axios'
 import StatusBadge from '@/components/StatusBadge'
 import { SkeletonTable } from '@/components/Skeleton'
 import EmptyState from '@/components/EmptyState'
+import ReporteModal from '@/components/ReporteModal'
 
 const LIMIT = 20
 
@@ -15,11 +15,11 @@ function fmtDate(iso) {
 }
 
 export default function Reportes() {
-  const navigate = useNavigate()
   const [offset, setOffset] = useState(0)
   const [selectedPrinter, setSelectedPrinter] = useState('')
   const [dateFrom, setDateFrom] = useState('')
   const [dateTo, setDateTo] = useState('')
+  const [selectedId, setSelectedId] = useState(null)
 
   const { data: printers = [] } = useQuery({
     queryKey: ['portal', 'printers'],
@@ -134,7 +134,7 @@ export default function Reportes() {
                   {filtered.map(r => (
                     <tr
                       key={r.id}
-                      onClick={() => navigate(`/reportes/${r.id}`)}
+                      onClick={() => setSelectedId(r.id)}
                       className="hover:bg-gray-50/60 transition-colors cursor-pointer"
                     >
                       <td className="px-5 py-3 font-mono text-xs text-gray-600">{r.code ?? '—'}</td>
@@ -176,6 +176,7 @@ export default function Reportes() {
           </>
         )}
       </div>
+      {selectedId && <ReporteModal reportId={selectedId} onClose={() => setSelectedId(null)} />}
     </div>
   )
 }

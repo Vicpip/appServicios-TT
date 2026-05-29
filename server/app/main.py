@@ -65,6 +65,10 @@ _upload_path = Path(settings.upload_dir)
 _upload_path.mkdir(parents=True, exist_ok=True)
 app.mount("/uploads", StaticFiles(directory=str(_upload_path)), name="uploads")
 
+# Static assets — logo and brand images (lib/img/ at repo root)
+_static_path = Path(__file__).resolve().parent.parent.parent / "lib" / "img"
+app.mount("/static", StaticFiles(directory=str(_static_path)), name="static")
+
 
 @app.get("/")
 def root() -> dict:

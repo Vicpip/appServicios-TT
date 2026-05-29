@@ -128,6 +128,9 @@ export default function ClientDetailPage() {
   const [inviteLoading, setInviteLoading] = useState(false)
   const [inviteError, setInviteError] = useState<string | null>(null)
   const [successMsg, setSuccessMsg] = useState<string | null>(null)
+  const [selectedPlantId, setSelectedPlantId] = useState<string>('')
+  const [plantsForModal, setPlantsForModal] = useState<PlantInfo[]>([])
+  const [plantsModalLoading, setPlantsModalLoading] = useState(false)
 
   // Portal users management state
   const [togglingIds, setTogglingIds] = useState<Set<string>>(new Set())
@@ -158,9 +161,14 @@ export default function ClientDetailPage() {
     }
     setInviteLoading(true)
     try {
-      await apiClient.post(API.portal.invite, { client_id: data!.client.id, email: trimmed })
+      await apiClient.post(API.portal.invite, {
+        client_id: data!.client.id,
+        email: trimmed,
+        plant_id: selectedPlantId || null,
+      })
       setShowPortalModal(false)
       setInviteEmail('')
+      setSelectedPlantId('')
       setSuccessMsg(`Invitación enviada a ${trimmed}`)
       setTimeout(() => setSuccessMsg(null), 5000)
     } catch (err: unknown) {
@@ -175,7 +183,18 @@ export default function ClientDetailPage() {
     setInviteEmail(prefilledEmail)
     setEmailError(null)
     setInviteError(null)
+    setSelectedPlantId('')
+    setPlantsForModal([])
     setShowPortalModal(true)
+    setPlantsModalLoading(true)
+    apiClient
+      .get(API.plants.list, { params: { client_id: id } })
+      .then((res) => {
+        const raw = res.data
+        setPlantsForModal(Array.isArray(raw) ? raw : (raw.plants ?? raw.items ?? []))
+      })
+      .catch(() => setPlantsForModal([]))
+      .finally(() => setPlantsModalLoading(false))
   }
 
   async function handleToggleUser(userId: string, currentActive: boolean) {
@@ -269,6 +288,10 @@ export default function ClientDetailPage() {
   const { client, plants, stats, printers } = data
   const s = stats
 
+  const logoSrc = client.logo_url
+    ? `${import.meta.env.VITE_API_URL}${client.logo_url}`
+    : null
+
   // Plant filter — derive unique names from printer rows
   const plantNames = Array.from(
     new Set(printers.map((p) => p.plant_name).filter((n): n is string => !!n))
@@ -304,9 +327,9 @@ export default function ClientDetailPage() {
 
           {/* Logo area */}
           <div className="shrink-0 flex flex-col items-center gap-1.5">
-            {client.logo_url ? (
+            {logoSrc ? (
               <img
-                src={client.logo_url}
+                src={logoSrc}
                 alt="Logo del cliente"
                 className="max-h-[120px] w-auto object-contain rounded-lg border border-gray-200 bg-gray-50 p-1"
               />
@@ -780,6 +803,28 @@ export default function ClientDetailPage() {
                     {inviteError && (
                       <p className="mt-1.5 text-xs text-red-600 font-sans">{inviteError}</p>
                     )}
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-500 font-sans mb-1">
+                      Acceso a planta
+                    </label>
+                    {plantsModalLoading ? (
+                      <div className="h-9 bg-gray-100 rounded-lg animate-pulse" />
+                    ) : (
+                      <select
+                        value={selectedPlantId}
+                        onChange={(e) => setSelectedPlantId(e.target.value)}
+                        className="w-full text-sm font-sans border border-border rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-colors bg-white"
+                      >
+                        <option value="">Todas las plantas</option>
+                        {plantsForModal.map((plant) => (
+                          <option key={plant.id} value={plant.id}>{plant.name}</option>
+                        ))}
+                      </select>
+                    )}
+                    <p className="mt-1 text-xs text-gray-400 font-sans">
+                      Sin restricción permite ver impresoras de todas las plantas
+                    </p>
                   </div>
                 </div>
                 <div className="px-6 pb-5 flex justify-end gap-3">

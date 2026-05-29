@@ -6,7 +6,7 @@ smtp_user, smtp_password, portal_base_url).
 Public API:
   send_invitation_email(to_email, token, client_name)
   send_password_reset_email(to_email, token)
-  send_welcome_email(to_email, name)
+  send_welcome_email(to_email, name, client_name)
 """
 
 import logging
@@ -64,57 +64,65 @@ def _send(to_email: str, subject: str, html_body: str) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Email templates
+# Base template
 # ---------------------------------------------------------------------------
 
-def _base_template(title: str, body_html: str) -> str:
-    return f"""
-<!DOCTYPE html>
+
+def _base_email_template(title: str, body_html: str) -> str:
+    logo_url = f"{get_settings().portal_base_url}/static/logo_smp.png"
+    return f"""<!DOCTYPE html>
 <html lang="es">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>{title}</title>
-  <style>
-    body {{
-      margin: 0; padding: 0; background: #f4f6f9;
-      font-family: 'Segoe UI', Arial, sans-serif; color: #333;
-    }}
-    .wrapper {{ max-width: 600px; margin: 40px auto; background: #ffffff;
-                border-radius: 8px; overflow: hidden;
-                box-shadow: 0 2px 12px rgba(0,0,0,0.08); }}
-    .header {{ background: #1a2e5a; padding: 28px 36px; }}
-    .header h1 {{ margin: 0; color: #ffffff; font-size: 20px; font-weight: 600; }}
-    .header p  {{ margin: 4px 0 0; color: #a8c0e0; font-size: 13px; }}
-    .body {{ padding: 32px 36px; line-height: 1.6; }}
-    .body h2 {{ color: #1a2e5a; margin-top: 0; font-size: 18px; }}
-    .btn {{
-      display: inline-block; margin-top: 24px; padding: 14px 28px;
-      background: #2563eb; color: #ffffff !important; text-decoration: none;
-      border-radius: 6px; font-weight: 600; font-size: 15px;
-    }}
-    .footer {{ background: #f4f6f9; padding: 20px 36px;
-               font-size: 12px; color: #888; text-align: center; }}
-    .divider {{ border: none; border-top: 1px solid #e8ecf0; margin: 24px 0; }}
-  </style>
 </head>
-<body>
-  <div class="wrapper">
-    <div class="header">
-      <h1>{_COMPANY}</h1>
-      <p>Portal de Clientes</p>
-    </div>
-    <div class="body">
-      {body_html}
-    </div>
-    <div class="footer">
-      &copy; {_COMPANY} &mdash; Este mensaje fue generado automáticamente,
-      por favor no responda a este correo.
-    </div>
-  </div>
+<body style="margin:0;padding:0;background:#F8FAFF;font-family:Arial,sans-serif;">
+  <table width="100%" cellpadding="0" cellspacing="0" border="0"
+         style="background:#F8FAFF;padding:40px 16px;">
+    <tr>
+      <td align="center">
+        <table width="100%" cellpadding="0" cellspacing="0" border="0"
+               style="max-width:600px;background:#ffffff;border-radius:12px;
+                      box-shadow:0 4px 24px rgba(15,27,61,0.10);overflow:hidden;">
+
+          <!-- HEADER -->
+          <tr>
+            <td style="background:#0F1B3D;padding:32px 40px;">
+              <img src="{logo_url}"
+                   alt="Servicios Main PC"
+                   height="48"
+                   style="display:block;max-height:48px;width:auto;" />
+              <div style="margin-top:8px;font-size:13px;color:#8899CC;
+                          letter-spacing:0.5px;">
+                Portal de Clientes
+              </div>
+            </td>
+          </tr>
+
+          <!-- BODY -->
+          <tr>
+            <td style="padding:40px;color:#1A1A2E;line-height:1.6;">
+              {body_html}
+            </td>
+          </tr>
+
+          <!-- FOOTER -->
+          <tr>
+            <td style="background:#F8FAFF;padding:24px 40px;
+                       font-size:12px;color:#8899CC;text-align:center;
+                       border-top:1px solid #E2E8F0;">
+              &copy; Servicios Main PC &mdash; Este mensaje fue generado
+              autom&aacute;ticamente, por favor no responda a este correo.
+            </td>
+          </tr>
+
+        </table>
+      </td>
+    </tr>
+  </table>
 </body>
-</html>
-"""
+</html>"""
 
 
 # ---------------------------------------------------------------------------
@@ -127,70 +135,120 @@ def send_invitation_email(to_email: str, token: str, client_name: str) -> None:
     settings = get_settings()
     link = f"{settings.portal_base_url}/registro?token={token}"
     body = f"""
-      <h2>Ha sido invitado al Portal de Clientes</h2>
-      <p>
-        La empresa <strong>{client_name}</strong> ha sido registrada en el
-        Portal de Clientes de <strong>{_COMPANY}</strong>.
+      <h2 style="margin:0 0 16px;font-size:20px;font-weight:700;color:#0F1B3D;">
+        Ha sido invitado al Portal de Clientes
+      </h2>
+      <p style="margin:0 0 12px;font-size:15px;color:#4A5568;">
+        La empresa <strong style="color:#0F1B3D;">{client_name}</strong> ha sido
+        registrada en el Portal de Clientes de
+        <strong style="color:#0F1B3D;">{_COMPANY}</strong>.
       </p>
-      <p>
-        Haga clic en el siguiente botón para crear su cuenta. Este enlace es
-        válido por <strong>48 horas</strong>.
+      <p style="margin:0 0 24px;font-size:15px;color:#4A5568;">
+        Haga clic en el siguiente bot&oacute;n para crear su cuenta.
       </p>
-      <a class="btn" href="{link}">Crear mi cuenta</a>
-      <hr class="divider" />
-      <p style="font-size:12px;color:#888;">
-        Si no esperaba esta invitación, puede ignorar este mensaje.<br/>
-        O copie y pegue este enlace en su navegador:<br/>
-        <a href="{link}" style="color:#2563eb;">{link}</a>
+      <a href="{link}"
+         style="display:inline-block;background:#1A4FD6;color:#ffffff;
+                padding:14px 32px;border-radius:8px;font-size:15px;
+                font-weight:600;text-decoration:none;">
+        Crear mi cuenta
+      </a>
+      <p style="margin:16px 0 0;font-size:13px;color:#4A5568;">
+        Este enlace es v&aacute;lido por <strong>48 horas</strong>.
+      </p>
+      <div style="border-top:1px solid #E2E8F0;margin:32px 0;"></div>
+      <p style="margin:0 0 8px;font-size:13px;color:#8899CC;">
+        Si no esperaba esta invitaci&oacute;n, puede ignorar este mensaje.
+      </p>
+      <p style="margin:0;font-size:12px;color:#8899CC;">
+        Si el bot&oacute;n no funciona, copie y pegue este enlace en su navegador:<br/>
+        <a href="{link}" style="color:#1A4FD6;word-break:break-all;">{link}</a>
       </p>
     """
-    _send(to_email, f"Invitación al Portal de Clientes — {_COMPANY}", _base_template("Invitación", body))
+    _send(
+        to_email,
+        f"Invitación al Portal de Clientes — {_COMPANY}",
+        _base_email_template("Invitación", body),
+    )
 
 
 def send_password_reset_email(to_email: str, token: str) -> None:
     """Send a password-reset link to a registered portal user."""
     settings = get_settings()
-    link = f"{settings.portal_base_url}/restablecer?token={token}"
+    link = f"{settings.portal_base_url}/reset-password?token={token}"
     body = f"""
-      <h2>Restablecimiento de contraseña</h2>
-      <p>
-        Recibimos una solicitud para restablecer la contraseña de su cuenta en
-        el Portal de Clientes de <strong>{_COMPANY}</strong>.
+      <h2 style="margin:0 0 16px;font-size:20px;font-weight:700;color:#0F1B3D;">
+        Restablecimiento de contrase&ntilde;a
+      </h2>
+      <p style="margin:0 0 12px;font-size:15px;color:#4A5568;">
+        Recibimos una solicitud para restablecer la contrase&ntilde;a de su cuenta
+        en el Portal de Clientes de
+        <strong style="color:#0F1B3D;">{_COMPANY}</strong>.
       </p>
-      <p>
-        Haga clic en el siguiente botón para establecer una nueva contraseña.
-        Este enlace es válido por <strong>1 hora</strong>.
+      <p style="margin:0 0 24px;font-size:15px;color:#4A5568;">
+        Haga clic en el siguiente bot&oacute;n para establecer una nueva
+        contrase&ntilde;a.
       </p>
-      <a class="btn" href="{link}">Restablecer contraseña</a>
-      <hr class="divider" />
-      <p style="font-size:12px;color:#888;">
-        Si usted no solicitó este cambio, puede ignorar este mensaje. Su
-        contraseña actual no será modificada.<br/>
-        O copie y pegue este enlace:<br/>
-        <a href="{link}" style="color:#2563eb;">{link}</a>
+      <a href="{link}"
+         style="display:inline-block;background:#1A4FD6;color:#ffffff;
+                padding:14px 32px;border-radius:8px;font-size:15px;
+                font-weight:600;text-decoration:none;">
+        Restablecer contrase&ntilde;a
+      </a>
+      <p style="margin:16px 0 0;font-size:13px;color:#4A5568;">
+        Este enlace es v&aacute;lido por <strong>1 hora</strong>.
+      </p>
+      <div style="border-top:1px solid #E2E8F0;margin:32px 0;"></div>
+      <p style="margin:0 0 8px;font-size:13px;color:#8899CC;">
+        Si usted no solicit&oacute; este cambio, puede ignorar este mensaje.
+        Su contrase&ntilde;a actual no ser&aacute; modificada.
+      </p>
+      <p style="margin:0;font-size:12px;color:#8899CC;">
+        Si el bot&oacute;n no funciona, copie y pegue este enlace en su navegador:<br/>
+        <a href="{link}" style="color:#1A4FD6;word-break:break-all;">{link}</a>
       </p>
     """
-    _send(to_email, f"Restablecimiento de contraseña — {_COMPANY}", _base_template("Restablecer contraseña", body))
+    _send(
+        to_email,
+        f"Restablecimiento de contraseña — {_COMPANY}",
+        _base_email_template("Restablecer contraseña", body),
+    )
 
 
-def send_welcome_email(to_email: str, name: str) -> None:
+def send_welcome_email(to_email: str, name: str, client_name: str = "") -> None:
     """Send a welcome email after successful portal registration."""
     settings = get_settings()
-    login_url = f"{settings.portal_base_url}/login"
+    portal_url = settings.portal_base_url
+    company_line = (
+        f" de <strong style=\"color:#0F1B3D;\">{client_name}</strong>"
+        if client_name
+        else ""
+    )
     body = f"""
-      <h2>¡Bienvenido, {name}!</h2>
-      <p>
-        Su cuenta en el Portal de Clientes de <strong>{_COMPANY}</strong>
-        ha sido creada exitosamente.
+      <h2 style="margin:0 0 16px;font-size:20px;font-weight:700;color:#0F1B3D;">
+        &iexcl;Bienvenido al Portal de Clientes!
+      </h2>
+      <p style="margin:0 0 12px;font-size:15px;color:#4A5568;">
+        Hola, <strong style="color:#0F1B3D;">{name}</strong>. Su cuenta{company_line}
+        ha sido creada exitosamente en el Portal de Clientes de
+        <strong style="color:#0F1B3D;">{_COMPANY}</strong>.
       </p>
-      <p>
-        Desde el portal podrá consultar sus impresoras, el historial de
-        servicios y sus pólizas activas en cualquier momento.
+      <p style="margin:0 0 8px;font-size:15px;color:#4A5568;">
+        Desde el portal podr&aacute; consultar:
       </p>
-      <a class="btn" href="{login_url}">Ir al Portal</a>
-      <hr class="divider" />
-      <p style="font-size:12px;color:#888;">
-        Si tiene alguna pregunta, póngase en contacto con su técnico asignado.
-      </p>
+      <ul style="margin:0 0 24px;padding-left:20px;font-size:15px;color:#4A5568;">
+        <li style="margin-bottom:6px;">Sus <strong style="color:#0F1B3D;">impresoras</strong> registradas y su estado</li>
+        <li style="margin-bottom:6px;"><strong style="color:#0F1B3D;">Reportes</strong> e historial de servicios t&eacute;cnicos</li>
+        <li style="margin-bottom:6px;">Sus <strong style="color:#0F1B3D;">p&oacute;lizas</strong> de mantenimiento activas</li>
+      </ul>
+      <a href="{portal_url}"
+         style="display:inline-block;background:#1A4FD6;color:#ffffff;
+                padding:14px 32px;border-radius:8px;font-size:15px;
+                font-weight:600;text-decoration:none;">
+        Ir al portal
+      </a>
     """
-    _send(to_email, f"Bienvenido al Portal de Clientes — {_COMPANY}", _base_template("Bienvenido", body))
+    _send(
+        to_email,
+        f"Bienvenido al Portal de Clientes — {_COMPANY}",
+        _base_email_template("Bienvenido", body),
+    )

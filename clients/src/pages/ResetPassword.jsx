@@ -1,45 +1,45 @@
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import { useSearchParams, useNavigate } from 'react-router-dom'
+import { jwtDecode } from 'jwt-decode'
 import { Loader2 } from 'lucide-react'
 import axios from 'axios'
+
+const PASSWORD_CRITERIA = [
+  { label: 'Mínimo 8 caracteres', test: (p) => p.length >= 8 },
+  { label: 'Una mayúscula', test: (p) => /[A-Z]/.test(p) },
+  { label: 'Un número', test: (p) => /[0-9]/.test(p) },
+  { label: 'Un carácter especial', test: (p) => /[!@#$%^&*-]/.test(p) },
+]
+
+function decodeEmail(token) {
+  try {
+    const payload = jwtDecode(token)
+    return typeof payload?.email === 'string' ? payload.email : null
+  } catch {
+    return null
+  }
+}
 
 export default function ResetPassword() {
   const [searchParams] = useSearchParams()
   const navigate = useNavigate()
 
+  const token = searchParams.get('token') ?? ''
+  const decodedEmail = useMemo(() => (token ? decodeEmail(token) : null), [token])
+
   const [password, setPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
-  const [passwordError, setPasswordError] = useState('')
-  const [confirmError, setConfirmError] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
 
-  const token = searchParams.get('token') ?? ''
-
-  const validate = () => {
-    let valid = true
-    setPasswordError('')
-    setConfirmError('')
-
-    if (!token) {
-      setError('Enlace de restablecimiento inválido o expirado.')
-      return false
-    }
-    if (password.length < 8) {
-      setPasswordError('La contraseña debe tener al menos 8 caracteres')
-      valid = false
-    }
-    if (password !== confirmPassword) {
-      setConfirmError('Las contraseñas no coinciden')
-      valid = false
-    }
-    return valid
-  }
+  const criteria = PASSWORD_CRITERIA.map((c) => ({ label: c.label, met: c.test(password) }))
+  const allCriteriaMet = criteria.every((c) => c.met)
+  const passwordsMatch = password === confirmPassword
+  const isFormValid = allCriteriaMet && passwordsMatch && confirmPassword.length > 0
 
   const handleSubmit = async (e) => {
     e.preventDefault()
-    if (loading) return
-    if (!validate()) return
+    if (loading || !isFormValid) return
 
     setError('')
     setLoading(true)
@@ -79,6 +79,22 @@ export default function ResetPassword() {
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4" noValidate>
+          {decodedEmail && (
+            <div>
+              <label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-1">
+                Correo electrónico
+              </label>
+              <input
+                id="email"
+                type="email"
+                value={decodedEmail}
+                readOnly
+                disabled
+                className="w-full px-3 py-2.5 rounded-lg border border-border text-sm bg-gray-100 text-gray-500 cursor-not-allowed"
+              />
+            </div>
+          )}
+
           <div>
             <label htmlFor="password" className="block text-sm font-medium text-gray-700 mb-1">
               Nueva contraseña
@@ -91,9 +107,21 @@ export default function ResetPassword() {
               disabled={loading}
               autoComplete="new-password"
               className="w-full px-3 py-2.5 rounded-lg border border-border text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary disabled:opacity-50 transition-colors"
-              placeholder="Mínimo 8 caracteres"
+              placeholder="Crea tu contraseña"
             />
-            {passwordError && <p className="mt-1 text-xs text-red-600">{passwordError}</p>}
+            {password && (
+              <ul className="mt-2 space-y-1" aria-label="Requisitos de contraseña">
+                {criteria.map((c) => (
+                  <li
+                    key={c.label}
+                    className={`flex items-center gap-1.5 text-xs ${c.met ? 'text-green-600' : 'text-red-500'}`}
+                  >
+                    <span aria-hidden="true">{c.met ? '✓' : '✗'}</span>
+                    {c.label}
+                  </li>
+                ))}
+              </ul>
+            )}
           </div>
 
           <div>
@@ -110,14 +138,18 @@ export default function ResetPassword() {
               className="w-full px-3 py-2.5 rounded-lg border border-border text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary disabled:opacity-50 transition-colors"
               placeholder="Repite tu contraseña"
             />
-            {confirmError && <p className="mt-1 text-xs text-red-600">{confirmError}</p>}
+            {confirmPassword && !passwordsMatch && (
+              <p className="mt-1 text-xs text-red-600">Las contraseñas no coinciden</p>
+            )}
           </div>
 
-          {error && <p className="text-sm text-red-600 text-center" role="alert">{error}</p>}
+          {error && (
+            <p className="text-sm text-red-600 text-center" role="alert">{error}</p>
+          )}
 
           <button
             type="submit"
-            disabled={loading}
+            disabled={loading || !isFormValid}
             className="w-full flex items-center justify-center gap-2 bg-primary hover:bg-primary-dark text-white font-medium py-2.5 px-4 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {loading ? (

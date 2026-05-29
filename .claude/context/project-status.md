@@ -520,6 +520,42 @@ dart run build_runner build --delete-conflicting-outputs
 
 ---
 
+## ✅ Portal Cliente — Reportes modal + Pólizas detalle (29/05/2026)
+
+### Task 3 — Backend (server/app/api/routers/portal.py + schemas/portal.py)
+
+| Cambio | Descripción |
+|--------|-------------|
+| `PortalReportDetail` | Agrega `client_name`, `signature_image_path`, `photo_paths` |
+| `PortalReportFiles` | Nuevo schema `{photos, signature, pdf}` |
+| `GET /api/portal/reports/{id}/files` | Nuevo endpoint: retorna URLs de fotos/firma/PDF via EntityFile join + fallback a photo_paths raw |
+| `PortalPolicyItem` | Agrega `printer_count: int` |
+| `list_policies()` | Cuenta impresoras via `PolicyPrinter` count query |
+| `PortalPolicyDetail` | Nuevo schema: folio, client_name, printer_count, printers[], deliveries[] |
+| `PortalPolicyDetailPrinter` | Nuevo schema: id, serial, code, plant_name, area_name, model_name |
+| `PortalPolicyDeliveryItem` | Nuevo schema: id, delivery_date, signature_name, signature_role, tech_name, report_count |
+| `PortalPolicyDeliveryDetail` | Nuevo schema: mismo + reports[] |
+| `PortalDeliveryReportItem` | Nuevo schema: report_id, serial, model_name, service_type, service_date, status |
+| `GET /api/portal/policies/{id}` | Nuevo endpoint: detalle completo de póliza con impresoras y entregas |
+| `GET /api/portal/policies/{id}/deliveries/{delivery_id}` | Nuevo endpoint: detalle de entrega con reportes por impresora |
+
+### Task 1 — Cliente: Reportes modal (clients/src/)
+
+| Cambio | Descripción |
+|--------|-------------|
+| `components/ReporteModal.jsx` | NUEVO: Modal grande centrado con 2 columnas. Izq: info general, datos técnicos, firma (imagen PNG), observaciones. Der: checklist Sí/No, galería de fotos 3-col + lightbox. Botón "Ver PDF" si existe. Backdrop dismiss. |
+| `pages/Reportes.jsx` | Filas abren `ReporteModal` en vez de navegar a `/reportes/:id`. Estado `selectedId`. |
+
+### Task 2 — Cliente: Pólizas detalle (clients/src/)
+
+| Cambio | Descripción |
+|--------|-------------|
+| `pages/Polizas.jsx` | Cards clickeables → navegan a `/polizas/:id`. Muestra `printer_count`. Badge usa `p.status` real. |
+| `pages/PolizaDetalle.jsx` | NUEVO: Página con 2 tabs. Resumen: 4 KPI cards + historial de entregas colapsable (carga delivery detail lazy) con "Ver reporte" → ReporteModal + "Descargar PDF". Información: grid datos generales + lista de impresoras. |
+| `App.jsx` | Agrega ruta `polizas/:id` → `PolizaDetalle`. |
+
+---
+
 ## ✅ Mejoras UI Admin Web (20/05/2026 — sesión tarde)
 
 | Cambio | Descripción |

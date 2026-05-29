@@ -43,11 +43,6 @@ function Sidebar({ collapsed, onToggleCollapse, mobileOpen, onMobileClose }) {
   const location = useLocation()
   const navigate = useNavigate()
   const { user, logout } = useAuth()
-  const [clientLogoVisible, setClientLogoVisible] = useState(false)
-
-  useEffect(() => {
-    setClientLogoVisible(!!user?.client_id)
-  }, [user?.client_id])
 
   const isActive = (path) => location.pathname === path || location.pathname.startsWith(path + '/')
 
@@ -93,18 +88,6 @@ function Sidebar({ collapsed, onToggleCollapse, mobileOpen, onMobileClose }) {
               Portal Cliente
             </span>
           </div>
-          {clientLogoVisible && user?.client_id && (
-            <div className={['mt-2', collapsed ? 'md:hidden' : ''].join(' ')}>
-              <div className="h-px bg-white/10 mb-2" />
-              <img
-                src={`${_API_BASE}/api/portal/client-logo?client_id=${user.client_id}`}
-                alt="Logo del cliente"
-                className="max-h-[80px] w-auto object-contain"
-                draggable={false}
-                onError={() => setClientLogoVisible(false)}
-              />
-            </div>
-          )}
         </div>
 
         {/* Nav items */}
@@ -152,8 +135,14 @@ function Sidebar({ collapsed, onToggleCollapse, mobileOpen, onMobileClose }) {
                 <User size={13} className="text-[#A8BBDE]" />
               </div>
               <div className="min-w-0">
-                <p className="text-xs font-medium text-[#E8EDF8] truncate">{user?.name ?? '—'}</p>
-                <p className="text-[10px] text-[#A8BBDE] truncate">{user?.client_name ?? ''}</p>
+                {user?.name
+                  ? <p className="text-xs font-medium text-[#E8EDF8] truncate">{user.name}</p>
+                  : <div className="w-24 h-4 bg-white/20 rounded animate-pulse" />
+                }
+                {user?.client_name
+                  ? <p className="text-[10px] text-[#A8BBDE] truncate mt-0.5">{user.client_name}</p>
+                  : <div className="w-16 h-3 bg-white/20 rounded animate-pulse mt-1" />
+                }
               </div>
             </div>
           )}
@@ -203,7 +192,7 @@ function Sidebar({ collapsed, onToggleCollapse, mobileOpen, onMobileClose }) {
 function Header({ onMobileMenuToggle }) {
   const location = useLocation()
   const navigate = useNavigate()
-  const { logout } = useAuth()
+  const { user, logout } = useAuth()
   const sectionTitle = getSectionTitle(location.pathname)
 
   const handleLogout = () => {
@@ -232,6 +221,18 @@ function Header({ onMobileMenuToggle }) {
           className="h-10 w-auto object-contain shrink-0"
           draggable={false}
         />
+
+        {user?.client_id && (
+          <>
+            <span className="w-px h-7 bg-gray-200 shrink-0" aria-hidden="true" />
+            <img
+              src={`${import.meta.env.VITE_API_URL}/api/portal/client-logo?client_id=${user.client_id}`}
+              alt="Logo del cliente"
+              className="max-h-9 w-auto object-contain shrink-0"
+              onError={(e) => { e.currentTarget.style.display = 'none' }}
+            />
+          </>
+        )}
 
         <span className="w-px h-5 bg-gray-200 shrink-0" aria-hidden="true" />
 

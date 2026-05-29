@@ -21,22 +21,26 @@ from __future__ import annotations
 import secrets
 import uuid
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import RedirectResponse
 from passlib.context import CryptContext
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 
 from app.auth import create_access_token, get_current_user
+from app.config import get_settings
 from app.database import get_db
+from app.models.catalog import CatalogModel
 from app.models.client import Client
+from app.models.file import EntityFile, File
 from app.models.plant import Plant
-from app.models.policy import Policy
+from app.models.policy import Policy, PolicyDelivery, PolicyDeliveryReport, PolicyPrinter
 from app.models.portal import PortalInvitation, PortalPasswordReset, PortalUser
 from app.models.printer import Printer
 from app.models.report import Report
 from app.models.area import Area
-from app.models.catalog import CatalogModel
 from app.models.user import User
 from app.portal_auth import get_current_portal_user
 from app.schemas.portal import (
@@ -45,12 +49,18 @@ from app.schemas.portal import (
     InviteInfoResponse,
     InviteRequest,
     InviteResponse,
+    PortalDeliveryReportItem,
     PortalLoginRequest,
     PortalLoginResponse,
+    PortalPolicyDeliveryDetail,
+    PortalPolicyDeliveryItem,
+    PortalPolicyDetail,
+    PortalPolicyDetailPrinter,
     PortalPolicyItem,
     PortalPrinterDetail,
     PortalPrinterListItem,
     PortalReportDetail,
+    PortalReportFiles,
     PortalReportListItem,
     PortalReportListResponse,
     PortalUserAdminItem,
@@ -63,6 +73,8 @@ from app.schemas.portal import (
     ResetPasswordResponse,
 )
 from app.services import email_service
+
+_settings = get_settings()
 
 router = APIRouter(prefix="/api/portal", tags=["portal"])
 
@@ -90,8 +102,10 @@ def _verify_password(plain: str, hashed: str) -> bool:
     return _pwd_ctx.verify(plain, hashed)
 
 
-def _portal_token(portal_user: PortalUser) -> str:
+def _portal_token(portal_user: PortalUser, db: Session) -> str:
     """Create a JWT for a portal user with role='portal_client'."""
+    client: Client | None = db.get(Client, portal_user.client_id)
+    plant: Plant | None = db.get(Plant, portal_user.plant_id) if portal_user.plant_id else None
     return create_access_token(
         data={
             "sub": portal_user.id,
@@ -99,6 +113,9 @@ def _portal_token(portal_user: PortalUser) -> str:
             "role": _PORTAL_ROLE,
             "client_id": portal_user.client_id,
             "plant_id": portal_user.plant_id,
+            "name": portal_user.name,
+            "client_name": client.name if client else "",
+            "plant_name": plant.name if plant else None,
         }
     )
 
@@ -354,7 +371,7 @@ def login(body: PortalLoginRequest, db: Session = Depends(get_db)) -> PortalLogi
         db.get(Plant, portal_user.plant_id) if portal_user.plant_id else None
     )
 
-    token = _portal_token(portal_user)
+    token = _portal_token(portal_user, db)
 
     return PortalLoginResponse(
         access_token=token,
@@ -659,8 +676,8 @@ def get_report(
         )
 
     printer = db.get(Printer, report.printer_id)
-    from app.models.user import User as InternalUser
-    tech = db.get(InternalUser, report.tech_id)
+    tech = db.get(User, report.tech_id)
+    client = db.get(Client, printer.client_id) if printer else None
 
     return PortalReportDetail(
         id=report.id,
@@ -681,7 +698,73 @@ def get_report(
         photo_count=report.photo_count,
         sync_date=report.sync_date,
         created_at=report.created_at,
+        client_name=client.name if client else None,
+        signature_image_path=report.signature_image_path,
+        photo_paths=report.photo_paths or "[]",
     )
+
+
+# ---------------------------------------------------------------------------
+# GET /api/portal/reports/{report_id}/files
+# ---------------------------------------------------------------------------
+
+
+@router.get("/reports/{report_id}/files", response_model=PortalReportFiles)
+def get_report_files(
+    report_id: str,
+    db: Session = Depends(get_db),
+    payload: dict = Depends(get_current_portal_user),
+) -> PortalReportFiles:
+    """Return photo/signature/PDF URLs for a report within the portal user's scope."""
+    portal_user = _resolve_portal_user(payload, db)
+
+    report: Report | None = db.get(Report, report_id)
+    if not report:
+        raise HTTPException(status_code=404, detail="Reporte no encontrado")
+
+    printer_ids = _get_printer_ids_in_scope(portal_user, db)
+    if report.printer_id not in printer_ids:
+        raise HTTPException(status_code=403, detail="Acceso denegado a este reporte")
+
+    rows = (
+        db.query(EntityFile, File)
+        .join(File, EntityFile.file_id == File.id)
+        .filter(
+            EntityFile.entity_id == report_id,
+            EntityFile.entity_type == "report",
+        )
+        .all()
+    )
+
+    upload_dir_path = Path(_settings.upload_dir)
+    photos: list[str] = []
+    signature: str | None = None
+    pdf: str | None = None
+
+    for ef, f in rows:
+        try:
+            rel = Path(f.storage_path).relative_to(upload_dir_path)
+            url = f"/uploads/{rel.as_posix()}"
+        except ValueError:
+            url = f"/uploads/{f.storage_path.lstrip('/')}"
+        if ef.file_category == "photo":
+            photos.append(url)
+        elif ef.file_category == "signature":
+            signature = url
+        elif ef.file_category == "pdf":
+            pdf = url
+
+    # Fallback: use raw paths from report if EntityFile table is empty
+    if not photos and report.photo_paths and report.photo_paths != "[]":
+        import json
+        raw_paths = json.loads(report.photo_paths)
+        photos = [f"/uploads/{p.lstrip('/')}" if not p.startswith("/uploads") else p for p in raw_paths]
+
+    if not signature and report.signature_image_path:
+        sig = report.signature_image_path
+        signature = f"/uploads/{sig.lstrip('/')}" if not sig.startswith("/uploads") else sig
+
+    return PortalReportFiles(photos=photos, signature=signature, pdf=pdf)
 
 
 # ---------------------------------------------------------------------------
@@ -707,19 +790,186 @@ def list_policies(
         .all()
     )
 
-    return [
-        PortalPolicyItem(
-            id=p.id,
-            folio=p.folio,
-            coverage_type=p.coverage_type,
-            start_date=p.start_date,
-            end_date=p.end_date,
-            status=p.status,
-            sla_notes=p.sla_notes,
-            frequency_maintenance=p.frequency_maintenance,
+    items: list[PortalPolicyItem] = []
+    for p in policies:
+        printer_count = (
+            db.query(func.count(PolicyPrinter.id))
+            .filter(PolicyPrinter.policy_id == p.id)
+            .scalar()
+        ) or 0
+        items.append(
+            PortalPolicyItem(
+                id=p.id,
+                folio=p.folio,
+                coverage_type=p.coverage_type,
+                start_date=p.start_date,
+                end_date=p.end_date,
+                status=p.status,
+                sla_notes=p.sla_notes,
+                frequency_maintenance=p.frequency_maintenance,
+                printer_count=printer_count,
+            )
         )
-        for p in policies
-    ]
+    return items
+
+
+# ---------------------------------------------------------------------------
+# GET /api/portal/policies/{policy_id}
+# ---------------------------------------------------------------------------
+
+
+@router.get("/policies/{policy_id}", response_model=PortalPolicyDetail)
+def get_policy(
+    policy_id: str,
+    db: Session = Depends(get_db),
+    payload: dict = Depends(get_current_portal_user),
+) -> PortalPolicyDetail:
+    """Return full detail for a single policy — must belong to the portal user's client."""
+    portal_user = _resolve_portal_user(payload, db)
+
+    policy: Policy | None = db.get(Policy, policy_id)
+    if not policy or policy.client_id != portal_user.client_id:
+        raise HTTPException(status_code=404, detail="Póliza no encontrada")
+
+    client: Client | None = db.get(Client, policy.client_id)
+
+    # Printers
+    policy_printers = (
+        db.query(PolicyPrinter)
+        .filter(PolicyPrinter.policy_id == policy_id)
+        .all()
+    )
+    printers: list[PortalPolicyDetailPrinter] = []
+    for pp in policy_printers:
+        printer: Printer | None = db.get(Printer, pp.printer_id)
+        if not printer:
+            continue
+        plant = db.get(Plant, printer.plant_id) if printer.plant_id else None
+        area = db.get(Area, printer.area_id) if printer.area_id else None
+        catalog_model = db.get(CatalogModel, printer.model_id) if printer.model_id else None
+        model_name: str | None = None
+        if catalog_model:
+            model_name = f"{catalog_model.brand} {catalog_model.model_name}".strip()
+        printers.append(
+            PortalPolicyDetailPrinter(
+                id=printer.id,
+                serial_number=printer.serial_number,
+                code=printer.code,
+                plant_name=plant.name if plant else None,
+                area_name=area.name if area else None,
+                model_name=model_name,
+            )
+        )
+
+    # Deliveries
+    deliveries_db = (
+        db.query(PolicyDelivery)
+        .filter(PolicyDelivery.policy_id == policy_id)
+        .order_by(PolicyDelivery.delivery_date.desc())
+        .all()
+    )
+    deliveries: list[PortalPolicyDeliveryItem] = []
+    for d in deliveries_db:
+        tech: User | None = db.get(User, d.tech_id)
+        report_count = (
+            db.query(func.count(PolicyDeliveryReport.id))
+            .filter(PolicyDeliveryReport.delivery_id == d.id)
+            .scalar()
+        ) or 0
+        deliveries.append(
+            PortalPolicyDeliveryItem(
+                id=d.id,
+                delivery_date=d.delivery_date,
+                signature_name=d.signature_name,
+                signature_role=d.signature_role,
+                tech_name=tech.name if tech else None,
+                report_count=report_count,
+            )
+        )
+
+    return PortalPolicyDetail(
+        id=policy.id,
+        folio=policy.folio,
+        coverage_type=policy.coverage_type,
+        start_date=policy.start_date,
+        end_date=policy.end_date,
+        status=policy.status,
+        sla_notes=policy.sla_notes,
+        frequency_maintenance=policy.frequency_maintenance,
+        client_name=client.name if client else "",
+        printer_count=len(printers),
+        printers=printers,
+        deliveries=deliveries,
+    )
+
+
+# ---------------------------------------------------------------------------
+# GET /api/portal/policies/{policy_id}/deliveries/{delivery_id}
+# ---------------------------------------------------------------------------
+
+
+@router.get(
+    "/policies/{policy_id}/deliveries/{delivery_id}",
+    response_model=PortalPolicyDeliveryDetail,
+)
+def get_policy_delivery(
+    policy_id: str,
+    delivery_id: str,
+    db: Session = Depends(get_db),
+    payload: dict = Depends(get_current_portal_user),
+) -> PortalPolicyDeliveryDetail:
+    """Return detail for a single policy delivery including per-report rows."""
+    portal_user = _resolve_portal_user(payload, db)
+
+    policy: Policy | None = db.get(Policy, policy_id)
+    if not policy or policy.client_id != portal_user.client_id:
+        raise HTTPException(status_code=404, detail="Póliza no encontrada")
+
+    delivery: PolicyDelivery | None = db.get(PolicyDelivery, delivery_id)
+    if not delivery or delivery.policy_id != policy_id:
+        raise HTTPException(status_code=404, detail="Entrega no encontrada")
+
+    tech: User | None = db.get(User, delivery.tech_id)
+
+    delivery_reports_db = (
+        db.query(PolicyDeliveryReport)
+        .filter(PolicyDeliveryReport.delivery_id == delivery_id)
+        .all()
+    )
+    reports: list[PortalDeliveryReportItem] = []
+    for dr in delivery_reports_db:
+        report: Report | None = db.get(Report, dr.report_id)
+        if not report:
+            continue
+        printer: Printer | None = db.get(Printer, report.printer_id)
+        catalog_model = (
+            db.get(CatalogModel, printer.model_id)
+            if printer and printer.model_id
+            else None
+        )
+        model_name: str | None = None
+        if catalog_model:
+            model_name = f"{catalog_model.brand} {catalog_model.model_name}".strip()
+        reports.append(
+            PortalDeliveryReportItem(
+                report_id=dr.report_id,
+                serial_number=printer.serial_number if printer else None,
+                model_name=model_name,
+                service_type=report.service_type,
+                service_date=report.service_date,
+                status=report.status,
+            )
+        )
+
+    return PortalPolicyDeliveryDetail(
+        id=delivery.id,
+        delivery_date=delivery.delivery_date,
+        signature_name=delivery.signature_name,
+        signature_role=delivery.signature_role,
+        tech_name=tech.name if tech else None,
+        report_count=len(reports),
+        reports=reports,
+    )
 
 
 # ===========================================================================

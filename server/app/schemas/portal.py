@@ -178,6 +178,15 @@ class PortalReportDetail(BaseModel):
     photo_count: int
     sync_date: Optional[datetime]
     created_at: datetime
+    client_name: Optional[str] = None
+    signature_image_path: Optional[str] = None
+    photo_paths: str = "[]"
+
+
+class PortalReportFiles(BaseModel):
+    photos: list[str]
+    signature: Optional[str]
+    pdf: Optional[str]
 
 
 class PortalReportListResponse(BaseModel):
@@ -202,6 +211,67 @@ class PortalPolicyItem(BaseModel):
     status: str
     sla_notes: Optional[str]
     frequency_maintenance: Optional[str]
+    printer_count: int = 0
+
+
+# ---------------------------------------------------------------------------
+# Portal data — policy detail
+# ---------------------------------------------------------------------------
+
+class PortalPolicyDetailPrinter(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    serial_number: str
+    code: Optional[str]
+    plant_name: Optional[str]
+    area_name: Optional[str]
+    model_name: Optional[str]
+
+
+class PortalDeliveryReportItem(BaseModel):
+    report_id: str
+    serial_number: Optional[str]
+    model_name: Optional[str]
+    service_type: str
+    service_date: Optional[datetime]
+    status: str
+
+
+class PortalPolicyDeliveryItem(BaseModel):
+    id: str
+    delivery_date: datetime
+    signature_name: str
+    signature_role: str
+    tech_name: Optional[str]
+    report_count: int
+
+
+class PortalPolicyDeliveryDetail(BaseModel):
+    id: str
+    delivery_date: datetime
+    signature_name: str
+    signature_role: str
+    tech_name: Optional[str]
+    report_count: int
+    reports: list[PortalDeliveryReportItem]
+
+
+class PortalPolicyDetail(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    folio: str
+    coverage_type: str
+    start_date: datetime
+    end_date: datetime
+    status: str
+    sla_notes: Optional[str]
+    frequency_maintenance: Optional[str]
+    client_name: str
+    printer_count: int
+    printers: list[PortalPolicyDetailPrinter]
+    deliveries: list[PortalPolicyDeliveryItem]
 
 
 # ---------------------------------------------------------------------------

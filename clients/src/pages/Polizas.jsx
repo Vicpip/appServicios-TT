@@ -1,4 +1,5 @@
 import { useQuery } from '@tanstack/react-query'
+import { useNavigate } from 'react-router-dom'
 import { ShieldCheck } from 'lucide-react'
 import apiClient from '@/api/axios'
 import StatusBadge from '@/components/StatusBadge'
@@ -11,6 +12,7 @@ function fmtDate(iso) {
 }
 
 export default function Polizas() {
+  const navigate = useNavigate()
   const { data: policies = [], isLoading, error } = useQuery({
     queryKey: ['portal', 'policies'],
     queryFn: async () => {
@@ -44,13 +46,16 @@ export default function Polizas() {
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {policies.map(p => (
-            <div key={p.id} className="bg-white rounded-xl border border-border shadow-sm p-5">
+            <div
+              key={p.id}
+              onClick={() => navigate(`/polizas/${p.id}`)}
+              className="bg-white rounded-xl border border-border shadow-sm p-5 cursor-pointer hover:border-primary/30 hover:shadow-md transition-all"
+            >
               <div className="flex items-start justify-between gap-2 mb-3">
                 <div className="w-9 h-9 rounded-lg bg-emerald-50 flex items-center justify-center shrink-0">
                   <ShieldCheck size={17} className="text-emerald-600" />
                 </div>
-                {/* Endpoint only returns active policies — always show Activa */}
-                <StatusBadge status="activa" />
+                <StatusBadge status={p.status || 'activa'} />
               </div>
 
               <p className="font-mono text-sm font-semibold text-[#1A1A2E] truncate">{p.folio}</p>
@@ -62,6 +67,11 @@ export default function Polizas() {
                 <p className="text-xs text-gray-400 font-sans">
                   {fmtDate(p.start_date)} → {fmtDate(p.end_date)}
                 </p>
+                {p.printer_count > 0 && (
+                  <p className="text-xs text-gray-400 font-sans">
+                    {p.printer_count} impresora{p.printer_count !== 1 ? 's' : ''}
+                  </p>
+                )}
                 {p.frequency_maintenance && (
                   <p className="text-xs text-gray-400 font-sans">
                     Mantenimiento: {p.frequency_maintenance}
