@@ -520,6 +520,30 @@ dart run build_runner build --delete-conflicting-outputs
 
 ---
 
+## ✅ Portal Cliente — Mejoras UI (29/05/2026)
+
+### Task 1 — Gráfica de pastel: color "Correctivo" → naranja
+- `Dashboard.jsx`: `PIE_COLOR_OVERRIDES = { Correctivo: '#F97316' }`. La asignación de colores en `<Cell>` usa el override por nombre antes de caer al array de colores por índice.
+
+### Task 2 — StatusBadge: estados legibles
+- `StatusBadge.jsx`: agrega `signed/synced → "Correcto"` (verde), `draft/pending → "En proceso"` (gris). Afecta Dashboard, Reportes e ImpresoraDetalle automáticamente.
+
+### Task 3 — ImpresoraDetalle: nuevas métricas en Estadísticas Técnicas
+- Nueva fila 2 con 3 KPIs: `avg_daily_inches`, `last_linear_inches_counter`, `avg_darkness_level` (leídos de `printer.*`; muestran "—" hasta que el backend los exponga).
+- Fila 3 expandida a 3 columnas: Última observación + Estado general + Advertencias activas (badges o "Sin advertencias").
+- Condición cambiada a `!loadingPrinter && !loadingReports`.
+
+### Task 4 — ImpresoraDetalle: modal en lugar de página detalle
+- Filas de historial abren `ReporteModal` via `selectedId` state (mismo modal que Reportes.jsx).
+- `ReporteDetalle.jsx` eliminado. Ruta `/reportes/:id` eliminada de `App.jsx`.
+
+### Task 5 — Reportes: buscador en tiempo real
+- Input de búsqueda en la parte superior de los filtros, `w-72`.
+- Filtra `filtered` por serial, modelo (lookup en `printerModelMap`), código y tipo de servicio.
+- "Limpiar filtros" también resetea `searchText`.
+
+---
+
 ## ✅ Portal Cliente — Reportes modal + Pólizas detalle (29/05/2026)
 
 ### Task 3 — Backend (server/app/api/routers/portal.py + schemas/portal.py)
