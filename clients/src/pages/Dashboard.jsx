@@ -21,7 +21,8 @@ import { SkeletonLine, SkeletonTable } from '@/components/Skeleton'
 import EmptyState from '@/components/EmptyState'
 
 const MONTH_LABELS = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic']
-const PIE_COLORS = ['#1A4FD6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#06b6d4']
+const PIE_COLORS = ['#1A4FD6', '#10b981', '#ef4444', '#8b5cf6', '#06b6d4', '#f59e0b']
+const PIE_COLOR_OVERRIDES = { Correctivo: '#F97316' }
 
 function fmtDate(iso) {
   if (!iso) return '—'
@@ -243,8 +244,8 @@ export default function Dashboard() {
                   paddingAngle={3}
                   dataKey="value"
                 >
-                  {pieData.map((_, index) => (
-                    <Cell key={index} fill={PIE_COLORS[index % PIE_COLORS.length]} />
+                  {pieData.map((entry, index) => (
+                    <Cell key={index} fill={PIE_COLOR_OVERRIDES[entry.name] ?? PIE_COLORS[index % PIE_COLORS.length]} />
                   ))}
                 </Pie>
                 <Tooltip

@@ -9,7 +9,6 @@ import Dashboard from '@/pages/Dashboard'
 import Impresoras from '@/pages/Impresoras'
 import ImpresoraDetalle from '@/pages/ImpresoraDetalle'
 import Reportes from '@/pages/Reportes'
-import ReporteDetalle from '@/pages/ReporteDetalle'
 import Polizas from '@/pages/Polizas'
 import PolizaDetalle from '@/pages/PolizaDetalle'
 
@@ -31,7 +30,6 @@ const router = createBrowserRouter([
       { path: 'impresoras', element: <Impresoras /> },
       { path: 'impresoras/:id', element: <ImpresoraDetalle /> },
       { path: 'reportes', element: <Reportes /> },
-      { path: 'reportes/:id', element: <ReporteDetalle /> },
       { path: 'polizas', element: <Polizas /> },
       { path: 'polizas/:id', element: <PolizaDetalle /> },
     ],

@@ -6,6 +6,10 @@ const STATUS_MAP = {
   activa:     { label: 'Activa',     classes: 'bg-green-50 text-green-700 border-green-200' },
   activo:     { label: 'Activo',     classes: 'bg-green-50 text-green-700 border-green-200' },
   inactivo:   { label: 'Inactivo',   classes: 'bg-gray-100 text-gray-500 border-gray-200' },
+  signed:     { label: 'Correcto',   classes: 'bg-green-50 text-green-700 border-green-200' },
+  synced:     { label: 'Correcto',   classes: 'bg-green-50 text-green-700 border-green-200' },
+  draft:      { label: 'En proceso', classes: 'bg-gray-100 text-gray-500 border-gray-200' },
+  pending:    { label: 'En proceso', classes: 'bg-gray-100 text-gray-500 border-gray-200' },
 }
 
 export default function StatusBadge({ status }) {

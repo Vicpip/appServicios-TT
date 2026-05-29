@@ -19,6 +19,7 @@ export default function Reportes() {
   const [selectedPrinter, setSelectedPrinter] = useState('')
   const [dateFrom, setDateFrom] = useState('')
   const [dateTo, setDateTo] = useState('')
+  const [searchText, setSearchText] = useState('')
   const [selectedId, setSelectedId] = useState(null)
 
   const { data: printers = [] } = useQuery({
@@ -47,10 +48,24 @@ export default function Reportes() {
   const totalPages = Math.ceil(total / LIMIT)
   const currentPage = Math.floor(offset / LIMIT) + 1
 
-  // Client-side date filter
+  const printerModelMap = Object.fromEntries(
+    printers.map(p => [p.id, [p.model_brand, p.model_name].filter(Boolean).join(' ')])
+  )
+
+  // Client-side filters: date + search
   const filtered = allItems.filter(r => {
     if (dateFrom && new Date(r.service_date) < new Date(dateFrom)) return false
     if (dateTo && new Date(r.service_date) > new Date(dateTo + 'T23:59:59')) return false
+    if (searchText) {
+      const q = searchText.toLowerCase()
+      const model = (printerModelMap[r.printer_id] ?? '').toLowerCase()
+      if (
+        !(r.printer_serial ?? '').toLowerCase().includes(q) &&
+        !model.includes(q) &&
+        !(r.code ?? '').toLowerCase().includes(q) &&
+        !(r.service_type ?? '').toLowerCase().includes(q)
+      ) return false
+    }
     return true
   })
 
@@ -71,6 +86,14 @@ export default function Reportes() {
 
       {/* Filters */}
       <div className="flex flex-wrap gap-3">
+        <input
+          type="text"
+          placeholder="Buscar por serie, modelo, código o tipo..."
+          value={searchText}
+          onChange={(e) => setSearchText(e.target.value)}
+          className="px-3 py-2 rounded-lg border border-border text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary w-full sm:w-72"
+        />
+
         <select
           value={selectedPrinter}
           onChange={(e) => { setSelectedPrinter(e.target.value); handleFilterChange() }}
@@ -98,9 +121,9 @@ export default function Reportes() {
           />
         </div>
 
-        {(selectedPrinter || dateFrom || dateTo) && (
+        {(selectedPrinter || dateFrom || dateTo || searchText) && (
           <button
-            onClick={() => { setSelectedPrinter(''); setDateFrom(''); setDateTo(''); setOffset(0) }}
+            onClick={() => { setSelectedPrinter(''); setDateFrom(''); setDateTo(''); setSearchText(''); setOffset(0) }}
             className="px-3 py-2 rounded-lg border border-border text-sm text-gray-500 hover:bg-gray-50 bg-white transition-colors"
           >
             Limpiar filtros

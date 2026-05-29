@@ -5,6 +5,7 @@ import { ArrowLeft, Printer, FileText, ChevronLeft, ChevronRight, BarChart2 } fr
 import apiClient from '@/api/axios'
 import StatusBadge from '@/components/StatusBadge'
 import { SkeletonLine, SkeletonTable } from '@/components/Skeleton'
+import ReporteModal from '@/components/ReporteModal'
 
 const LIMIT = 10
 
@@ -16,6 +17,7 @@ function fmtDate(iso) {
 export default function ImpresoraDetalle() {
   const { id } = useParams()
   const [offset, setOffset] = useState(0)
+  const [selectedId, setSelectedId] = useState(null)
 
   const { data: printer, isLoading: loadingPrinter, error: printerError } = useQuery({
     queryKey: ['portal', 'printer', id],
@@ -138,7 +140,7 @@ export default function ImpresoraDetalle() {
       </div>
 
       {/* Technical Stats */}
-      {!loadingReports && (
+      {!loadingPrinter && !loadingReports && (
         <div className="bg-white rounded-xl border border-border shadow-sm p-5 space-y-4">
           <div className="flex items-center gap-2">
             <BarChart2 size={16} className="text-primary" />
@@ -146,7 +148,7 @@ export default function ImpresoraDetalle() {
             <span className="text-xs text-gray-400 font-sans">(últimos 30 días)</span>
           </div>
 
-          {/* Row 1 — 4 KPIs */}
+          {/* Row 1 — 4 KPIs from reports */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
             {[
               { label: 'Total reportes', value: String(totalRecent) },
@@ -161,12 +163,35 @@ export default function ImpresoraDetalle() {
             ))}
           </div>
 
-          {/* Row 2 — última observación + estado general */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          {/* Row 2 — printer-level aggregated metrics */}
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+            {[
+              {
+                label: 'Pulgadas prom. / día',
+                value: printer?.avg_daily_inches != null ? `${printer.avg_daily_inches} in` : '—',
+              },
+              {
+                label: 'Último contador',
+                value: printer?.last_linear_inches_counter != null ? `${printer.last_linear_inches_counter} in` : '—',
+              },
+              {
+                label: 'Oscuridad promedio',
+                value: printer?.avg_darkness_level != null ? String(printer.avg_darkness_level) : '—',
+              },
+            ].map((kpi) => (
+              <div key={kpi.label} className="bg-gray-50 rounded-lg px-3 py-2.5">
+                <p className="text-[9px] font-semibold text-gray-400 uppercase tracking-wide font-sans leading-none">{kpi.label}</p>
+                <p className="mt-1 text-base font-bold text-[#1A1A2E] font-heading leading-none">{kpi.value}</p>
+              </div>
+            ))}
+          </div>
+
+          {/* Row 3 — última observación + estado general + advertencias */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
             <div className="bg-gray-50 rounded-lg px-3 py-2.5">
               <p className="text-[9px] font-semibold text-gray-400 uppercase tracking-wide font-sans mb-1">Última observación</p>
               <p className="text-sm text-gray-700 font-sans leading-snug">
-                {ultimaObs ?? <span className="text-gray-400 italic">Sin notas</span>}
+                {(printer?.last_observation ?? ultimaObs) ?? <span className="text-gray-400 italic">Sin notas</span>}
               </p>
             </div>
             <div className="bg-gray-50 rounded-lg px-3 py-2.5">
@@ -174,6 +199,18 @@ export default function ImpresoraDetalle() {
               <span className={`inline-flex items-center px-2 py-0.5 border text-xs font-medium rounded-full font-sans ${estadoGeneral.cls}`}>
                 {estadoGeneral.label}
               </span>
+            </div>
+            <div className="bg-gray-50 rounded-lg px-3 py-2.5">
+              <p className="text-[9px] font-semibold text-gray-400 uppercase tracking-wide font-sans mb-1">Advertencias activas</p>
+              {printer?.active_warnings?.length > 0 ? (
+                <div className="flex flex-wrap gap-1 mt-1">
+                  {printer.active_warnings.map((w, i) => (
+                    <span key={i} className="px-2 py-0.5 bg-amber-50 text-amber-700 border border-amber-200 text-xs font-medium rounded-full font-sans">{w}</span>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-xs text-gray-400 font-sans italic mt-0.5">Sin advertencias</p>
+              )}
             </div>
           </div>
         </div>
@@ -209,13 +246,9 @@ export default function ImpresoraDetalle() {
                 </thead>
                 <tbody className="divide-y divide-gray-50">
                   {reports.map((r) => (
-                    <tr key={r.id} className="hover:bg-gray-50 transition-colors">
+                    <tr key={r.id} onClick={() => setSelectedId(r.id)} className="hover:bg-gray-50 transition-colors cursor-pointer">
                       <td className="px-6 py-3 text-gray-700 whitespace-nowrap">{fmtDate(r.service_date)}</td>
-                      <td className="px-4 py-3 font-mono text-xs text-gray-500">
-                        <Link to={`/reportes/${r.id}`} className="text-primary hover:underline">
-                          {r.code ?? '—'}
-                        </Link>
-                      </td>
+                      <td className="px-4 py-3 font-mono text-xs text-primary">{r.code ?? '—'}</td>
                       <td className="px-4 py-3 text-gray-700">{r.service_type ?? '—'}</td>
                       <td className="px-4 py-3">
                         <StatusBadge status={r.status} />
@@ -250,6 +283,8 @@ export default function ImpresoraDetalle() {
           </>
         )}
       </div>
+
+      {selectedId && <ReporteModal reportId={selectedId} onClose={() => setSelectedId(null)} />}
     </div>
   )
 }
