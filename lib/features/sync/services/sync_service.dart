@@ -348,24 +348,30 @@ class SyncService {
         });
       } catch (_) {}
 
-      await _db.into(_db.reports).insertOnConflictUpdate(ReportsCompanion.insert(
-        id: d['id'] as String,
-        code: Value<String?>(d['code'] as String?),
-        printerId: d['printerId'] as String,
-        techId: d['techId'] as String? ?? '',
-        serviceType: d['serviceType'] as String? ?? '',
-        status: d['status'] as String? ?? 'Synced',
-        serviceDate: d['serviceDate'] != null
-            ? DateTime.parse(d['serviceDate'] as String)
-            : DateTime.now(),
-        linearInchesCounter: (d['linearInchesCounter'] as int?) ?? 0,
-        darknessLevel: Value<int?>(d['darknessLevel'] as int?),
-        technicalCheckboxes: checkboxMap,
-        notes: Value<String?>(d['notes'] as String?),
-        signatureName: Value<String?>(d['signatureName'] as String?),
-        signatureRole: Value<String?>(d['signatureRole'] as String?),
-        photoCount: Value<int>(d['photoCount'] as int? ?? 0),
-      ));
+      try {
+        await _db.into(_db.reports).insertOnConflictUpdate(ReportsCompanion.insert(
+          id: d['id'] as String,
+          code: Value<String?>(d['code'] as String?),
+          printerId: d['printerId'] as String,
+          techId: d['techId'] as String? ?? '',
+          serviceType: d['serviceType'] as String? ?? '',
+          status: d['status'] as String? ?? 'Synced',
+          serviceDate: d['serviceDate'] != null
+              ? DateTime.parse(d['serviceDate'] as String)
+              : DateTime.now(),
+          linearInchesCounter: (d['linearInchesCounter'] as int?) ?? 0,
+          darknessLevel: Value<int?>(d['darknessLevel'] as int?),
+          technicalCheckboxes: checkboxMap,
+          notes: Value<String?>(d['notes'] as String?),
+          signatureName: Value<String?>(d['signatureName'] as String?),
+          signatureRole: Value<String?>(d['signatureRole'] as String?),
+          photoCount: Value<int>(d['photoCount'] as int? ?? 0),
+        ));
+      } catch (e) {
+        // ignore: avoid_print
+        debugPrint('[Sync] SKIP report ${d['id']}: FK violation - $e');
+        continue;
+      }
     }
 
     // Technicians: seed all active technicians so assignment FK resolves on every tablet
