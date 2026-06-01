@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 import { Printer, FileText, ShieldCheck } from 'lucide-react'
@@ -19,6 +20,7 @@ import { useAuth } from '@/hooks/useAuth'
 import StatusBadge from '@/components/StatusBadge'
 import { SkeletonLine, SkeletonTable } from '@/components/Skeleton'
 import EmptyState from '@/components/EmptyState'
+import ReporteModal from '@/components/ReporteModal'
 
 const MONTH_LABELS = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic']
 const PIE_COLORS = ['#1A4FD6', '#10b981', '#ef4444', '#8b5cf6', '#06b6d4', '#f59e0b']
@@ -78,6 +80,7 @@ function KpiCard({ label, value, icon: Icon, loading, accent, iconColor, borderC
 
 export default function Dashboard() {
   const { user } = useAuth()
+  const [selectedReportId, setSelectedReportId] = useState(null)
 
   const { data: printers = [], isLoading: loadingPrinters } = useQuery({
     queryKey: ['portal', 'printers'],
@@ -114,6 +117,12 @@ export default function Dashboard() {
     },
     staleTime: 60_000,
   })
+
+  const printerModelMap = Object.fromEntries(
+    printers.map(p => [p.id, [p.model_brand, p.model_name].filter(Boolean).join(' ')])
+  )
+  const printerPlantMap = Object.fromEntries(printers.map(p => [p.id, p.plant_name ?? '']))
+  const printerAreaMap = Object.fromEntries(printers.map(p => [p.id, p.area_name ?? '']))
 
   const currentYear = new Date().getFullYear()
   const reportsThisYear = allReports.filter(r => new Date(r.service_date).getFullYear() === currentYear).length
@@ -273,7 +282,7 @@ export default function Dashboard() {
         </div>
 
         {loadingRecent ? (
-          <SkeletonTable rows={5} cols={5} />
+          <SkeletonTable rows={5} cols={8} />
         ) : recentReports.length === 0 ? (
           <EmptyState message="Sin reportes aún" icon={FileText} />
         ) : (
@@ -281,7 +290,7 @@ export default function Dashboard() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="bg-gray-50 text-left">
-                  {['Código', 'Impresora', 'Tipo', 'Fecha', 'Estado'].map(col => (
+                  {['Código', 'Impresora', 'Modelo', 'Planta', 'Área', 'Tipo', 'Fecha', 'Estado'].map(col => (
                     <th key={col} className="px-5 py-2.5 text-xs font-semibold text-gray-400 uppercase tracking-wide font-sans">
                       {col}
                     </th>
@@ -290,9 +299,16 @@ export default function Dashboard() {
               </thead>
               <tbody className="divide-y divide-gray-50">
                 {recentReports.map(r => (
-                  <tr key={r.id} className="hover:bg-gray-50/60 transition-colors">
+                  <tr
+                    key={r.id}
+                    onClick={() => setSelectedReportId(r.id)}
+                    className="hover:bg-gray-50/60 transition-colors cursor-pointer"
+                  >
                     <td className="px-5 py-3 font-mono text-xs text-gray-600">{r.code ?? '—'}</td>
                     <td className="px-5 py-3 text-gray-700 font-sans">{r.printer_serial ?? '—'}</td>
+                    <td className="px-5 py-3 text-gray-600 font-sans">{printerModelMap[r.printer_id] || '—'}</td>
+                    <td className="px-5 py-3 text-gray-600 font-sans">{printerPlantMap[r.printer_id] || '—'}</td>
+                    <td className="px-5 py-3 text-gray-600 font-sans">{printerAreaMap[r.printer_id] || '—'}</td>
                     <td className="px-5 py-3 text-gray-600 font-sans">{r.service_type ?? '—'}</td>
                     <td className="px-5 py-3 text-gray-500 font-sans whitespace-nowrap">{fmtDate(r.service_date)}</td>
                     <td className="px-5 py-3"><StatusBadge status={r.status} /></td>
@@ -303,6 +319,9 @@ export default function Dashboard() {
           </div>
         )}
       </div>
+      {selectedReportId && (
+        <ReporteModal reportId={selectedReportId} onClose={() => setSelectedReportId(null)} />
+      )}
     </div>
   )
 }

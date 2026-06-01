@@ -51,6 +51,8 @@ export default function Reportes() {
   const printerModelMap = Object.fromEntries(
     printers.map(p => [p.id, [p.model_brand, p.model_name].filter(Boolean).join(' ')])
   )
+  const printerPlantMap = Object.fromEntries(printers.map(p => [p.id, p.plant_name ?? '']))
+  const printerAreaMap = Object.fromEntries(printers.map(p => [p.id, p.area_name ?? '']))
 
   // Client-side filters: date + search
   const filtered = allItems.filter(r => {
@@ -137,7 +139,7 @@ export default function Reportes() {
 
       <div className="bg-white rounded-xl border border-border shadow-sm overflow-hidden">
         {isLoading ? (
-          <SkeletonTable rows={8} cols={5} />
+          <SkeletonTable rows={8} cols={8} />
         ) : filtered.length === 0 ? (
           <EmptyState message="Sin reportes para los filtros seleccionados" icon={FileText} />
         ) : (
@@ -146,7 +148,7 @@ export default function Reportes() {
               <table className="w-full text-sm">
                 <thead>
                   <tr className="bg-gray-50 text-left">
-                    {['Código', 'Impresora', 'Tipo', 'Fecha', 'Estado'].map(col => (
+                    {['Código', 'Impresora', 'Modelo', 'Planta', 'Área', 'Tipo', 'Fecha', 'Estado'].map(col => (
                       <th key={col} className="px-5 py-2.5 text-xs font-semibold text-gray-400 uppercase tracking-wide font-sans">
                         {col}
                       </th>
@@ -162,6 +164,9 @@ export default function Reportes() {
                     >
                       <td className="px-5 py-3 font-mono text-xs text-gray-600">{r.code ?? '—'}</td>
                       <td className="px-5 py-3 text-gray-700 font-sans">{r.printer_serial ?? '—'}</td>
+                      <td className="px-5 py-3 text-gray-600 font-sans">{printerModelMap[r.printer_id] || '—'}</td>
+                      <td className="px-5 py-3 text-gray-600 font-sans">{printerPlantMap[r.printer_id] || '—'}</td>
+                      <td className="px-5 py-3 text-gray-600 font-sans">{printerAreaMap[r.printer_id] || '—'}</td>
                       <td className="px-5 py-3 text-gray-600 font-sans">{r.service_type ?? '—'}</td>
                       <td className="px-5 py-3 text-gray-500 font-sans whitespace-nowrap">{fmtDate(r.service_date)}</td>
                       <td className="px-5 py-3"><StatusBadge status={r.status} /></td>
