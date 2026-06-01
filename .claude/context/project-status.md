@@ -520,6 +520,19 @@ dart run build_runner build --delete-conflicting-outputs
 
 ---
 
+## ✅ Admin Web — Nueva póliza: planta en impresoras + fecha fin automática (31/05/2026)
+
+### Task 1 — Planta en lista de impresoras (`PoliciesPage.tsx`)
+- `PrinterOption` interface: agrega `plant_name: string | null`
+- Lista "seleccionadas" y picker: muestra `serial — Planta X` cuando `plant_name` está presente
+
+### Task 2 — Fecha fin automática
+- `setField` recalcula `end_date` en el mismo estado cuando cambia `frequency_maintenance` o `start_date`
+- Mapeo: Mensual +1 mes, Bimestral +2 meses, Trimestral +3 meses, Semestral +6 meses, Anual +1 año
+- Edición manual de `end_date` preservada (solo se sobreescribe si cambia frecuencia o fecha inicio)
+
+---
+
 ## ✅ Portal — Stats técnicas en GET /api/portal/printers/{id} (31/05/2026)
 
 ### Backend (server/app/api/routers/portal.py + schemas/portal.py)

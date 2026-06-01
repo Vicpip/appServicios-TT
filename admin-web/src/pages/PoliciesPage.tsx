@@ -49,6 +49,7 @@ interface PrinterOption {
   code: string | null
   serial_number: string
   client_name: string | null
+  plant_name: string | null
 }
 
 interface PagedResponse<T> {
@@ -150,7 +151,29 @@ export function PolicyModal({ policy, onClose }: PolicyModalProps) {
   const [error, setError] = useState<string | null>(null)
 
   function setField<K extends keyof PolicyFormData>(key: K, value: PolicyFormData[K]) {
-    setForm((prev) => ({ ...prev, [key]: value }))
+    setForm((prev) => {
+      const next = { ...prev, [key]: value }
+      if (key === 'frequency_maintenance' || key === 'start_date') {
+        const startDate = key === 'start_date' ? (value as string) : prev.start_date
+        const frequency = key === 'frequency_maintenance' ? (value as string) : prev.frequency_maintenance
+        if (startDate && frequency) {
+          const d = new Date(startDate + 'T12:00:00')
+          if (frequency.startsWith('Anual')) {
+            d.setFullYear(d.getFullYear() + 1)
+          } else if (frequency.startsWith('Semestral')) {
+            d.setMonth(d.getMonth() + 6)
+          } else if (frequency.startsWith('Trimestral')) {
+            d.setMonth(d.getMonth() + 3)
+          } else if (frequency.startsWith('Bimestral')) {
+            d.setMonth(d.getMonth() + 2)
+          } else if (frequency.startsWith('Mensual')) {
+            d.setMonth(d.getMonth() + 1)
+          }
+          next.end_date = d.toISOString().slice(0, 10)
+        }
+      }
+      return next
+    })
     if (key === 'client_id') {
       setSelectedPrinters([])
       setShowPrinterPicker(false)
@@ -404,7 +427,7 @@ export function PolicyModal({ policy, onClose }: PolicyModalProps) {
                           <div className="flex items-center gap-2 min-w-0">
                             <Printer size={13} className="text-primary shrink-0" />
                             <span className="font-mono text-xs text-primary font-semibold shrink-0">{p?.code ?? '—'}</span>
-                            <span className="text-xs text-gray-600 font-sans truncate">{p?.serial_number ?? id.slice(0, 8)}</span>
+                            <span className="text-xs text-gray-600 font-sans truncate">{p?.serial_number ?? id.slice(0, 8)}{p?.plant_name ? ` — ${p.plant_name}` : ''}</span>
                           </div>
                           <button
                             type="button"
@@ -460,7 +483,7 @@ export function PolicyModal({ policy, onClose }: PolicyModalProps) {
                               >
                                 <Plus size={11} className="text-primary shrink-0" />
                                 <span className="font-mono text-xs text-primary font-semibold shrink-0">{p.code ?? '—'}</span>
-                                <span className="text-xs text-gray-600 font-sans truncate">{p.serial_number}</span>
+                                <span className="text-xs text-gray-600 font-sans truncate">{p.serial_number}{p.plant_name ? ` — ${p.plant_name}` : ''}</span>
                               </button>
                             ))}
                           </div>
