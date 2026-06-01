@@ -53,7 +53,6 @@ export default function ImpresoraDetalle() {
   const typeFreq = {}
   recent.forEach(r => { if (r.service_type) typeFreq[r.service_type] = (typeFreq[r.service_type] ?? 0) + 1 })
   const tipoFrecuente = Object.keys(typeFreq).sort((a, b) => typeFreq[b] - typeFreq[a])[0] ?? '—'
-  const ultimaObs = recent.find(r => r.notes)?.notes ?? null
   const estadoGeneral = recent.length === 0
     ? { label: 'Sin reportes', cls: 'bg-gray-100 text-gray-500 border-gray-200' }
     : pendientes > 0
@@ -163,7 +162,11 @@ export default function ImpresoraDetalle() {
             ))}
           </div>
 
-          {/* Row 2 — printer-level aggregated metrics */}
+          {/* Row 2 — printer-level aggregated metrics
+              NOTE: avg_daily_inches, last_linear_inches_counter, avg_darkness_level are not
+              returned by GET /api/portal/printers/{id} (PortalPrinterDetail schema). The admin
+              equivalent is GET /api/admin/printers/{id}/stats, which is not accessible from the
+              portal. These fields will always render "—" until the portal endpoint exposes them. */}
           <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
             {[
               {
@@ -191,7 +194,7 @@ export default function ImpresoraDetalle() {
             <div className="bg-gray-50 rounded-lg px-3 py-2.5">
               <p className="text-[9px] font-semibold text-gray-400 uppercase tracking-wide font-sans mb-1">Última observación</p>
               <p className="text-sm text-gray-700 font-sans leading-snug">
-                {(printer?.last_observation ?? ultimaObs) ?? <span className="text-gray-400 italic">Sin notas</span>}
+                {printer?.last_observation ?? <span className="text-gray-400 italic">Sin notas</span>}
               </p>
             </div>
             <div className="bg-gray-50 rounded-lg px-3 py-2.5">

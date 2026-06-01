@@ -520,6 +520,49 @@ dart run build_runner build --delete-conflicting-outputs
 
 ---
 
+## ✅ Portal — Stats técnicas en GET /api/portal/printers/{id} (31/05/2026)
+
+### Backend (server/app/api/routers/portal.py + schemas/portal.py)
+
+| Campo | Lógica |
+|-------|--------|
+| `avg_daily_inches` | (max_counter − min_counter) / days_span sobre reportes de los últimos 30 días con `linear_inches_counter` no nulo; `None` si < 2 reportes o span = 0 |
+| `last_linear_inches_counter` | Valor más reciente no nulo de `linear_inches_counter` (sin límite de fecha) |
+| `avg_darkness_level` | Promedio de `darkness_level` (últimos 30 días, 1 decimal); `None` si sin datos |
+| `last_observation` | Nota (`notes`) del reporte más reciente no nulo (sin límite de fecha) |
+| `active_warnings` | Lista de etiquetas españolas: "Rodillo dañado", "Cabezal dañado", "Sensor ribbon dañado", "Sensor papel dañado" — parseadas del JSON `technical_checkboxes` del reporte más reciente |
+
+`import json` movido a top-level de `portal.py` (antes era local dentro de `get_report_files`).
+
+### Frontend (clients/src/pages/ImpresoraDetalle.jsx)
+
+- `last_observation`: eliminado fallback client-side `ultimaObs`; ahora usa directamente `printer?.last_observation`.
+- Variable `ultimaObs` (client-side) eliminada.
+- Los otros campos ya tenían mapeo correcto en fila 2 (avg_daily_inches, last_linear_inches_counter, avg_darkness_level) y fila 3 (active_warnings).
+
+---
+
+## ✅ Portal Cliente — Columnas Modelo/Planta/Área + popup reportes (30/05/2026)
+
+### Task 1 — Reportes.jsx: columnas Modelo, Planta, Área + clic
+- Agrega `printerPlantMap` y `printerAreaMap` (lookup por `printer_id` en la lista de impresoras ya cargada, que incluye `plant_name`/`area_name`/`model_name`).
+- Tabla pasa de 5 a 8 columnas: Código, Impresora, **Modelo**, **Planta**, **Área**, Tipo, Fecha, Estado.
+- Filas ya eran clickeables (abren `ReporteModal`); sin cambio adicional.
+- `SkeletonTable` actualizado a `cols=8`.
+
+### Task 2 — Dashboard.jsx: "Reportes recientes" Modelo/Planta/Área + popup
+- Agrega `import { useState }` y `import ReporteModal`.
+- Estado `selectedReportId` + modal `<ReporteModal>` al final del return.
+- Mismos tres mapas de lookup construidos desde la lista `printers` ya cargada.
+- Tabla pasa de 5 a 8 columnas; filas tienen `onClick → setSelectedReportId(r.id)` + `cursor-pointer`.
+
+### Task 3 — ImpresoraDetalle.jsx: estadísticas técnicas verificadas
+- Confirmado: `avg_daily_inches`, `last_linear_inches_counter`, `avg_darkness_level` **no existen** en `GET /api/portal/printers/{id}` (`PortalPrinterDetail`).
+- El endpoint admin equivalente es `GET /api/admin/printers/{id}/stats` (no accesible desde el portal).
+- Se agrega comentario inline explicando esto; las tres KPIs seguirán mostrando "—" hasta que el backend lo exponga en el portal endpoint.
+
+---
+
 ## ✅ Portal Cliente — Mejoras UI (29/05/2026)
 
 ### Task 1 — Gráfica de pastel: color "Correctivo" → naranja

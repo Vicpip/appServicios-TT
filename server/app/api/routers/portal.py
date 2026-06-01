@@ -18,6 +18,7 @@ Portal data endpoints (require portal JWT via get_current_portal_user):
 
 from __future__ import annotations
 
+import json
 import secrets
 import uuid
 from datetime import datetime, timedelta, timezone
@@ -581,6 +582,88 @@ def get_printer(
     area = db.get(Area, printer.area_id)
     catalog_model = db.get(CatalogModel, printer.model_id)
 
+    thirty_days_ago = _now_utc() - timedelta(days=30)
+
+    # avg_daily_inches — counter delta / day span over last 30 days
+    counter_rows = (
+        db.query(Report.linear_inches_counter, Report.service_date)
+        .filter(
+            Report.printer_id == printer_id,
+            Report.linear_inches_counter.isnot(None),
+            Report.service_date >= thirty_days_ago,
+        )
+        .order_by(Report.service_date.asc())
+        .all()
+    )
+    avg_daily_inches: float | None = None
+    if len(counter_rows) >= 2:
+        counters = [r[0] for r in counter_rows]
+        dates = [r[1] for r in counter_rows]
+        days_span = (max(dates) - min(dates)).total_seconds() / 86400
+        if days_span > 0:
+            avg_daily_inches = round((max(counters) - min(counters)) / days_span, 2)
+
+    # last_linear_inches_counter — most recent non-null value (all time)
+    last_counter_row = (
+        db.query(Report.linear_inches_counter)
+        .filter(
+            Report.printer_id == printer_id,
+            Report.linear_inches_counter.isnot(None),
+        )
+        .order_by(Report.service_date.desc())
+        .first()
+    )
+    last_linear_inches_counter: int | None = last_counter_row[0] if last_counter_row else None
+
+    # avg_darkness_level — average over last 30 days, rounded to 1 decimal
+    avg_darkness_result = (
+        db.query(func.avg(Report.darkness_level))
+        .filter(
+            Report.printer_id == printer_id,
+            Report.darkness_level.isnot(None),
+            Report.service_date >= thirty_days_ago,
+        )
+        .scalar()
+    )
+    avg_darkness_level: float | None = (
+        round(float(avg_darkness_result), 1) if avg_darkness_result is not None else None
+    )
+
+    # last_observation — most recent non-null notes (all time)
+    last_obs_row = (
+        db.query(Report.notes)
+        .filter(
+            Report.printer_id == printer_id,
+            Report.notes.isnot(None),
+        )
+        .order_by(Report.service_date.desc())
+        .first()
+    )
+    last_observation: str | None = last_obs_row[0] if last_obs_row else None
+
+    # active_warnings — damaged fields from most recent report
+    latest_report = (
+        db.query(Report)
+        .filter(Report.printer_id == printer_id)
+        .order_by(Report.service_date.desc())
+        .first()
+    )
+    active_warnings: list[str] = []
+    if latest_report and latest_report.technical_checkboxes:
+        try:
+            checkboxes = json.loads(latest_report.technical_checkboxes)
+            _warning_map = [
+                ("rodillo_danado", "Rodillo dañado"),
+                ("cabezal_danado", "Cabezal dañado"),
+                ("sensor_ribbon_danado", "Sensor ribbon dañado"),
+                ("sensor_papel_danado", "Sensor papel dañado"),
+            ]
+            for field, label in _warning_map:
+                if checkboxes.get(field):
+                    active_warnings.append(label)
+        except (json.JSONDecodeError, TypeError):
+            pass
+
     return PortalPrinterDetail(
         id=printer.id,
         serial_number=printer.serial_number,
@@ -594,6 +677,11 @@ def get_printer(
         model_name=catalog_model.model_name if catalog_model else None,
         model_dpi=catalog_model.dpi if catalog_model else None,
         is_active=printer.is_active,
+        avg_daily_inches=avg_daily_inches,
+        last_linear_inches_counter=last_linear_inches_counter,
+        avg_darkness_level=avg_darkness_level,
+        last_observation=last_observation,
+        active_warnings=active_warnings,
     )
 
 
@@ -756,7 +844,6 @@ def get_report_files(
 
     # Fallback: use raw paths from report if EntityFile table is empty
     if not photos and report.photo_paths and report.photo_paths != "[]":
-        import json
         raw_paths = json.loads(report.photo_paths)
         photos = [f"/uploads/{p.lstrip('/')}" if not p.startswith("/uploads") else p for p in raw_paths]
 

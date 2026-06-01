@@ -137,6 +137,11 @@ class PortalPrinterDetail(BaseModel):
     model_name: Optional[str]
     model_dpi: Optional[int]
     is_active: bool
+    avg_daily_inches: Optional[float] = None
+    last_linear_inches_counter: Optional[int] = None
+    avg_darkness_level: Optional[float] = None
+    last_observation: Optional[str] = None
+    active_warnings: list[str] = []
 
 
 # ---------------------------------------------------------------------------
