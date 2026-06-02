@@ -250,6 +250,7 @@ class PortalPolicyDeliveryItem(BaseModel):
     signature_role: str
     tech_name: Optional[str]
     report_count: int
+    pdf_path: Optional[str] = None
 
 
 class PortalPolicyDeliveryDetail(BaseModel):

@@ -971,6 +971,7 @@ def get_policy(
                 signature_role=d.signature_role,
                 tech_name=tech.name if tech else None,
                 report_count=report_count,
+                pdf_path=d.pdf_path,
             )
         )
 
