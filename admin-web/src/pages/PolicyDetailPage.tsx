@@ -34,6 +34,7 @@ interface PolicyDeliveryItem {
   tech_id: string
   signature_image_path: string | null
   report_count: number
+  pdf_path: string | null
 }
 
 interface PolicyDeliveryDetailReport {
@@ -447,11 +448,13 @@ export default function PolicyDetailPage() {
                         </button>
                         <button
                           onClick={() => {
+                            if (!d.pdf_path) return
                             const base = (import.meta.env.VITE_API_URL as string ?? '').replace('/api', '').replace(/\/$/, '') || 'http://localhost:8000'
-                            window.open(`${base}/uploads/deliveries/delivery_${d.id}_resumen.pdf`, '_blank')
+                            window.open(`${base}/${d.pdf_path}`, '_blank')
                           }}
-                          className="flex items-center gap-1.5 px-4 py-4 text-xs font-semibold text-[#1A4FD6] hover:bg-[#1A4FD6]/5 transition-colors shrink-0 font-sans border-l border-gray-100"
-                          title="Descargar PDF de entrega"
+                          disabled={!d.pdf_path}
+                          className="flex items-center gap-1.5 px-4 py-4 text-xs font-semibold text-[#1A4FD6] hover:bg-[#1A4FD6]/5 transition-colors shrink-0 font-sans border-l border-gray-100 disabled:opacity-40 disabled:cursor-not-allowed"
+                          title={d.pdf_path ? 'Descargar PDF de entrega' : 'PDF no disponible'}
                         >
                           <FileDown size={14} />
                           <span className="hidden sm:inline">Descargar PDF</span>

@@ -1694,6 +1694,7 @@ def _create_policy_delivery(policy_id: str, body: PolicyDeliveryCreate, db: Sess
         tech_id=delivery.tech_id,
         signature_image_path=delivery.signature_image_path,
         report_count=len(body.report_ids),
+        pdf_path=delivery.pdf_path,
     )
 
 
@@ -1725,6 +1726,7 @@ def list_deliveries(policy_id: str, db: Session = Depends(get_db)) -> dict:
             tech_id=d.tech_id,
             signature_image_path=d.signature_image_path,
             report_count=report_count,
+            pdf_path=d.pdf_path,
         ).model_dump())
     return {"total": len(items), "items": items}
 

@@ -969,6 +969,7 @@ class SyncService {
           http.MultipartRequest('POST', Uri.parse(url))
             ..fields['entity_type'] = 'delivery_pdf'
             ..fields['entity_id'] = item.entityId
+            ..fields['file_category'] = 'delivery_pdf'
             ..files.add(
               await http.MultipartFile.fromPath(
                 'file',

@@ -265,9 +265,15 @@ async def sync_file(
         # Compute hash for deduplication
         file_hash = hashlib.sha256(contents).hexdigest()
 
-        # Build storage path: UPLOAD_DIR/{entity_type}/{entity_id}/{file_category}/{filename}
+        # Build storage path.
+        # Normal files: UPLOAD_DIR/{entity_type}/{entity_id}/{file_category}/{filename}
+        # When entity_type == file_category (e.g. delivery_pdf) skip the redundant subdir:
+        #   UPLOAD_DIR/{entity_type}/{entity_id}/{filename}
         filename = file.filename or f"{uuid.uuid4()}.bin"
-        dest_dir = Path(settings.upload_dir) / entity_type / entity_id / file_category
+        if entity_type == file_category:
+            dest_dir = Path(settings.upload_dir) / entity_type / entity_id
+        else:
+            dest_dir = Path(settings.upload_dir) / entity_type / entity_id / file_category
         dest_dir.mkdir(parents=True, exist_ok=True)
         dest_path = dest_dir / filename
         dest_path.write_bytes(contents)
@@ -302,6 +308,12 @@ async def sync_file(
             file_category=file_category,
         )
         db.add(entity_file)
+
+        # Persist the public-relative path on the delivery so the admin web can link to it.
+        if entity_type == "delivery_pdf":
+            delivery_record = db.get(PolicyDelivery, entity_id)
+            if delivery_record:
+                delivery_record.pdf_path = f"uploads/{entity_type}/{entity_id}/{filename}"
 
         _record_sync_log(
             db,

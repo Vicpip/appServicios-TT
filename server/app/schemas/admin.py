@@ -291,6 +291,7 @@ class PolicyDeliveryItem(BaseModel):
     tech_id: str
     signature_image_path: str | None
     report_count: int
+    pdf_path: str | None = None
 
 
 class CatalogModelCreate(BaseModel):

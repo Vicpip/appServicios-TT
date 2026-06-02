@@ -215,10 +215,16 @@ class _SyncDashboardScreenState extends ConsumerState<SyncDashboardScreen> {
     return Scaffold(
       appBar: AppBar(
         title: const Row(
+          mainAxisSize: MainAxisSize.min,
           children: <Widget>[
             Icon(Icons.sync_rounded, size: 22),
             SizedBox(width: 8),
-            Text('Centro de Sincronización'),
+            Flexible(
+              child: Text(
+                'Centro de Sincronización',
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
           ],
         ),
         actions: <Widget>[

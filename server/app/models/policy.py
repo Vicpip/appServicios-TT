@@ -68,6 +68,7 @@ class PolicyDelivery(Base):
         String, ForeignKey("users.id"), nullable=False
     )
     signature_image_path: Mapped[str | None] = mapped_column(String, nullable=True)
+    pdf_path: Mapped[str | None] = mapped_column(String, nullable=True)
     visit_id: Mapped[str | None] = mapped_column(
         String, ForeignKey("policy_visits.id", ondelete="SET NULL"), nullable=True
     )
