@@ -272,6 +272,7 @@ class AssignTechnicianRequest(BaseModel):
 
 
 class PolicyDeliveryCreate(BaseModel):
+    id: str | None = None
     policy_id: str
     delivery_date: datetime
     signature_name: str

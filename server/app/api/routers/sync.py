@@ -663,7 +663,7 @@ def create_policy_delivery(
         raise HTTPException(status_code=404, detail="Policy not found")
 
     delivery = PolicyDelivery(
-        id=str(uuid.uuid4()),
+        id=body.id or str(uuid.uuid4()),
         policy_id=body.policy_id,
         delivery_date=body.delivery_date,
         signature_name=body.signature_name,
