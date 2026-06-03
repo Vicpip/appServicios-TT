@@ -69,11 +69,23 @@ class _PolicyDashboardScreenState extends ConsumerState<PolicyDashboardScreen> {
   _PolicyFilter _selectedFilter = _PolicyFilter.all;
   List<PolicySummary> _policies = <PolicySummary>[];
   bool _loading = true;
+  bool _routeWasActive = false;
 
   @override
   void initState() {
     super.initState();
-    _loadPolicies();
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final ModalRoute<dynamic>? route = ModalRoute.of(context);
+    final bool isActive = route != null && route.isCurrent;
+    if (isActive && !_routeWasActive) {
+      _loadPolicies();
+      ref.invalidate(pendingDeliveryProvider);
+    }
+    _routeWasActive = isActive;
   }
 
   @override
@@ -1524,7 +1536,15 @@ class _PolicyDetailScreenState extends ConsumerState<PolicyDetailScreen> {
   @override
   void initState() {
     super.initState();
-    _loadData();
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final ModalRoute<dynamic>? route = ModalRoute.of(context);
+    if (route != null && route.isCurrent) {
+      _loadData();
+    }
   }
 
   Future<void> _loadData() async {

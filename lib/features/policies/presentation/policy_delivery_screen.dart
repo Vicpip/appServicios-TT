@@ -6,6 +6,8 @@ import 'package:go_router/go_router.dart';
 import 'package:industrial_service_reports/core/router/app_routes.dart';
 import 'package:industrial_service_reports/core/theme/app_palette.dart';
 import 'package:industrial_service_reports/core/router/route_args.dart';
+import 'package:industrial_service_reports/data/local/app_database.dart';
+import 'package:industrial_service_reports/data/local/local_database.dart';
 import 'package:industrial_service_reports/features/auth/providers/session_provider.dart';
 import 'package:industrial_service_reports/features/policies/providers/pending_delivery_provider.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -23,11 +25,22 @@ class PolicyDeliveryScreen extends ConsumerStatefulWidget {
 class _PolicyDeliveryScreenState extends ConsumerState<PolicyDeliveryScreen> {
   late final PageController _pageController;
   int _currentPage = 0;
+  int? _totalAssigned;
 
   @override
   void initState() {
     super.initState();
     _pageController = PageController();
+    _loadTotalAssigned();
+  }
+
+  Future<void> _loadTotalAssigned() async {
+    final AppDatabase db = localDatabase;
+    final List<PolicyPrinter> printers = await (db.select(db.policyPrinters)
+          ..where((PolicyPrinters pp) =>
+              pp.policyId.equals(widget.policy.policyId)))
+        .get();
+    if (mounted) setState(() => _totalAssigned = printers.length);
   }
 
   @override
@@ -129,23 +142,53 @@ class _PolicyDeliveryScreenState extends ConsumerState<PolicyDeliveryScreen> {
             border: Border(
                 top: BorderSide(color: AppPalette.surfaceDarkHighlight)),
           ),
-          child: SizedBox(
-            height: 52,
-            child: FilledButton.icon(
-              onPressed: _goToSignature,
-              icon: const Icon(Icons.draw_rounded, size: 20),
-              label: const Text(
-                'FIRMAR ENTREGA',
-                style: TextStyle(fontSize: 17, fontWeight: FontWeight.w800),
-              ),
-              style: FilledButton.styleFrom(
-                backgroundColor: AppPalette.success,
-                foregroundColor: AppPalette.backgroundLight,
-                shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12)),
-              ),
-            ),
-          ),
+          child: Builder(builder: (BuildContext ctx) {
+            final int completed = widget.policy.reports.length;
+            final int? assigned = _totalAssigned;
+            final bool canSign =
+                assigned != null && assigned > 0 && completed >= assigned;
+            final int remaining =
+                assigned != null ? (assigned - completed).clamp(0, assigned) : 0;
+
+            return Column(
+              mainAxisSize: MainAxisSize.min,
+              children: <Widget>[
+                if (!canSign && remaining > 0)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 8),
+                    child: Text(
+                      'Faltan $remaining equipo(s) por atender',
+                      style: const TextStyle(
+                        color: AppPalette.warning,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                      ),
+                      textAlign: TextAlign.center,
+                    ),
+                  ),
+                SizedBox(
+                  height: 52,
+                  width: double.infinity,
+                  child: FilledButton.icon(
+                    onPressed: canSign ? _goToSignature : null,
+                    icon: const Icon(Icons.draw_rounded, size: 20),
+                    label: const Text(
+                      'FIRMAR ENTREGA',
+                      style:
+                          TextStyle(fontSize: 17, fontWeight: FontWeight.w800),
+                    ),
+                    style: FilledButton.styleFrom(
+                      backgroundColor:
+                          canSign ? AppPalette.success : Colors.grey.shade700,
+                      foregroundColor: AppPalette.backgroundLight,
+                      shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12)),
+                    ),
+                  ),
+                ),
+              ],
+            );
+          }),
         ),
       ),
     );

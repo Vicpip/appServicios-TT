@@ -528,6 +528,23 @@ dart run build_runner build --delete-conflicting-outputs
 
 ---
 
+## ✅ Fix reactividad PolicyDetailScreen (02/06/2026)
+
+| Fix | Archivo | Cambio |
+|-----|---------|--------|
+| Refresh al volver desde reporte | `policy_dashboard_screen.dart` | Reemplazado `_loadData()` en `initState()` por `didChangeDependencies()` con guard `route.isCurrent`. Ahora la pantalla recarga `_pendingDeliveryCount`, `_activeVisit` y `_visits` automáticamente al regresar (pop) desde cualquier pantalla del flujo de reporte, sin recargar cuando hay una ruta encima. |
+
+---
+
+## ✅ Bug fixes: FIRMAR ENTREGA + refresh lista pólizas (02/06/2026)
+
+| Fix | Archivo | Cambio |
+|-----|---------|--------|
+| Guard "FIRMAR ENTREGA" | `policy_delivery_screen.dart` | Agrega `_totalAssigned` (int?) cargado en `initState()` desde `policyPrinters` donde `policyId == widget.policy.policyId`. El botón queda habilitado solo cuando `reports.length >= _totalAssigned`. Mientras carga o cuando faltan equipos: `onPressed: null`, color gris. Texto "Faltan X equipo(s) por atender" visible encima del botón cuando `remaining > 0`. |
+| Refresh lista pólizas al volver | `policy_dashboard_screen.dart` (`_PolicyDashboardScreenState`) | Mismo patrón que PolicyDetailScreen: `_loadPolicies()` movido de `initState()` a `didChangeDependencies()` con guard `_routeWasActive`. Además `ref.invalidate(pendingDeliveryProvider)` para refrescar el banner "Pendientes de entrega" y el botón "VER RESUMEN". |
+
+---
+
 ## ✅ Mejoras UI Admin Web (20/05/2026 — sesión tarde)
 
 | Cambio | Descripción |
