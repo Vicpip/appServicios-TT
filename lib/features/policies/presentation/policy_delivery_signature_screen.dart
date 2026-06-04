@@ -181,6 +181,7 @@ class _PolicyDeliverySignatureScreenState
               methodHttp: 'POST',
               endpointDestino: '/api/policy-deliveries',
               payloadJson: jsonEncode(<String, dynamic>{
+                'id': deliveryId,
                 'policy_id': widget.args.policyId,
                 'delivery_date': now.toIso8601String(),
                 'signature_name': _nameController.text.trim(),

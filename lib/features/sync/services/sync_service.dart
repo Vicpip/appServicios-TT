@@ -36,6 +36,16 @@ class SyncResult {
 // SyncService
 // ---------------------------------------------------------------------------
 
+const Map<String, int> _syncPriority = {
+  'report': 1,
+  'report_update': 2,
+  'policy_delivery': 3,
+  'delivery_pdf': 4,
+  'file': 5,
+  'signature': 5,
+  'pdf': 5,
+};
+
 /// Uploads pending [SyncQueue] entries to the FastAPI backend.
 ///
 /// Usage:
@@ -98,6 +108,14 @@ class SyncService {
     final List<SyncQueueData> pending = await (_db.select(_db.syncQueue)
           ..where((SyncQueue q) => q.estadoPeticion.equals('pending')))
         .get();
+
+    pending.sort((SyncQueueData a, SyncQueueData b) {
+      final int pa = _syncPriority[a.entityType] ?? 99;
+      final int pb = _syncPriority[b.entityType] ?? 99;
+      return pa != pb
+          ? pa.compareTo(pb)
+          : a.fechaCreacion.compareTo(b.fechaCreacion);
+    });
 
     // Read JWT once for all requests in this sync run.
     final String? authToken = await authService.getToken();
