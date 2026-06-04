@@ -11,6 +11,6 @@ workflows:
       - name: Generate code (build_runner)
         script: flutter pub run build_runner build --delete-conflicting-outputs
       - name: Build iOS (no codesign)
-        script: flutter build ios --debug --no-codesign
+        script: flutter build ios --release --no-codesign
     artifacts:
       - build/ios/iphoneos/Runner.app
