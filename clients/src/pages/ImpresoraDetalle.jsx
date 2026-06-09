@@ -14,6 +14,21 @@ function fmtDate(iso) {
   return new Date(iso).toLocaleDateString('es-MX', { day: '2-digit', month: 'short', year: 'numeric' })
 }
 
+function ServiceStatusBadge({ status }) {
+  if (!status) return null
+  const cfg =
+    status === 'En Atención'
+      ? { label: 'En Atención', cls: 'bg-red-50 text-red-700 border-red-200' }
+      : status === 'Correcto'
+      ? { label: 'Correcto', cls: 'bg-green-50 text-green-700 border-green-200' }
+      : { label: 'Sin historial', cls: 'bg-gray-100 text-gray-500 border-gray-200' }
+  return (
+    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full border text-xs font-semibold font-sans ${cfg.cls}`}>
+      {cfg.label}
+    </span>
+  )
+}
+
 export default function ImpresoraDetalle() {
   const { id } = useParams()
   const [offset, setOffset] = useState(0)
@@ -104,6 +119,7 @@ export default function ImpresoraDetalle() {
                   <span className={`px-2.5 py-0.5 text-xs font-semibold rounded-full border font-sans ${printer.is_active ? 'bg-green-50 text-green-700 border-green-200' : 'bg-gray-100 text-gray-500 border-gray-200'}`}>
                     {printer.is_active ? 'Activa' : 'Inactiva'}
                   </span>
+                  {printer.printer_status && <ServiceStatusBadge status={printer.printer_status} />}
                 </div>
                 <div className="mt-3 grid grid-cols-2 md:grid-cols-3 gap-3 text-sm font-sans">
                   {(printer.model_brand || printer.model_name) && (

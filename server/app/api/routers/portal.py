@@ -678,6 +678,13 @@ def get_printer(
         except (json.JSONDecodeError, TypeError):
             pass
 
+    if latest_report is None:
+        printer_status_detail = "Sin Historial"
+    elif active_warnings:
+        printer_status_detail = "En Atención"
+    else:
+        printer_status_detail = "Correcto"
+
     return PortalPrinterDetail(
         id=printer.id,
         serial_number=printer.serial_number,
@@ -691,6 +698,7 @@ def get_printer(
         model_name=catalog_model.model_name if catalog_model else None,
         model_dpi=catalog_model.dpi if catalog_model else None,
         is_active=printer.is_active,
+        printer_status=printer_status_detail,
         avg_daily_inches=avg_daily_inches,
         last_linear_inches_counter=last_linear_inches_counter,
         avg_darkness_level=avg_darkness_level,
