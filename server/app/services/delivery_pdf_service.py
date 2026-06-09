@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from io import BytesIO
 from pathlib import Path
 from typing import Any
@@ -13,7 +14,7 @@ from sqlalchemy.orm import Session
 from app.config import get_settings
 from app.models.file import EntityFile, File
 from app.models.policy import PolicyDelivery, PolicyDeliveryReport
-from app.models.policy import Policy
+from app.models.policy import Policy, PolicyVisit
 from app.models.area import Area
 from app.models.client import Client
 from app.models.plant import Plant
@@ -50,6 +51,20 @@ _DAMAGE_KEYS: frozenset[str] = frozenset({
 _LOGO_PATH = Path(__file__).parent.parent / "static" / "logo_smp.png"
 _DEJAVU_REG_PATH = Path(__file__).parent.parent / "static" / "DejaVuSans.ttf"
 _DEJAVU_BOLD_PATH = Path(__file__).parent.parent / "static" / "DejaVuSans-Bold.ttf"
+
+
+def _safe_filename(text: str | None, max_len: int) -> str:
+    if not text:
+        return "_"
+    result = re.sub(r'\s', '_', text)
+    result = re.sub(r'[^A-Za-z0-9_-]', '_', result)
+    return result[:max_len] if result else "_"
+
+
+def _fmt_date_filename(dt: Any) -> str:
+    if dt is None:
+        return "SinFecha"
+    return f"{dt.day:02d}{_MONTHS[dt.month - 1]}{dt.year}"
 
 
 def _fmt_date(dt: Any) -> str:
@@ -896,7 +911,30 @@ def generate_delivery_pdf(delivery_id: str, db: Session) -> str | None:
         # ── Save PDF to disk ─────────────────────────────────────────────────
         out_dir = Path(settings.upload_dir) / "deliveries"
         out_dir.mkdir(parents=True, exist_ok=True)
-        out_filename = f"delivery_{delivery_id}_resumen.pdf"
+
+        # Build descriptive filename: {folio}_{cliente}_{fecha}_V{n}-{total}.pdf
+        folio_safe = _safe_filename(folio, 20)
+        client_safe = _safe_filename(client.name if client else None, 20)
+        date_fn = _fmt_date_filename(delivery.delivery_date)
+
+        num_visita = 1
+        total_visitas = 1
+        if delivery.policy_id:
+            all_visits = (
+                db.query(PolicyVisit)
+                .filter(PolicyVisit.policy_id == delivery.policy_id)
+                .order_by(PolicyVisit.scheduled_date.asc())
+                .all()
+            )
+            total_visitas = len(all_visits) if all_visits else 1
+            if delivery.visit_id:
+                visit_ids = [v.id for v in all_visits]
+                try:
+                    num_visita = visit_ids.index(delivery.visit_id) + 1
+                except ValueError:
+                    num_visita = 1
+
+        out_filename = f"{folio_safe}_{client_safe}_{date_fn}_V{num_visita}-{total_visitas}.pdf"
         out_path = out_dir / out_filename
         out_path.write_bytes(bytes(pdf.output()))
 
