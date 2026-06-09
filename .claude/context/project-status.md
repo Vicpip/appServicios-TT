@@ -536,6 +536,14 @@ dart run build_runner build --delete-conflicting-outputs
 
 ---
 
+## ✅ Rename PDF entrega: nombre descriptivo (09/06/2026)
+
+| Cambio | Archivo | Descripción |
+|--------|---------|-------------|
+| Nuevo nombre de archivo | `server/app/services/delivery_pdf_service.py` | El PDF ya no se llama `delivery_{id}_resumen.pdf`. Ahora: `{folio}_{cliente}_{fecha}_V{num_visita}-{total_visitas}.pdf` (ej. `POL-2026-004_Vibracoustic_09Jun2026_V1-4.pdf`). Se agregaron helpers `_safe_filename()` y `_fmt_date_filename()`. El número de visita se determina ordenando `policy_visits` por `scheduled_date asc` y ubicando `delivery.visit_id`. |
+
+---
+
 ## ✅ Fix visual PDF entrega (08/06/2026)
 
 | Fix | Descripción |
