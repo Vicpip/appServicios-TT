@@ -502,12 +502,13 @@ export default function PolicyDetailPage() {
                         <button
                           onClick={() => regeneratePdfMutation.mutate(d.id)}
                           disabled={regeneratingId === d.id}
-                          className="flex items-center gap-1.5 px-4 py-4 text-xs font-semibold text-gray-500 hover:text-primary hover:bg-primary/5 transition-colors shrink-0 font-sans border-l border-gray-100 disabled:opacity-50"
-                          title="Regenerar PDF"
+                          className="flex items-center gap-1.5 px-4 py-4 text-xs font-semibold text-[#1A4FD6] hover:bg-[#1A4FD6]/5 transition-colors shrink-0 font-sans border-l border-gray-100 disabled:opacity-50"
+                          title="Regenerar PDF de entrega"
                         >
                           {regeneratingId === d.id
                             ? <span className="w-3.5 h-3.5 border-2 border-current border-t-transparent rounded-full animate-spin inline-block" />
                             : <RefreshCw size={14} />}
+                          <span className="hidden sm:inline">Regenerar</span>
                         </button>
                       </div>
 
