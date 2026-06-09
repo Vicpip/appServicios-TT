@@ -547,6 +547,22 @@ dart run build_runner build --delete-conflicting-outputs
 
 ---
 
+## ✅ Fix visual PDF: igualar diseño a Flutter (09/06/2026)
+
+| Fix | Descripción |
+|-----|-------------|
+| Encabezados de sección | Barra azul izquierda 3mm (#2563eb), texto 11pt bold uppercase — idéntico a Flutter |
+| Labels/valores | Invertido: label en normal (gris), valor en bold (negro) — como Flutter |
+| Checklist | Una sola columna, ancho completo, badge a la derecha, ROW_H=7.5mm |
+| Footer | "Documento generado por Servicios Main PC App \| Pág. X / Y" con `alias_nb_pages()` |
+| Acentos restaurados | Dirección, Área, Código, Información, Técnico, Póliza en todos los textos fijos |
+| Tamaños de fuente | Portada 20pt, sección 11pt, labels/valores 10pt, tabla 10pt, footer 8pt |
+| Logo sin deformar | `_logo_dimensions()` usa Pillow para calcular height proporcional desde width=30mm |
+| Fotos sin deformar | 2 por fila (85mm), `_image_aspect()` calcula height proporcional por foto; row avanza al max |
+| Fuente DejaVu | `setup_fonts()` registra DejaVuSans.ttf si existe en `static/`; fallback a Helvetica |
+
+---
+
 ## ✅ PDF entrega generado en backend (08/06/2026)
 
 | Cambio | Archivo | Descripción |
