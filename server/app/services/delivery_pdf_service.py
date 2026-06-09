@@ -47,8 +47,9 @@ _DAMAGE_KEYS: frozenset[str] = frozenset({
     "Sensor papel dañado",
 })
 
-# Ruta al logo (junto a este mismo archivo → server/app/static/)
 _LOGO_PATH = Path(__file__).parent.parent / "static" / "logo_smp.png"
+_DEJAVU_REG_PATH = Path(__file__).parent.parent / "static" / "DejaVuSans.ttf"
+_DEJAVU_BOLD_PATH = Path(__file__).parent.parent / "static" / "DejaVuSans-Bold.ttf"
 
 
 def _fmt_date(dt: Any) -> str:
@@ -73,7 +74,7 @@ def _has_damage(checkboxes: dict) -> bool:
 def _safe(text: str | None) -> str:
     if not text:
         return "-"
-    return (
+    text = (
         text
         .replace("—", "-")
         .replace("–", "-")
@@ -83,15 +84,12 @@ def _safe(text: str | None) -> str:
         .replace("”", '"')
         .replace("…", "...")
     )
+    # Strip chars outside Latin-1 so core PDF fonts never throw
+    return text.encode("latin-1", errors="replace").decode("latin-1")
 
 
 def _corrected_image_bytes(path: str) -> BytesIO | None:
-    """Return a BytesIO with EXIF-orientation-corrected image.
-
-    Uses Pillow to read EXIF tag 274 (Orientation) and rotate accordingly.
-    Returns None if Pillow is unavailable or the image cannot be processed,
-    so the caller can fall back to the original file path.
-    """
+    """Return BytesIO with EXIF-orientation-corrected image, or None on failure."""
     try:
         from PIL import Image  # type: ignore[import]
         img = Image.open(path)
@@ -116,8 +114,32 @@ def _corrected_image_bytes(path: str) -> BytesIO | None:
         return None
 
 
+def _image_aspect(src: str | BytesIO) -> float | None:
+    """Return height/width ratio using Pillow, or None if unavailable."""
+    try:
+        from PIL import Image  # type: ignore[import]
+        if isinstance(src, BytesIO):
+            src.seek(0)
+            img = Image.open(src)
+            src.seek(0)
+        else:
+            img = Image.open(src)
+        w, h = img.size
+        return h / w if w > 0 else None
+    except Exception:
+        return None
+
+
+def _logo_dimensions(logo_path: str, desired_w: float) -> tuple[float, float]:
+    """Return (w, h) for logo preserving its aspect ratio."""
+    ratio = _image_aspect(logo_path)
+    if ratio:
+        return desired_w, desired_w * ratio
+    return desired_w, desired_w  # fallback: square
+
+
 # ---------------------------------------------------------------------------
-# Data container for each report inside the delivery
+# Data container
 # ---------------------------------------------------------------------------
 
 class _ReportData:
@@ -151,12 +173,23 @@ class _DeliveryPDF(FPDF):
     _logo_path: str | None = None
     _policy_folio: str = ""
     _delivery_date_str: str = ""
-    _is_cover: bool = True
+    _font_family: str = "Helvetica"
 
     def set_meta(self, logo: str | None, folio: str, date_str: str) -> None:
         self._logo_path = logo
         self._policy_folio = folio
         self._delivery_date_str = date_str
+
+    def setup_fonts(self) -> None:
+        """Register DejaVu Unicode font if .ttf files exist, else keep Helvetica."""
+        if _DEJAVU_REG_PATH.exists():
+            try:
+                self.add_font("DejaVu", "", str(_DEJAVU_REG_PATH), uni=True)
+                bold_src = _DEJAVU_BOLD_PATH if _DEJAVU_BOLD_PATH.exists() else _DEJAVU_REG_PATH
+                self.add_font("DejaVu", "B", str(bold_src), uni=True)
+                self._font_family = "DejaVu"
+            except Exception:
+                pass
 
     def header(self) -> None:
         self.set_draw_color(200, 200, 200)
@@ -164,9 +197,14 @@ class _DeliveryPDF(FPDF):
 
     def footer(self) -> None:
         self.set_y(-12)
-        self.set_font("Helvetica", "I", 7)
+        self.set_font(self._font_family, "", 8)
         self.set_text_color(160, 160, 160)
-        self.cell(0, 5, f"Pag. {self.page_no()} - Poliza {self._policy_folio}", align="C")
+        # {nb} is replaced by fpdf2 alias_nb_pages() with the actual total
+        page_text = (
+            "Documento generado por Servicios Main PC App"
+            f" | P\xe1g. {self.page_no()} / "
+        ) + "{nb}"
+        self.cell(0, 5, page_text, align="C")
 
 
 # ---------------------------------------------------------------------------
@@ -176,32 +214,34 @@ class _DeliveryPDF(FPDF):
 MARGIN = 15.0
 
 
-def _section_title(pdf: FPDF, text: str) -> None:
-    """Blue left-bordered section title."""
-    pdf.set_fill_color(37, 99, 235)   # #2563eb
-    pdf.rect(MARGIN, pdf.get_y(), 1.5, 6.0, style="F")
-    pdf.set_x(MARGIN + 3)
-    pdf.set_font("Helvetica", "B", 10)
-    pdf.set_text_color(26, 58, 92)   # #1a3a5c
-    pdf.cell(0, 6.0, text, new_x="LMARGIN", new_y="NEXT")
+def _section_title(pdf: _DeliveryPDF, text: str) -> None:
+    """Blue left-bordered section title matching Flutter style."""
+    BAR_W = 3.0
+    ROW_H = 7.0
+    y = pdf.get_y()
+    pdf.set_fill_color(37, 99, 235)    # #2563eb
+    pdf.rect(MARGIN, y, BAR_W, ROW_H, style="F")
+    pdf.set_x(MARGIN + BAR_W + 3)
+    pdf.set_font(pdf._font_family, "B", 11)
+    pdf.set_text_color(26, 58, 92)     # #1a3a5c
+    pdf.cell(0, ROW_H, text.upper(), new_x="LMARGIN", new_y="NEXT")
     pdf.set_draw_color(220, 220, 220)
     pdf.line(MARGIN, pdf.get_y(), pdf.w - MARGIN, pdf.get_y())
-    pdf.ln(1.5)
+    pdf.ln(2)
 
 
-def _info_row(pdf: FPDF, label: str, value: str, lbl_w: float = 22.0, col_w: float = 80.0) -> None:
-    y = pdf.get_y()
-    pdf.set_xy(pdf.get_x(), y)
-    pdf.set_font("Helvetica", "B", 9)
+def _info_row(pdf: _DeliveryPDF, label: str, value: str, lbl_w: float = 24.0, col_w: float = 85.0) -> None:
+    """Label in normal weight, value in bold — matching Flutter style."""
+    pdf.set_font(pdf._font_family, "", 10)
     pdf.set_text_color(100, 130, 160)
-    pdf.cell(lbl_w, 6.0, f"{label}:")
-    pdf.set_font("Helvetica", "", 9)
+    pdf.cell(lbl_w, 6.5, f"{label}:")
+    pdf.set_font(pdf._font_family, "B", 10)
     pdf.set_text_color(30, 30, 30)
-    pdf.cell(col_w - lbl_w, 6.0, _safe(value), new_x="LMARGIN", new_y="NEXT")
+    pdf.cell(col_w - lbl_w, 6.5, _safe(value), new_x="LMARGIN", new_y="NEXT")
 
 
 def _two_col_info(
-    pdf: FPDF,
+    pdf: _DeliveryPDF,
     left_title: str,
     left_rows: list[tuple[str, str]],
     right_title: str,
@@ -209,27 +249,27 @@ def _two_col_info(
 ) -> None:
     W = pdf.w - 2 * MARGIN
     COL_W = W / 2 - 3
-    LBL_W = 22.0
+    LBL_W = 24.0
     right_x = MARGIN + COL_W + 6
-    title_h = 6.0
-    row_h = 6.0
+    title_h = 7.0
+    row_h = 6.5
 
     section_start_y = pdf.get_y()
 
     # ── Left column — drawn completely before touching right column ──────────
     y = section_start_y
     pdf.set_xy(MARGIN, y)
-    pdf.set_font("Helvetica", "B", 10)
+    pdf.set_font(pdf._font_family, "B", 11)
     pdf.set_text_color(26, 58, 92)
     pdf.cell(COL_W, title_h, left_title)
     y += title_h
 
     for lbl, val in left_rows:
         pdf.set_xy(MARGIN, y)
-        pdf.set_font("Helvetica", "B", 9)
+        pdf.set_font(pdf._font_family, "", 10)
         pdf.set_text_color(100, 130, 160)
         pdf.cell(LBL_W, row_h, f"{lbl}:")
-        pdf.set_font("Helvetica", "", 9)
+        pdf.set_font(pdf._font_family, "B", 10)
         pdf.set_text_color(30, 30, 30)
         pdf.cell(COL_W - LBL_W, row_h, _safe(val))
         y += row_h
@@ -239,24 +279,23 @@ def _two_col_info(
     # ── Right column — reset Y to section start, draw independently ──────────
     y = section_start_y
     pdf.set_xy(right_x, y)
-    pdf.set_font("Helvetica", "B", 10)
+    pdf.set_font(pdf._font_family, "B", 11)
     pdf.set_text_color(26, 58, 92)
     pdf.cell(COL_W, title_h, right_title)
     y += title_h
 
     for lbl, val in right_rows:
         pdf.set_xy(right_x, y)
-        pdf.set_font("Helvetica", "B", 9)
+        pdf.set_font(pdf._font_family, "", 10)
         pdf.set_text_color(100, 130, 160)
         pdf.cell(LBL_W, row_h, f"{lbl}:")
-        pdf.set_font("Helvetica", "", 9)
+        pdf.set_font(pdf._font_family, "B", 10)
         pdf.set_text_color(30, 30, 30)
         pdf.cell(COL_W - LBL_W, row_h, _safe(val))
         y += row_h
 
     right_end_y = y
 
-    # Advance past the taller column
     pdf.set_y(max(left_end_y, right_end_y))
     pdf.ln(2)
     pdf.set_draw_color(200, 200, 200)
@@ -265,42 +304,44 @@ def _two_col_info(
 
 
 def _draw_logo_header(
-    pdf: FPDF,
+    pdf: _DeliveryPDF,
     logo_path: str | None,
     title: str,
     subtitle: str,
     date_str: str,
+    title_size: int = 16,
 ) -> None:
-    """Logo + title block at top of a page."""
-    LOGO_W = 22.0
-    LOGO_H = 22.0
+    """Logo + title block at top of a page. Aspect ratio of logo is preserved."""
+    DESIRED_LOGO_W = 30.0
     top_y = 18.0
 
+    logo_w, logo_h = DESIRED_LOGO_W, DESIRED_LOGO_W
     if logo_path and Path(logo_path).exists():
+        logo_w, logo_h = _logo_dimensions(logo_path, DESIRED_LOGO_W)
         try:
-            pdf.image(logo_path, x=MARGIN, y=top_y, w=LOGO_W, h=LOGO_H)
+            pdf.image(logo_path, x=MARGIN, y=top_y, w=logo_w, h=logo_h)
         except Exception:
             pass
 
-    text_x = MARGIN + LOGO_W + 4
+    text_x = MARGIN + logo_w + 5
     text_w = pdf.w - text_x - MARGIN
 
     pdf.set_xy(text_x, top_y + 1)
-    pdf.set_font("Helvetica", "B", 13)
+    pdf.set_font(pdf._font_family, "B", title_size)
     pdf.set_text_color(26, 58, 92)
-    pdf.cell(text_w, 7, title, align="R", new_x="LMARGIN", new_y="NEXT")
+    pdf.cell(text_w, 8, title, align="R", new_x="LMARGIN", new_y="NEXT")
 
     pdf.set_x(text_x)
-    pdf.set_font("Helvetica", "B", 9)
+    pdf.set_font(pdf._font_family, "B", 10)
     pdf.set_text_color(37, 99, 235)
-    pdf.cell(text_w, 5, subtitle, align="R", new_x="LMARGIN", new_y="NEXT")
+    pdf.cell(text_w, 5.5, subtitle, align="R", new_x="LMARGIN", new_y="NEXT")
 
     pdf.set_x(text_x)
-    pdf.set_font("Helvetica", "", 8)
+    pdf.set_font(pdf._font_family, "", 9)
     pdf.set_text_color(100, 116, 139)
-    pdf.cell(text_w, 4.5, f"Fecha de entrega: {date_str}", align="R", new_x="LMARGIN", new_y="NEXT")
+    pdf.cell(text_w, 5, f"Fecha de entrega: {date_str}", align="R", new_x="LMARGIN", new_y="NEXT")
 
-    pdf.set_y(top_y + LOGO_H + 3)
+    pdf.set_y(top_y + max(logo_h, 22.0) + 3)
     pdf.set_draw_color(26, 58, 92)
     pdf.set_line_width(0.5)
     pdf.line(MARGIN, pdf.get_y(), pdf.w - MARGIN, pdf.get_y())
@@ -308,38 +349,38 @@ def _draw_logo_header(
     pdf.ln(4)
 
 
-def _draw_status_badge(pdf: FPDF, x: float, y: float, w: float, h: float, has_damage: bool) -> None:
+def _draw_status_badge(pdf: _DeliveryPDF, x: float, y: float, w: float, h: float, has_damage: bool) -> None:
     if has_damage:
-        pdf.set_fill_color(254, 243, 199)   # #fef3c7
-        pdf.set_text_color(146, 64, 14)      # #92400e
-        label = "En Atención"
+        pdf.set_fill_color(254, 243, 199)    # #fef3c7
+        pdf.set_text_color(146, 64, 14)       # #92400e
+        label = "En Atenci\xf3n"
     else:
-        pdf.set_fill_color(220, 252, 231)    # #dcfce7
-        pdf.set_text_color(22, 101, 52)      # #166634
+        pdf.set_fill_color(220, 252, 231)     # #dcfce7
+        pdf.set_text_color(22, 101, 52)       # #166534
         label = "Correcto"
     pdf.set_xy(x, y)
-    pdf.set_font("Helvetica", "B", 7)
+    pdf.set_font(pdf._font_family, "B", 8)
     pdf.cell(w, h, label, fill=True, align="C")
     pdf.set_text_color(30, 30, 30)
 
 
-def _draw_checklist_badge(pdf: FPDF, x: float, y: float, w: float, h: float, checked: bool) -> None:
+def _draw_checklist_badge(pdf: _DeliveryPDF, x: float, y: float, w: float, h: float, checked: bool) -> None:
     if checked:
         pdf.set_fill_color(220, 252, 231)    # #dcfce7
-        pdf.set_text_color(22, 101, 52)      # #166634
-        label = "Sí"
+        pdf.set_text_color(22, 101, 52)      # #166534
+        label = "S\xed"
     else:
         pdf.set_fill_color(243, 244, 246)    # #f3f4f6
         pdf.set_text_color(55, 65, 81)       # #374151
         label = "No"
     pdf.set_xy(x, y)
-    pdf.set_font("Helvetica", "B", 7)
+    pdf.set_font(pdf._font_family, "B", 8)
     pdf.cell(w, h, label, fill=True, align="C")
     pdf.set_text_color(30, 30, 30)
 
 
 def _draw_signatures(
-    pdf: FPDF,
+    pdf: _DeliveryPDF,
     tech_name: str,
     tech_sig_path: str | None,
     client_name: str,
@@ -348,38 +389,22 @@ def _draw_signatures(
 ) -> None:
     W = pdf.w - 2 * MARGIN
     COL_W = W / 2 - 3
-
     _section_title(pdf, "FIRMAS")
-
     sig_y = pdf.get_y()
-
-    # Tech column
     _draw_one_sig_box(
-        pdf,
-        x=MARGIN,
-        y=sig_y,
-        w=COL_W,
-        title="FIRMA DEL TÉCNICO",
-        name=tech_name,
-        role=None,
-        sig_path=tech_sig_path,
+        pdf, x=MARGIN, y=sig_y, w=COL_W,
+        title="FIRMA DEL T\xc9CNICO",
+        name=tech_name, role=None, sig_path=tech_sig_path,
     )
-
-    # Client column
     _draw_one_sig_box(
-        pdf,
-        x=MARGIN + COL_W + 6,
-        y=sig_y,
-        w=COL_W,
+        pdf, x=MARGIN + COL_W + 6, y=sig_y, w=COL_W,
         title="FIRMA DE CONFORMIDAD DEL CLIENTE",
-        name=client_name,
-        role=client_role,
-        sig_path=client_sig_path,
+        name=client_name, role=client_role, sig_path=client_sig_path,
     )
 
 
 def _draw_one_sig_box(
-    pdf: FPDF,
+    pdf: _DeliveryPDF,
     x: float,
     y: float,
     w: float,
@@ -389,9 +414,9 @@ def _draw_one_sig_box(
     sig_path: str | None,
 ) -> None:
     LBL_W = 18.0
-    row_h = 5.5
+    row_h = 6.0
     pdf.set_xy(x, y)
-    pdf.set_font("Helvetica", "B", 9)
+    pdf.set_font(pdf._font_family, "B", 10)
     pdf.set_text_color(100, 130, 160)
     pdf.cell(w, row_h, title, new_x="LEFT", new_y="NEXT")
     pdf.set_x(x)
@@ -400,19 +425,19 @@ def _draw_one_sig_box(
     pdf.ln(1)
 
     pdf.set_xy(x, pdf.get_y())
-    pdf.set_font("Helvetica", "B", 9)
+    pdf.set_font(pdf._font_family, "", 10)
     pdf.set_text_color(100, 130, 160)
     pdf.cell(LBL_W, row_h, "Nombre:")
-    pdf.set_font("Helvetica", "", 9)
+    pdf.set_font(pdf._font_family, "B", 10)
     pdf.set_text_color(30, 30, 30)
     pdf.cell(w - LBL_W, row_h, _safe(name), new_x="LEFT", new_y="NEXT")
     pdf.set_x(x)
 
     if role is not None:
-        pdf.set_font("Helvetica", "B", 9)
+        pdf.set_font(pdf._font_family, "", 10)
         pdf.set_text_color(100, 130, 160)
         pdf.cell(LBL_W, row_h, "Cargo:")
-        pdf.set_font("Helvetica", "", 9)
+        pdf.set_font(pdf._font_family, "B", 10)
         pdf.set_text_color(30, 30, 30)
         pdf.cell(w - LBL_W, row_h, _safe(role), new_x="LEFT", new_y="NEXT")
         pdf.set_x(x)
@@ -432,7 +457,7 @@ def _draw_one_sig_box(
             pass
     else:
         pdf.set_xy(x, box_y + box_h / 2 - 2)
-        pdf.set_font("Helvetica", "I", 7)
+        pdf.set_font(pdf._font_family, "", 8)
         pdf.set_text_color(180, 180, 180)
         pdf.cell(w, 4, "Sin firma", align="C")
         pdf.set_text_color(30, 30, 30)
@@ -440,30 +465,26 @@ def _draw_one_sig_box(
     pdf.set_y(box_y + box_h + 2)
 
 
-def _draw_equipment_table(pdf: FPDF, report_data: list[_ReportData]) -> None:
-    W = pdf.w - 2 * MARGIN
+def _draw_equipment_table(pdf: _DeliveryPDF, report_data: list[_ReportData]) -> None:
     _section_title(pdf, f"EQUIPOS ATENDIDOS ({len(report_data)})")
 
-    # Column widths (total = W ≈ 180 mm)
-    # #(8) | Modelo(38) | Serie(32) | Planta(24) | Área(24) | Tipo(24) | Estado(30)
+    # Column widths (total ≈ 180 mm)
     cols = [8.0, 38.0, 32.0, 24.0, 24.0, 24.0, 30.0]
-    headers = ["#", "Modelo", "Serie", "Planta", "Área", "Tipo servicio", "Estado"]
-    row_h = 6.0
+    headers = ["#", "Modelo", "Serie", "Planta", "\xc1rea", "Tipo servicio", "Estado"]
+    row_h = 6.5
 
-    # Header row
     pdf.set_fill_color(245, 247, 250)
     pdf.set_draw_color(209, 213, 219)
     x = MARGIN
     header_y = pdf.get_y()
-    for i, (hdr, cw) in enumerate(zip(headers, cols)):
+    for hdr, cw in zip(headers, cols):
         pdf.set_xy(x, header_y)
-        pdf.set_font("Helvetica", "B", 9)
+        pdf.set_font(pdf._font_family, "B", 10)
         pdf.set_text_color(26, 58, 92)
         pdf.cell(cw, row_h, hdr, border=1, fill=True, align="C")
         x += cw
     pdf.ln(row_h)
 
-    # Data rows
     for idx, rd in enumerate(report_data):
         model_str = _safe(
             f"{rd.model.brand} {rd.model.model_name}" if rd.model else None
@@ -480,20 +501,18 @@ def _draw_equipment_table(pdf: FPDF, report_data: list[_ReportData]) -> None:
         row_y = pdf.get_y()
         x = MARGIN
         values = [str(idx + 1), model_str, serial, plant_name, area_name, service_type]
-        for i, (val, cw) in enumerate(zip(values, cols[:-1])):
+        for val, cw in zip(values, cols[:-1]):
             pdf.set_xy(x, row_y)
-            pdf.set_font("Helvetica", "", 9)
+            pdf.set_font(pdf._font_family, "", 10)
             pdf.set_text_color(30, 30, 30)
             pdf.cell(cw, row_h, val, border=1, fill=True)
             x += cw
 
-        # Status badge cell
         badge_x = x
         pdf.set_xy(badge_x, row_y)
         pdf.set_fill_color(*fill_color)
         pdf.cell(cols[-1], row_h, "", border=1, fill=True)
         _draw_status_badge(pdf, badge_x + 1, row_y + 0.75, cols[-1] - 2, row_h - 1.5, damage)
-
         pdf.ln(row_h)
 
     pdf.ln(3)
@@ -502,42 +521,31 @@ def _draw_equipment_table(pdf: FPDF, report_data: list[_ReportData]) -> None:
     pdf.ln(3)
 
 
-def _draw_checklist(pdf: FPDF, checkboxes: dict) -> None:
+def _draw_checklist(pdf: _DeliveryPDF, checkboxes: dict) -> None:
+    """Single-column checklist with badge aligned to the right — matching Flutter style."""
     W = pdf.w - 2 * MARGIN
-    _section_title(pdf, "LISTA TÉCNICA DE VERIFICACIÓN")
+    _section_title(pdf, "LISTA T\xc9CNICA DE VERIFICACI\xd3N")
 
-    ITEM_COL_W = W * 0.72
-    BADGE_W = 10.0
-    ROW_H = 6.0
-    GAP = 4.0
+    BADGE_W = 12.0
+    ROW_H = 7.5
+    ITEM_W = W - BADGE_W - 2.0
+    BADGE_H = ROW_H - 2.0
 
-    # Two-column layout
-    half = len(_CHECKLIST_ITEMS) // 2 + len(_CHECKLIST_ITEMS) % 2
-    left_items = _CHECKLIST_ITEMS[:half]
-    right_items = _CHECKLIST_ITEMS[half:]
-    right_x = MARGIN + (W / 2) + 2
-
-    for i in range(max(len(left_items), len(right_items))):
+    for item in _CHECKLIST_ITEMS:
         row_y = pdf.get_y()
-
-        if i < len(left_items):
-            item = left_items[i]
-            checked = checkboxes.get(item) is True
-            pdf.set_xy(MARGIN, row_y)
-            pdf.set_font("Helvetica", "", 9)
-            pdf.set_text_color(30, 30, 30)
-            pdf.cell(W / 2 - BADGE_W - GAP, ROW_H, item)
-            _draw_checklist_badge(pdf, MARGIN + W / 2 - BADGE_W - GAP - 2, row_y + 0.5, BADGE_W, ROW_H - 1, checked)
-
-        if i < len(right_items):
-            item = right_items[i]
-            checked = checkboxes.get(item) is True
-            pdf.set_xy(right_x, row_y)
-            pdf.set_font("Helvetica", "", 9)
-            pdf.set_text_color(30, 30, 30)
-            pdf.cell(W / 2 - BADGE_W - GAP, ROW_H, item)
-            _draw_checklist_badge(pdf, right_x + W / 2 - BADGE_W - GAP - 2, row_y + 0.5, BADGE_W, ROW_H - 1, checked)
-
+        checked = checkboxes.get(item) is True
+        pdf.set_xy(MARGIN, row_y)
+        pdf.set_font(pdf._font_family, "", 10)
+        pdf.set_text_color(30, 30, 30)
+        pdf.cell(ITEM_W, ROW_H, item)
+        _draw_checklist_badge(
+            pdf,
+            MARGIN + ITEM_W + 1,
+            row_y + (ROW_H - BADGE_H) / 2,
+            BADGE_W,
+            BADGE_H,
+            checked,
+        )
         pdf.ln(ROW_H)
 
     pdf.ln(2)
@@ -546,38 +554,51 @@ def _draw_checklist(pdf: FPDF, checkboxes: dict) -> None:
     pdf.ln(3)
 
 
-def _draw_photos(pdf: FPDF, photo_paths: list[str]) -> None:
+def _draw_photos(pdf: _DeliveryPDF, photo_paths: list[str]) -> None:
     if not photo_paths:
         return
     W = pdf.w - 2 * MARGIN
-    _section_title(pdf, "EVIDENCIA FOTOGRÁFICA")
-    PHOTOS_PER_ROW = 3
-    gap = 3.0
-    img_w = (W - gap * (PHOTOS_PER_ROW - 1)) / PHOTOS_PER_ROW
-    img_h = img_w * 0.65  # approx 4:3
+    _section_title(pdf, "EVIDENCIA FOTOGR\xc1FICA")
+
+    PHOTOS_PER_ROW = 2
+    gap = 4.0
+    img_w = min(85.0, (W - gap * (PHOTOS_PER_ROW - 1)) / PHOTOS_PER_ROW)
 
     for row_start in range(0, len(photo_paths), PHOTOS_PER_ROW):
         row = photo_paths[row_start: row_start + PHOTOS_PER_ROW]
-        row_y = pdf.get_y()
-        if pdf.get_y() + img_h + 5 > pdf.h - 20:
+
+        # Pre-compute corrected image sources and individual heights
+        row_items: list[tuple[str | BytesIO, float]] = []
+        for path in row:
+            if not Path(path).exists():
+                row_items.append((path, img_w * 0.75))
+                continue
+            corrected = _corrected_image_bytes(path)
+            src: str | BytesIO = corrected if corrected is not None else path
+            ratio = _image_aspect(src)
+            h = img_w * ratio if ratio else img_w * 0.75
+            row_items.append((src, h))
+
+        max_row_h = max(h for _, h in row_items) if row_items else img_w * 0.75
+
+        if pdf.get_y() + max_row_h + 5 > pdf.h - 20:
             pdf.add_page()
             pdf.ln(5)
-            row_y = pdf.get_y()
-        for j, path in enumerate(row):
+
+        row_y = pdf.get_y()
+        for j, (path, (src, ind_h)) in enumerate(zip(row, row_items)):
             if not Path(path).exists():
                 continue
             try:
                 x = MARGIN + j * (img_w + gap)
-                # Correct EXIF orientation (phone photos may be rotated)
-                img_src = _corrected_image_bytes(path)
-                if img_src is None:
-                    img_src = path
-                pdf.image(img_src, x=x, y=row_y, w=img_w, h=img_h)
+                if isinstance(src, BytesIO):
+                    src.seek(0)
+                pdf.image(src, x=x, y=row_y, w=img_w, h=ind_h)
                 pdf.set_draw_color(200, 200, 200)
-                pdf.rect(x, row_y, img_w, img_h)
+                pdf.rect(x, row_y, img_w, ind_h)
             except Exception:
                 pass
-        pdf.set_y(row_y + img_h + gap)
+        pdf.set_y(row_y + max_row_h + gap)
 
     pdf.ln(3)
     pdf.set_draw_color(200, 200, 200)
@@ -699,15 +720,22 @@ def generate_delivery_pdf(delivery_id: str, db: Session) -> str | None:
         date_str = _fmt_date(delivery.delivery_date)
 
         pdf = _DeliveryPDF(orientation="P", unit="mm", format="A4")
+        pdf.setup_fonts()
+        pdf.alias_nb_pages()
         pdf.set_auto_page_break(auto=True, margin=20)
         pdf.set_meta(logo_path, folio, date_str)
         pdf.set_margins(MARGIN, 15, MARGIN)
 
         # ── Page 1: Cover ────────────────────────────────────────────────────
         pdf.add_page()
-        _draw_logo_header(pdf, logo_path, "ACTA DE ENTREGA DE PÓLIZA", f"Póliza: {folio}", date_str)
+        _draw_logo_header(
+            pdf, logo_path,
+            "ACTA DE ENTREGA DE P\xd3LIZA",
+            f"P\xf3liza: {folio}",
+            date_str,
+            title_size=20,
+        )
 
-        # Client + Policy info (two columns)
         coverage = _safe(policy.coverage_type) if policy else "-"
         vigencia = (
             f"{_fmt_date(policy.start_date)} - {_fmt_date(policy.end_date)}"
@@ -719,21 +747,19 @@ def generate_delivery_pdf(delivery_id: str, db: Session) -> str | None:
             left_rows=[
                 ("Cliente", client.name if client else "-"),
                 ("RFC", client.rfc if client else "-"),
-                ("Direccion", client.address if client else "-"),
+                ("Direcci\xf3n", client.address if client else "-"),
             ],
-            right_title="DATOS DE LA PÓLIZA",
+            right_title="DATOS DE LA P\xd3LIZA",
             right_rows=[
                 ("Folio", folio),
                 ("Cobertura", coverage),
                 ("Vigencia", vigencia),
-                ("Técnico", tech_name),
+                ("T\xe9cnico", tech_name),
             ],
         )
 
-        # Equipment table
         _draw_equipment_table(pdf, report_data)
 
-        # Signatures
         _draw_signatures(
             pdf,
             tech_name=tech_name,
@@ -747,17 +773,16 @@ def generate_delivery_pdf(delivery_id: str, db: Session) -> str | None:
         for i, rd in enumerate(report_data):
             pdf.add_page()
 
-            # Mini header for this report page
             report_code = rd.report.code or f"R-{rd.report.id[:8].upper()}"
             _draw_logo_header(
                 pdf,
                 logo_path,
                 f"RESUMEN DE SERVICIO - Equipo {i + 1}/{len(report_data)}",
-                f"Póliza: {folio}  |  {report_code}",
+                f"P\xf3liza: {folio}  |  {report_code}",
                 date_str,
+                title_size=14,
             )
 
-            # Client + Printer info
             model_str = _safe(
                 f"{rd.model.brand} {rd.model.model_name} {rd.model.dpi}dpi"
                 if rd.model else None
@@ -767,17 +792,17 @@ def generate_delivery_pdf(delivery_id: str, db: Session) -> str | None:
 
             _two_col_info(
                 pdf,
-                left_title="INFORMACION DEL CLIENTE",
+                left_title="INFORMACI\xd3N DEL CLIENTE",
                 left_rows=[
                     ("Nombre", client.name if client else "-"),
                     ("RFC", client.rfc if client else "-"),
-                    ("Direccion", client.address if client else "-"),
+                    ("Direcci\xf3n", client.address if client else "-"),
                     ("Planta", rd.plant.name if rd.plant else "-"),
-                    ("Area", rd.area.name if rd.area else "-"),
+                    ("\xc1rea", rd.area.name if rd.area else "-"),
                 ],
                 right_title="DATOS DE LA IMPRESORA",
                 right_rows=[
-                    ("Codigo", printer_code),
+                    ("C\xf3digo", printer_code),
                     ("Serie", f"S/N: {serial}"),
                     ("Modelo", model_str),
                     ("Contador", f"{rd.report.linear_inches_counter} pulg." if rd.report.linear_inches_counter is not None else "-"),
@@ -785,31 +810,28 @@ def generate_delivery_pdf(delivery_id: str, db: Session) -> str | None:
                 ],
             )
 
-            # Checklist
             _draw_checklist(pdf, rd.checkboxes)
 
-            # Notes
             if rd.report.notes:
                 _section_title(pdf, "NOTAS DEL SERVICIO")
-                pdf.set_font("Helvetica", "", 9)
+                pdf.set_font(pdf._font_family, "", 10)
                 pdf.set_text_color(30, 30, 30)
-                pdf.multi_cell(pdf.w - 2 * MARGIN, 5.0, _safe(rd.report.notes))
+                pdf.multi_cell(pdf.w - 2 * MARGIN, 5.5, _safe(rd.report.notes))
                 pdf.ln(2)
                 pdf.set_draw_color(200, 200, 200)
                 pdf.line(MARGIN, pdf.get_y(), pdf.w - MARGIN, pdf.get_y())
                 pdf.ln(3)
 
-            # Photos
             _draw_photos(pdf, rd.photo_paths)
 
             # Tech signature on report pages
-            _section_title(pdf, "FIRMA DEL TÉCNICO")
-            pdf.set_font("Helvetica", "B", 9)
+            _section_title(pdf, "FIRMA DEL T\xc9CNICO")
+            pdf.set_font(pdf._font_family, "", 10)
             pdf.set_text_color(100, 130, 160)
-            pdf.cell(20, 5.5, "Nombre:")
-            pdf.set_font("Helvetica", "", 9)
+            pdf.cell(22, 6.0, "Nombre:")
+            pdf.set_font(pdf._font_family, "B", 10)
             pdf.set_text_color(30, 30, 30)
-            pdf.cell(0, 5.5, _safe(tech_name), new_x="LMARGIN", new_y="NEXT")
+            pdf.cell(0, 6.0, _safe(tech_name), new_x="LMARGIN", new_y="NEXT")
             pdf.ln(2)
             sig_box_y = pdf.get_y()
             sig_box_h = 20.0
@@ -823,7 +845,7 @@ def generate_delivery_pdf(delivery_id: str, db: Session) -> str | None:
                     pass
             else:
                 pdf.set_xy(MARGIN, sig_box_y + sig_box_h / 2 - 2)
-                pdf.set_font("Helvetica", "I", 7)
+                pdf.set_font(pdf._font_family, "", 8)
                 pdf.set_text_color(180, 180, 180)
                 pdf.cell(sig_box_w, 4, "Sin firma", align="C")
                 pdf.set_text_color(30, 30, 30)
