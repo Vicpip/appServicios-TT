@@ -17,6 +17,11 @@ interface PrinterListItem {
   id: string
   code: string | null
   serial_number: string
+  qr_uuid: string | null
+  model_id: string | null
+  client_id: string | null
+  plant_id: string | null
+  area_id: string | null
   client_name: string | null
   plant_name: string | null
   area_name: string | null
@@ -367,7 +372,14 @@ function PrinterModal({ printer, onClose }: PrinterModalProps) {
 
   const [form, setForm] = useState<PrinterFormData>(
     isEdit
-      ? { serial_number: printer!.serial_number, qr_uuid: '', client_id: '', plant_id: '', area_id: '', model_id: '' }
+      ? {
+          serial_number: printer!.serial_number,
+          qr_uuid: printer!.qr_uuid ?? '',
+          model_id: printer!.model_id ?? '',
+          client_id: printer!.client_id ?? '',
+          plant_id: printer!.plant_id ?? '',
+          area_id: printer!.area_id ?? '',
+        }
       : EMPTY_PRINTER_FORM,
   )
   const [error, setError] = useState<string | null>(null)

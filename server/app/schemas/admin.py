@@ -73,6 +73,11 @@ class PrinterListItem(BaseModel):
     id: str
     code: str | None
     serial_number: str
+    qr_uuid: str | None
+    model_id: str | None
+    client_id: str | None
+    plant_id: str | None
+    area_id: str | None
     client_name: str | None
     plant_name: str | None
     area_name: str | None
