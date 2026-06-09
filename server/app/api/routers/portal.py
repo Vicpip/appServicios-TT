@@ -85,6 +85,8 @@ _PORTAL_ROLE = "portal_client"
 _INVITE_TTL_HOURS = 48
 _RESET_TTL_HOURS = 1
 
+_DAMAGE_KEYS = {"Rodillo dañado", "Cabezal dañado", "Sensor ribbon dañado", "Sensor papel dañado"}
+
 
 # ---------------------------------------------------------------------------
 # Internal helpers
@@ -531,13 +533,24 @@ def list_printers(
         area = db.get(Area, p.area_id)
         catalog_model = db.get(CatalogModel, p.model_id)
 
-        # Latest service date
+        # Latest report — service date + checkboxes for status calculation
         latest_report = (
-            db.query(Report.service_date)
+            db.query(Report.service_date, Report.technical_checkboxes)
             .filter(Report.printer_id == p.id)
             .order_by(Report.service_date.desc())
             .first()
         )
+
+        printer_status = "Sin Historial"
+        if latest_report:
+            try:
+                cb = json.loads(latest_report[1] or "{}")
+                if any(cb.get(k) is True for k in _DAMAGE_KEYS):
+                    printer_status = "En Atención"
+                else:
+                    printer_status = "Correcto"
+            except (json.JSONDecodeError, TypeError):
+                printer_status = "Sin Historial"
 
         items.append(
             PortalPrinterListItem(
@@ -552,6 +565,7 @@ def list_printers(
                 model_name=catalog_model.model_name if catalog_model else None,
                 is_active=p.is_active,
                 last_service_date=latest_report[0] if latest_report else None,
+                printer_status=printer_status,
             )
         )
     return items

@@ -12,6 +12,21 @@ function fmtDate(iso) {
   return new Date(iso).toLocaleDateString('es-MX', { day: 'numeric', month: 'short', year: 'numeric' })
 }
 
+function ServiceStatusBadge({ status }) {
+  if (!status) return null
+  const cfg =
+    status === 'En Atención'
+      ? { label: 'En Atención', cls: 'bg-red-50 text-red-700 border-red-200' }
+      : status === 'Correcto'
+      ? { label: 'Correcto', cls: 'bg-green-50 text-green-700 border-green-200' }
+      : { label: 'Sin historial', cls: 'bg-gray-100 text-gray-500 border-gray-200' }
+  return (
+    <span className={`inline-flex items-center px-2 py-0.5 rounded-full border text-xs font-medium font-sans ${cfg.cls}`}>
+      {cfg.label}
+    </span>
+  )
+}
+
 export default function Impresoras() {
   const navigate = useNavigate()
   const [search, setSearch] = useState('')
@@ -22,7 +37,6 @@ export default function Impresoras() {
       const res = await apiClient.get('/api/portal/printers')
       return res.data
     },
-    staleTime: 60_000,
   })
 
   const filtered = printers.filter(p => {
@@ -82,7 +96,10 @@ export default function Impresoras() {
                 <div className="w-9 h-9 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
                   <Printer size={17} className="text-primary" aria-hidden="true" />
                 </div>
-                <StatusBadge status={p.is_active ? 'activo' : 'inactivo'} />
+                <div className="flex flex-col items-end gap-1">
+                  <StatusBadge status={p.is_active ? 'activo' : 'inactivo'} />
+                  {p.printer_status && <ServiceStatusBadge status={p.printer_status} />}
+                </div>
               </div>
               <p className="font-mono text-sm font-semibold text-[#1A1A2E] truncate">{p.serial_number}</p>
               {(p.model_brand || p.model_name) && (

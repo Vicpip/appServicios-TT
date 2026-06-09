@@ -25,7 +25,6 @@ export default function ImpresoraDetalle() {
       const res = await apiClient.get(`/api/portal/printers/${id}`)
       return res.data
     },
-    staleTime: 60_000,
   })
 
   const { data: reportsData, isLoading: loadingReports } = useQuery({
@@ -36,7 +35,6 @@ export default function ImpresoraDetalle() {
       })
       return res.data
     },
-    staleTime: 60_000,
   })
 
   const reports = reportsData?.items ?? []
@@ -162,11 +160,7 @@ export default function ImpresoraDetalle() {
             ))}
           </div>
 
-          {/* Row 2 — printer-level aggregated metrics
-              NOTE: avg_daily_inches, last_linear_inches_counter, avg_darkness_level are not
-              returned by GET /api/portal/printers/{id} (PortalPrinterDetail schema). The admin
-              equivalent is GET /api/admin/printers/{id}/stats, which is not accessible from the
-              portal. These fields will always render "—" until the portal endpoint exposes them. */}
+          {/* Row 2 — printer-level aggregated metrics */}
           <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
             {[
               {

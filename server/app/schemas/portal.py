@@ -120,6 +120,7 @@ class PortalPrinterListItem(BaseModel):
     model_name: Optional[str]
     is_active: bool
     last_service_date: Optional[datetime]
+    printer_status: str = "Sin Historial"
 
 
 class PortalPrinterDetail(BaseModel):

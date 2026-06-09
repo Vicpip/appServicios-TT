@@ -536,6 +536,16 @@ dart run build_runner build --delete-conflicting-outputs
 
 ---
 
+## ✅ Fix portal cliente — badge estado, comentario outdated, caché (09/06/2026)
+
+| Fix | Archivos | Descripción |
+|-----|---------|-------------|
+| Badge "En Atención" en tarjetas | `server/app/api/routers/portal.py`, `server/app/schemas/portal.py`, `clients/src/pages/Impresoras.jsx` | `GET /api/portal/printers` ahora trae `technical_checkboxes` del último reporte y calcula `printer_status` ("En Atención" / "Correcto" / "Sin Historial") usando las mismas claves que `admin.py`. Se agregó `printer_status: str = "Sin Historial"` a `PortalPrinterListItem`. En el frontend se muestran dos badges por tarjeta: inventario (`is_active`) y estado de servicio (`printer_status`). |
+| Comentario desactualizado eliminado | `clients/src/pages/ImpresoraDetalle.jsx` | Eliminado el bloque de comentario que decía que `avg_daily_inches`, `last_linear_inches_counter` y `avg_darkness_level` no eran devueltos por el portal. Los campos ya existían en `PortalPrinterDetail` y el endpoint los calcula correctamente. |
+| Datos desactualizados en navegación | `clients/src/main.jsx`, `clients/src/pages/Dashboard.jsx`, `clients/src/pages/Impresoras.jsx`, `clients/src/pages/ImpresoraDetalle.jsx` | `QueryClient` global: `staleTime: 0` (era 60 s) y `refetchOnWindowFocus: true` (era false). Eliminados los `staleTime: 60_000` locales en los 6 `useQuery` de Dashboard, Impresoras e ImpresoraDetalle para que hereden la config global. |
+
+---
+
 ## ✅ Rename PDF entrega: nombre descriptivo (09/06/2026)
 
 | Cambio | Archivo | Descripción |

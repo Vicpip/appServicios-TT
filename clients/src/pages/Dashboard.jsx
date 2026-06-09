@@ -88,7 +88,6 @@ export default function Dashboard() {
       const res = await apiClient.get('/api/portal/printers')
       return res.data
     },
-    staleTime: 60_000,
   })
 
   const { data: policies = [], isLoading: loadingPolicies } = useQuery({
@@ -97,7 +96,6 @@ export default function Dashboard() {
       const res = await apiClient.get('/api/portal/policies')
       return res.data
     },
-    staleTime: 60_000,
   })
 
   const { data: allReports = [], isLoading: loadingReports } = useQuery({
@@ -106,7 +104,6 @@ export default function Dashboard() {
       const res = await apiClient.get('/api/portal/reports', { params: { limit: 100, offset: 0 } })
       return res.data.items ?? []
     },
-    staleTime: 60_000,
   })
 
   const { data: recentReports = [], isLoading: loadingRecent } = useQuery({
@@ -115,7 +112,6 @@ export default function Dashboard() {
       const res = await apiClient.get('/api/portal/reports', { params: { limit: 5, offset: 0 } })
       return res.data.items ?? []
     },
-    staleTime: 60_000,
   })
 
   const printerModelMap = Object.fromEntries(
