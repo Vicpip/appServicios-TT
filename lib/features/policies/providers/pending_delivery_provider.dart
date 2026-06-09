@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'package:drift/drift.dart' hide Column;
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:industrial_service_reports/data/local/app_database.dart';
@@ -65,8 +66,8 @@ final pendingDeliveryProvider =
     for (final PolicyPrinter candidate in candidates) {
       final bool hasActiveVisit = await (db.select(db.policyVisits)
             ..where((PolicyVisits v) =>
-                (v.policyId.equals(candidate.policyId)) &
-                (v.status.equals('in_progress')))
+                v.policyId.equals(candidate.policyId) &
+                v.status.equals('in_progress'))
             ..limit(1))
           .getSingleOrNull()
           .then((v) => v != null);

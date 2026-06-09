@@ -174,7 +174,26 @@ class _PolicyDeliverySignatureScreenState
       ref.invalidate(activeVisitProvider(widget.args.policyId));
       ref.invalidate(policyVisitsProvider(widget.args.policyId));
 
-      // Enqueue sync
+      // Encolar firma PRIMERO para que el servidor la tenga disponible
+      // cuando procese el delivery JSON y genere el PDF de entrega.
+      if (sigPath != null) {
+        await localDatabase.into(localDatabase.syncQueue).insert(
+          SyncQueueCompanion.insert(
+            id: const Uuid().v4(),
+            methodHttp: 'POST',
+            endpointDestino: '/api/files',
+            payloadJson: jsonEncode(<String, dynamic>{
+              'localPath': sigPath,
+              'fileCategory': 'signature',
+            }),
+            entityType: 'signature',
+            entityId: deliveryId,
+          ),
+        );
+        debugPrint('[PolicyDeliverySignature] Firma encolada para sync: $sigPath');
+      }
+
+      // Enqueue sync del delivery JSON (después de la firma)
       await localDatabase.into(localDatabase.syncQueue).insert(
             SyncQueueCompanion.insert(
               id: const Uuid().v4(),
@@ -196,64 +215,7 @@ class _PolicyDeliverySignatureScreenState
             ),
           );
 
-      // CAMBIO 4: Generar PDF de resumen global (no fatal)
-      try {
-        final Policy? policy = await (localDatabase.select(localDatabase.policies)
-              ..where((Policies p) => p.id.equals(widget.args.policyId)))
-            .getSingleOrNull();
-        if (policy != null) {
-          final PolicyDelivery? delivery = await (localDatabase
-                  .select(localDatabase.policyDeliveries)
-                ..where((PolicyDeliveries d) => d.id.equals(deliveryId)))
-              .getSingleOrNull();
-          if (delivery != null) {
-            final List<Report> reports = await (localDatabase
-                    .select(localDatabase.reports)
-                  ..where((Reports r) => r.id.isIn(widget.args.reportIds)))
-                .get();
-            // Cargar técnico para nombre de archivo legible
-            final User? techForPdf = await (localDatabase
-                    .select(localDatabase.users)
-                  ..where((Users u) => u.id.equals(widget.args.techId)))
-                .getSingleOrNull();
-            final Uint8List pdfBytes = await PdfService.generateDeliveryPdf(
-              delivery: delivery,
-              reports: reports,
-              policy: policy,
-              database: localDatabase,
-            );
-            final io.Directory appDir = await getApplicationDocumentsDirectory();
-            final String deliveriesDir = '${appDir.path}/deliveries';
-            await io.Directory(deliveriesDir).create(recursive: true);
-            final String summaryPath =
-                '$deliveriesDir/${PdfService.deliveryPdfName(widget.args.policyFolio, techForPdf)}';
-            await io.File(summaryPath).writeAsBytes(pdfBytes);
-            debugPrint(
-                '[PolicyDeliverySignature] PDF resumen guardado: $summaryPath');
-            // Encolar PDF de entrega para sync
-            await localDatabase.into(localDatabase.syncQueue).insert(
-              SyncQueueCompanion.insert(
-                id: const Uuid().v4(),
-                methodHttp: 'POST',
-                endpointDestino: '/api/files',
-                payloadJson: jsonEncode(<String, dynamic>{
-                  'localPath': summaryPath,
-                  'fileCategory': 'delivery_pdf',
-                }),
-                entityType: 'delivery_pdf',
-                entityId: deliveryId,
-              ),
-            );
-            debugPrint(
-                '[PolicyDeliverySignature] PDF entrega encolado para sync');
-          }
-        }
-      } catch (e) {
-        debugPrint(
-            '[PolicyDeliverySignature] PDF resumen falló (no fatal): $e');
-      }
-
-      // Generar PDFs individuales de cada reporte (P6b) y encolar para sync (P6c)
+      // Generar PDFs individuales de cada reporte y encolar para sync
       final io.Directory reportPdfsDir = io.Directory(
         '${(await getApplicationDocumentsDirectory()).path}/reports/pdfs',
       );
@@ -285,24 +247,6 @@ class _PolicyDeliverySignatureScreenState
           debugPrint(
               '[PolicyDeliverySignature] PDF individual reportId=$reportId falló (no fatal): $e');
         }
-      }
-
-      // Encolar firma de entrega para sync (P6c)
-      if (sigPath != null) {
-        await localDatabase.into(localDatabase.syncQueue).insert(
-          SyncQueueCompanion.insert(
-            id: const Uuid().v4(),
-            methodHttp: 'POST',
-            endpointDestino: '/api/files',
-            payloadJson: jsonEncode(<String, dynamic>{
-              'localPath': sigPath,
-              'fileCategory': 'signature',
-            }),
-            entityType: 'signature',
-            entityId: deliveryId,
-          ),
-        );
-        debugPrint('[PolicyDeliverySignature] Firma encolada para sync: $sigPath');
       }
 
       if (!mounted) return;

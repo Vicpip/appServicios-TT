@@ -17,6 +17,7 @@ from sqlalchemy.orm import Session
 from app.config import get_settings
 from app.database import get_db
 from app.models.area import Area
+from app.services.delivery_pdf_service import generate_delivery_pdf
 from app.models.catalog import CatalogLabelType, CatalogModel
 
 logger = logging.getLogger(__name__)
@@ -1783,6 +1784,31 @@ def create_delivery_admin(
 ) -> dict:
     """Create a delivery for a policy (admin side)."""
     return _create_policy_delivery(policy_id, body, db).model_dump()
+
+
+@router.post("/policy-deliveries/{delivery_id}/regenerate-pdf", response_model=dict)
+def regenerate_delivery_pdf_endpoint(
+    delivery_id: str,
+    db: Session = Depends(get_db),
+    _current_user: User = Depends(get_current_user),
+) -> dict:
+    """Regenerate the PDF for a policy delivery."""
+    delivery = db.get(PolicyDelivery, delivery_id)
+    if not delivery:
+        raise HTTPException(status_code=404, detail="Delivery not found")
+
+    try:
+        pdf_path = generate_delivery_pdf(delivery_id, db)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Error al generar PDF: {exc}") from exc
+
+    if pdf_path is None:
+        raise HTTPException(status_code=500, detail="Error al generar PDF: el servicio retornó None")
+
+    delivery.pdf_path = pdf_path
+    db.commit()
+
+    return {"success": True, "pdf_url": pdf_path}
 
 
 # ===========================================================================

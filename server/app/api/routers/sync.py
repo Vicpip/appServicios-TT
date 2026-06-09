@@ -1,15 +1,19 @@
 import hashlib
 import json
+import logging
 import os
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
+
+log = logging.getLogger(__name__)
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, Form
 from sqlalchemy.orm import Session
 
 from app.auth import get_current_user
 from app.config import get_settings
+from app.services.delivery_pdf_service import generate_delivery_pdf
 from app.database import get_db
 from app.models.area import Area
 from app.models.catalog import CatalogModel
@@ -324,6 +328,28 @@ async def sync_file(
             server_response=json.dumps({"storage_path": storage_path}),
         )
         db.commit()
+
+        # When a client signature arrives for a delivery, regenerate the PDF so
+        # it includes the signature.  policy_delivery is always processed before
+        # signature by the mobile sync queue (priority 3 vs 5), so the first PDF
+        # generated at delivery-creation time has no client signature.
+        if entity_type == "signature":
+            try:
+                delivery_record = db.get(PolicyDelivery, entity_id)
+                if delivery_record is not None:
+                    pdf_relative = generate_delivery_pdf(entity_id, db)
+                    if pdf_relative:
+                        delivery_record.pdf_path = pdf_relative
+                        db.commit()
+                        log.info(
+                            "sync_file: regenerated delivery PDF for %s → %s",
+                            entity_id, pdf_relative,
+                        )
+            except Exception:
+                log.exception(
+                    "sync_file: PDF regeneration failed for signature entity_id=%s (non-fatal)",
+                    entity_id,
+                )
 
         return SyncResponse(
             success=True,
@@ -701,6 +727,16 @@ def create_policy_delivery(
     db.commit()
     db.refresh(delivery)
 
+    # Generate delivery PDF non-fatally; signature may already be on disk
+    # if Flutter re-ordered the queue (signature uploaded before this request).
+    try:
+        pdf_relative = generate_delivery_pdf(delivery.id, db)
+        if pdf_relative:
+            delivery.pdf_path = pdf_relative
+            db.commit()
+    except Exception:
+        pass  # PDF generation never blocks the delivery response
+
     return {
         "id": delivery.id,
         "policy_id": delivery.policy_id,
@@ -710,6 +746,7 @@ def create_policy_delivery(
         "tech_id": delivery.tech_id,
         "signature_image_path": delivery.signature_image_path,
         "report_count": len(body.report_ids),
+        "pdf_path": delivery.pdf_path,
     }
 
 

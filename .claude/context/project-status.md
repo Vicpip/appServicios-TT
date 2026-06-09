@@ -536,12 +536,48 @@ dart run build_runner build --delete-conflicting-outputs
 
 ---
 
+## ✅ PDF entrega generado en backend (08/06/2026)
+
+| Cambio | Archivo | Descripción |
+|--------|---------|-------------|
+| Nuevo servicio PDF | `server/app/services/delivery_pdf_service.py` | Genera el PDF de entrega global con fpdf2. Portada: logo + datos cliente/póliza (dos columnas) + tabla de equipos (cols: #, Modelo, Serie, Planta, Área, Tipo servicio, Estado con badges) + firmas. Página por equipo: info cliente/impresora, checklist, notas, fotos. Lee firmas y fotos desde `EntityFile` en servidor. Guarda en `uploads/deliveries/delivery_{id}_resumen.pdf`. |
+| Logo copiado al servidor | `server/app/static/logo_smp.png` | Copia de `lib/img/logo_smp.png` para uso en el PDF de backend. |
+| PDF en POST policy-deliveries | `server/app/api/routers/sync.py` | En `create_policy_delivery()`: después del `commit()`, llama a `generate_delivery_pdf()` en try/except no-fatal. Genera PDF inicial (sin firma del cliente todavía, porque el sync queue prioriza policy_delivery=3 antes que signature=5). |
+| Regenerar PDF al recibir firma | `server/app/api/routers/sync.py` | En `POST /api/files`: cuando `entity_type == 'signature'`, verifica si `entity_id` corresponde a una `PolicyDelivery`. Si sí, llama `generate_delivery_pdf()` en try/except no-fatal y actualiza `pdf_path`. Así el PDF final siempre incluye la firma del cliente. |
+| Eliminar PDF local Flutter | `policy_delivery_signature_screen.dart` | Eliminado el bloque "CAMBIO 4" que generaba el PDF de entrega localmente y encolaba `delivery_pdf`. Los PDFs individuales por reporte siguen generándose en Flutter. |
+
+**Flujo completo de generación del PDF de entrega:**
+1. Flutter encola: firma (signature, prioridad 5) → delivery JSON (policy_delivery, prioridad 3) → PDFs individuales (pdf, prioridad 5)
+2. Sync service reordena por prioridad: **delivery JSON primero** (prioridad 3), luego firma (prioridad 5)
+3. Servidor recibe `POST /api/policy-deliveries` → genera PDF sin firma del cliente → guarda en `uploads/deliveries/delivery_{id}_resumen.pdf`
+4. Servidor recibe `POST /api/files` (entity_type='signature', entity_id=delivery_id) → firma guardada en `EntityFile` → regenera PDF CON firma → actualiza `delivery.pdf_path`
+5. PDF final en `uploads/deliveries/delivery_{id}_resumen.pdf` incluye la firma del cliente
+
+**Diseño visual del PDF de entrega (backend):**
+- Colores: azul header `#1a3a5c`/`#2563eb`, badge Correcto `#dcfce7`/`#166534`, badge En Atención `#fef3c7`/`#92400e`
+- Tabla de equipos: 7 columnas incluyendo "Área" (nueva) junto a "Planta"
+- La columna "Área" en la tabla Y en las páginas por equipo (sección "Información del cliente")
+- Firma del técnico: `User.signature_path`; firma del cliente: JOIN `EntityFile` (entity_type='signature', entity_id=delivery_id)
+- Fotos por reporte: JOIN `EntityFile` (entity_type='report', file_category='photo') — fotos de TODOS los técnicos, no solo del dispositivo que entrega
+
+---
+
 ## ✅ Bug fixes: FIRMAR ENTREGA + refresh lista pólizas (02/06/2026)
 
 | Fix | Archivo | Cambio |
 |-----|---------|--------|
 | Guard "FIRMAR ENTREGA" | `policy_delivery_screen.dart` | Agrega `_totalAssigned` (int?) cargado en `initState()` desde `policyPrinters` donde `policyId == widget.policy.policyId`. El botón queda habilitado solo cuando `reports.length >= _totalAssigned`. Mientras carga o cuando faltan equipos: `onPressed: null`, color gris. Texto "Faltan X equipo(s) por atender" visible encima del botón cuando `remaining > 0`. |
 | Refresh lista pólizas al volver | `policy_dashboard_screen.dart` (`_PolicyDashboardScreenState`) | Mismo patrón que PolicyDetailScreen: `_loadPolicies()` movido de `initState()` a `didChangeDependencies()` con guard `_routeWasActive`. Además `ref.invalidate(pendingDeliveryProvider)` para refrescar el banner "Pendientes de entrega" y el botón "VER RESUMEN". |
+
+---
+
+## ✅ Botón "Regenerar PDF" en entregas de póliza (08/06/2026)
+
+| Cambio | Archivo | Descripción |
+|--------|---------|-------------|
+| Nuevo endpoint | `server/app/api/routers/admin.py` | `POST /api/admin/policy-deliveries/{delivery_id}/regenerate-pdf` — requiere auth admin, llama `generate_delivery_pdf()`, actualiza `delivery.pdf_path`, retorna `{success, pdf_url}`. 404 si no existe, 500 si falla la generación. |
+| Endpoint en cliente | `admin-web/src/api/endpoints.ts` | `policies.regeneratePdf(deliveryId)` → `/api/admin/policy-deliveries/{id}/regenerate-pdf` |
+| Botón en UI | `admin-web/src/pages/PolicyDetailPage.tsx` | Botón con ícono `RefreshCw` (lucide) junto a "Descargar PDF" en cada fila del historial de entregas. Muestra spinner mientras carga, deshabilita el botón. Banner verde/rojo inline sobre la lista al completar. Invalida la query `deliveries` para actualizar el link de descarga. |
 
 ---
 

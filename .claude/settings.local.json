@@ -34,7 +34,11 @@
       "Bash(venv/Scripts/activate)",
       "Bash(alembic revision:*)",
       "Bash(Get-ChildItem *)",
-      "Bash(npx tsc *)"
+      "Bash(npx tsc *)",
+      "Bash(New-Item -ItemType Directory -Force \"C:\\\\Proyectos\\\\AppTT\\\\appServicios-TT\\\\server\\\\app\\\\static\")",
+      "Bash(Out-Null)",
+      "Bash(Copy-Item \"C:\\\\Proyectos\\\\AppTT\\\\appServicios-TT\\\\lib\\\\img\\\\logo_smp.png\" \"C:\\\\Proyectos\\\\AppTT\\\\appServicios-TT\\\\server\\\\app\\\\static\\\\logo_smp.png\")",
+      "Bash(Write-Output \"ok\")"
     ]
   }
 }

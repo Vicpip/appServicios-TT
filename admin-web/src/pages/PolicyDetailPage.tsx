@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   ArrowLeft, ShieldCheck, Pencil, Users, CalendarCheck, Info, ClipboardList,
-  Play, X, ChevronDown, ChevronRight, FileText, FileDown, AlertTriangle,
+  Play, X, ChevronDown, ChevronRight, FileText, FileDown, AlertTriangle, RefreshCw,
 } from 'lucide-react'
 import apiClient from '@/api/client'
 import { API } from '@/api/endpoints'
@@ -166,6 +166,8 @@ export default function PolicyDetailPage() {
   const [selectedReportId, setSelectedReportId] = useState<string | null>(null)
   const [expandedDeliveryId, setExpandedDeliveryId] = useState<string | null>(null)
   const [hasAutoExpanded, setHasAutoExpanded] = useState(false)
+  const [regeneratingId, setRegeneratingId] = useState<string | null>(null)
+  const [deliveryNotif, setDeliveryNotif] = useState<{ type: 'success' | 'error'; msg: string } | null>(null)
 
   // Policy detail
   const { data: policy, isLoading: loadingPolicy } = useQuery<PolicyDetail>({
@@ -243,6 +245,30 @@ export default function PolicyDetailPage() {
       return res.data
     },
     enabled: !!id,
+  })
+
+  const regeneratePdfMutation = useMutation({
+    mutationFn: async (deliveryId: string) => {
+      const res = await apiClient.post<{ success: boolean; pdf_url: string }>(
+        API.policies.regeneratePdf(deliveryId),
+      )
+      return res.data
+    },
+    onMutate: (deliveryId) => {
+      setRegeneratingId(deliveryId)
+      setDeliveryNotif(null)
+    },
+    onSuccess: (_data, _deliveryId) => {
+      setRegeneratingId(null)
+      setDeliveryNotif({ type: 'success', msg: 'PDF regenerado correctamente' })
+      qc.invalidateQueries({ queryKey: ['deliveries', id] })
+      setTimeout(() => setDeliveryNotif(null), 4000)
+    },
+    onError: (err: unknown, _deliveryId) => {
+      setRegeneratingId(null)
+      const detail = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail
+      setDeliveryNotif({ type: 'error', msg: detail ?? 'Error al regenerar PDF' })
+    },
   })
 
   const generateVisitsMutation = useMutation({
@@ -398,6 +424,19 @@ export default function PolicyDetailPage() {
               </h3>
             </div>
 
+            {deliveryNotif && (
+              <div className={`px-5 py-3 text-sm font-sans flex items-center gap-2 border-b border-border ${
+                deliveryNotif.type === 'success'
+                  ? 'bg-green-50 text-green-700'
+                  : 'bg-red-50 text-red-600'
+              }`}>
+                <span className="flex-1">{deliveryNotif.msg}</span>
+                <button onClick={() => setDeliveryNotif(null)} className="text-current opacity-60 hover:opacity-100">
+                  <X size={14} />
+                </button>
+              </div>
+            )}
+
             {!deliveriesData || deliveriesData.length === 0 ? (
               <div className="px-5 py-8 text-center">
                 <ClipboardList size={28} className="mx-auto mb-2 text-gray-200" />
@@ -459,6 +498,16 @@ export default function PolicyDetailPage() {
                         >
                           <FileDown size={14} />
                           <span className="hidden sm:inline">Descargar PDF</span>
+                        </button>
+                        <button
+                          onClick={() => regeneratePdfMutation.mutate(d.id)}
+                          disabled={regeneratingId === d.id}
+                          className="flex items-center gap-1.5 px-4 py-4 text-xs font-semibold text-gray-500 hover:text-primary hover:bg-primary/5 transition-colors shrink-0 font-sans border-l border-gray-100 disabled:opacity-50"
+                          title="Regenerar PDF"
+                        >
+                          {regeneratingId === d.id
+                            ? <span className="w-3.5 h-3.5 border-2 border-current border-t-transparent rounded-full animate-spin inline-block" />
+                            : <RefreshCw size={14} />}
                         </button>
                       </div>
 
