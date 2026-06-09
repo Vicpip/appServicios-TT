@@ -666,15 +666,9 @@ def get_printer(
     if latest_report and latest_report.technical_checkboxes:
         try:
             checkboxes = json.loads(latest_report.technical_checkboxes)
-            _warning_map = [
-                ("rodillo_danado", "Rodillo dañado"),
-                ("cabezal_danado", "Cabezal dañado"),
-                ("sensor_ribbon_danado", "Sensor ribbon dañado"),
-                ("sensor_papel_danado", "Sensor papel dañado"),
-            ]
-            for field, label in _warning_map:
-                if checkboxes.get(field):
-                    active_warnings.append(label)
+            for key in _DAMAGE_KEYS:
+                if checkboxes.get(key) is True:
+                    active_warnings.append(key)
         except (json.JSONDecodeError, TypeError):
             pass
 
