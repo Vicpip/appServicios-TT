@@ -65,8 +65,8 @@ final pendingDeliveryProvider =
     for (final PolicyPrinter candidate in candidates) {
       final bool hasActiveVisit = await (db.select(db.policyVisits)
             ..where((PolicyVisits v) =>
-                v.policyId.equals(candidate.policyId) &
-                v.status.equals('in_progress'))
+                (v.policyId.equals(candidate.policyId)) &
+                (v.status.equals('in_progress')))
             ..limit(1))
           .getSingleOrNull()
           .then((v) => v != null);
