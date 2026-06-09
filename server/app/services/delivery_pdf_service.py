@@ -240,6 +240,24 @@ def _info_row(pdf: _DeliveryPDF, label: str, value: str, lbl_w: float = 24.0, co
     pdf.cell(col_w - lbl_w, 6.5, _safe(value), new_x="LMARGIN", new_y="NEXT")
 
 
+def _split_text(pdf: _DeliveryPDF, text: str, max_w: float) -> list[str]:
+    """Split text into lines that fit within max_w, measured with current font."""
+    words = text.split(" ")
+    lines: list[str] = []
+    current = ""
+    for word in words:
+        candidate = (current + " " + word).strip() if current else word
+        if pdf.get_string_width(candidate) <= max_w:
+            current = candidate
+        else:
+            if current:
+                lines.append(current)
+            current = word
+    if current:
+        lines.append(current)
+    return lines or [text]
+
+
 def _two_col_info(
     pdf: _DeliveryPDF,
     left_title: str,
@@ -252,49 +270,51 @@ def _two_col_info(
     LBL_W = 24.0
     right_x = MARGIN + COL_W + 6
     title_h = 7.0
-    row_h = 6.5
+    LINE_H = 6.0
 
     section_start_y = pdf.get_y()
 
-    # ── Left column — drawn completely before touching right column ──────────
-    y = section_start_y
-    pdf.set_xy(MARGIN, y)
+    def _col_rows(col_x: float, rows: list[tuple[str, str]]) -> float:
+        """Draw all rows for one column; returns y after the last row."""
+        y = section_start_y + title_h
+        val_w = COL_W - LBL_W
+        for lbl, val in rows:
+            safe_val = _safe(val)
+            # Measure with bold font so line-splitting is accurate
+            pdf.set_font(pdf._font_family, "B", 10)
+            lines = _split_text(pdf, safe_val, val_w)
+            row_h = LINE_H * len(lines)
+
+            # Label — normal weight, top-aligned to this row
+            pdf.set_xy(col_x, y)
+            pdf.set_font(pdf._font_family, "", 10)
+            pdf.set_text_color(100, 130, 160)
+            pdf.cell(LBL_W, LINE_H, f"{lbl}:")
+
+            # Value — bold, one cell per wrapped line (explicit xy prevents
+            # multi_cell from resetting x to the page margin mid-column)
+            pdf.set_font(pdf._font_family, "B", 10)
+            pdf.set_text_color(30, 30, 30)
+            for i, line in enumerate(lines):
+                pdf.set_xy(col_x + LBL_W, y + i * LINE_H)
+                pdf.cell(val_w, LINE_H, line)
+
+            y += row_h
+        return y
+
+    # ── Left column ──────────────────────────────────────────────────────
+    pdf.set_xy(MARGIN, section_start_y)
     pdf.set_font(pdf._font_family, "B", 11)
     pdf.set_text_color(26, 58, 92)
     pdf.cell(COL_W, title_h, left_title)
-    y += title_h
+    left_end_y = _col_rows(MARGIN, left_rows)
 
-    for lbl, val in left_rows:
-        pdf.set_xy(MARGIN, y)
-        pdf.set_font(pdf._font_family, "", 10)
-        pdf.set_text_color(100, 130, 160)
-        pdf.cell(LBL_W, row_h, f"{lbl}:")
-        pdf.set_font(pdf._font_family, "B", 10)
-        pdf.set_text_color(30, 30, 30)
-        pdf.cell(COL_W - LBL_W, row_h, _safe(val))
-        y += row_h
-
-    left_end_y = y
-
-    # ── Right column — reset Y to section start, draw independently ──────────
-    y = section_start_y
-    pdf.set_xy(right_x, y)
+    # ── Right column ─────────────────────────────────────────────────────
+    pdf.set_xy(right_x, section_start_y)
     pdf.set_font(pdf._font_family, "B", 11)
     pdf.set_text_color(26, 58, 92)
     pdf.cell(COL_W, title_h, right_title)
-    y += title_h
-
-    for lbl, val in right_rows:
-        pdf.set_xy(right_x, y)
-        pdf.set_font(pdf._font_family, "", 10)
-        pdf.set_text_color(100, 130, 160)
-        pdf.cell(LBL_W, row_h, f"{lbl}:")
-        pdf.set_font(pdf._font_family, "B", 10)
-        pdf.set_text_color(30, 30, 30)
-        pdf.cell(COL_W - LBL_W, row_h, _safe(val))
-        y += row_h
-
-    right_end_y = y
+    right_end_y = _col_rows(right_x, right_rows)
 
     pdf.set_y(max(left_end_y, right_end_y))
     pdf.ln(2)
@@ -501,9 +521,10 @@ def _draw_equipment_table(pdf: _DeliveryPDF, report_data: list[_ReportData]) -> 
         row_y = pdf.get_y()
         x = MARGIN
         values = [str(idx + 1), model_str, serial, plant_name, area_name, service_type]
-        for val, cw in zip(values, cols[:-1]):
+        for i, (val, cw) in enumerate(zip(values, cols[:-1])):
             pdf.set_xy(x, row_y)
-            pdf.set_font(pdf._font_family, "", 10)
+            # Serial (index 2) is bold; all others are normal
+            pdf.set_font(pdf._font_family, "B" if i == 2 else "", 10)
             pdf.set_text_color(30, 30, 30)
             pdf.cell(cw, row_h, val, border=1, fill=True)
             x += cw
