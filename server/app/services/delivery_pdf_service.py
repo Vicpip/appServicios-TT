@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import logging
+from io import BytesIO
 from pathlib import Path
 from typing import Any
 
@@ -84,6 +85,37 @@ def _safe(text: str | None) -> str:
     )
 
 
+def _corrected_image_bytes(path: str) -> BytesIO | None:
+    """Return a BytesIO with EXIF-orientation-corrected image.
+
+    Uses Pillow to read EXIF tag 274 (Orientation) and rotate accordingly.
+    Returns None if Pillow is unavailable or the image cannot be processed,
+    so the caller can fall back to the original file path.
+    """
+    try:
+        from PIL import Image  # type: ignore[import]
+        img = Image.open(path)
+        orientation: int | None = None
+        try:
+            exif_data = img._getexif()  # type: ignore[attr-defined]
+            if exif_data:
+                orientation = exif_data.get(274)
+        except Exception:
+            pass
+        if orientation == 3:
+            img = img.rotate(180, expand=True)
+        elif orientation == 6:
+            img = img.rotate(270, expand=True)
+        elif orientation == 8:
+            img = img.rotate(90, expand=True)
+        buf = BytesIO()
+        img.save(buf, format="JPEG")
+        buf.seek(0)
+        return buf
+    except Exception:
+        return None
+
+
 # ---------------------------------------------------------------------------
 # Data container for each report inside the delivery
 # ---------------------------------------------------------------------------
@@ -127,8 +159,6 @@ class _DeliveryPDF(FPDF):
         self._delivery_date_str = date_str
 
     def header(self) -> None:
-        # Each page sets its own header via set_meta; the generic fallback
-        # just draws a subtle top border so auto_page_break pages look clean.
         self.set_draw_color(200, 200, 200)
         self.line(15, 14, self.w - 15, 14)
 
@@ -148,15 +178,12 @@ MARGIN = 15.0
 
 def _section_title(pdf: FPDF, text: str) -> None:
     """Blue left-bordered section title."""
-    pdf.set_fill_color(245, 247, 250)
-    pdf.set_draw_color(37, 99, 235)   # #2563eb
-    # left border via rect
-    pdf.set_fill_color(37, 99, 235)
-    pdf.rect(MARGIN, pdf.get_y(), 1.5, 5.5, style="F")
+    pdf.set_fill_color(37, 99, 235)   # #2563eb
+    pdf.rect(MARGIN, pdf.get_y(), 1.5, 6.0, style="F")
     pdf.set_x(MARGIN + 3)
-    pdf.set_font("Helvetica", "B", 8)
+    pdf.set_font("Helvetica", "B", 10)
     pdf.set_text_color(26, 58, 92)   # #1a3a5c
-    pdf.cell(0, 5.5, text, new_x="LMARGIN", new_y="NEXT")
+    pdf.cell(0, 6.0, text, new_x="LMARGIN", new_y="NEXT")
     pdf.set_draw_color(220, 220, 220)
     pdf.line(MARGIN, pdf.get_y(), pdf.w - MARGIN, pdf.get_y())
     pdf.ln(1.5)
@@ -165,12 +192,12 @@ def _section_title(pdf: FPDF, text: str) -> None:
 def _info_row(pdf: FPDF, label: str, value: str, lbl_w: float = 22.0, col_w: float = 80.0) -> None:
     y = pdf.get_y()
     pdf.set_xy(pdf.get_x(), y)
-    pdf.set_font("Helvetica", "B", 7.5)
+    pdf.set_font("Helvetica", "B", 9)
     pdf.set_text_color(100, 130, 160)
-    pdf.cell(lbl_w, 4.5, f"{label}:")
-    pdf.set_font("Helvetica", "", 7.5)
+    pdf.cell(lbl_w, 6.0, f"{label}:")
+    pdf.set_font("Helvetica", "", 9)
     pdf.set_text_color(30, 30, 30)
-    pdf.cell(col_w - lbl_w, 4.5, _safe(value), new_x="LMARGIN", new_y="NEXT")
+    pdf.cell(col_w - lbl_w, 6.0, _safe(value), new_x="LMARGIN", new_y="NEXT")
 
 
 def _two_col_info(
@@ -183,48 +210,58 @@ def _two_col_info(
     W = pdf.w - 2 * MARGIN
     COL_W = W / 2 - 3
     LBL_W = 22.0
-
-    # Left title
-    pdf.set_xy(MARGIN, pdf.get_y())
-    _draw_col_header(pdf, left_title, MARGIN, COL_W)
     right_x = MARGIN + COL_W + 6
-    _draw_col_header(pdf, right_title, right_x, COL_W)
-    pdf.ln(0.5)
+    title_h = 6.0
+    row_h = 6.0
 
-    row_h = 4.5
-    for i in range(max(len(left_rows), len(right_rows))):
-        row_y = pdf.get_y()
-        if i < len(left_rows):
-            lbl, val = left_rows[i]
-            pdf.set_xy(MARGIN, row_y)
-            pdf.set_font("Helvetica", "B", 7.5)
-            pdf.set_text_color(100, 130, 160)
-            pdf.cell(LBL_W, row_h, f"{lbl}:")
-            pdf.set_font("Helvetica", "", 7.5)
-            pdf.set_text_color(30, 30, 30)
-            pdf.cell(COL_W - LBL_W, row_h, _safe(val))
-        if i < len(right_rows):
-            lbl, val = right_rows[i]
-            pdf.set_xy(right_x, row_y)
-            pdf.set_font("Helvetica", "B", 7.5)
-            pdf.set_text_color(100, 130, 160)
-            pdf.cell(LBL_W, row_h, f"{lbl}:")
-            pdf.set_font("Helvetica", "", 7.5)
-            pdf.set_text_color(30, 30, 30)
-            pdf.cell(COL_W - LBL_W, row_h, _safe(val))
-        pdf.ln(row_h)
+    section_start_y = pdf.get_y()
 
+    # ── Left column — drawn completely before touching right column ──────────
+    y = section_start_y
+    pdf.set_xy(MARGIN, y)
+    pdf.set_font("Helvetica", "B", 10)
+    pdf.set_text_color(26, 58, 92)
+    pdf.cell(COL_W, title_h, left_title)
+    y += title_h
+
+    for lbl, val in left_rows:
+        pdf.set_xy(MARGIN, y)
+        pdf.set_font("Helvetica", "B", 9)
+        pdf.set_text_color(100, 130, 160)
+        pdf.cell(LBL_W, row_h, f"{lbl}:")
+        pdf.set_font("Helvetica", "", 9)
+        pdf.set_text_color(30, 30, 30)
+        pdf.cell(COL_W - LBL_W, row_h, _safe(val))
+        y += row_h
+
+    left_end_y = y
+
+    # ── Right column — reset Y to section start, draw independently ──────────
+    y = section_start_y
+    pdf.set_xy(right_x, y)
+    pdf.set_font("Helvetica", "B", 10)
+    pdf.set_text_color(26, 58, 92)
+    pdf.cell(COL_W, title_h, right_title)
+    y += title_h
+
+    for lbl, val in right_rows:
+        pdf.set_xy(right_x, y)
+        pdf.set_font("Helvetica", "B", 9)
+        pdf.set_text_color(100, 130, 160)
+        pdf.cell(LBL_W, row_h, f"{lbl}:")
+        pdf.set_font("Helvetica", "", 9)
+        pdf.set_text_color(30, 30, 30)
+        pdf.cell(COL_W - LBL_W, row_h, _safe(val))
+        y += row_h
+
+    right_end_y = y
+
+    # Advance past the taller column
+    pdf.set_y(max(left_end_y, right_end_y))
     pdf.ln(2)
     pdf.set_draw_color(200, 200, 200)
     pdf.line(MARGIN, pdf.get_y(), pdf.w - MARGIN, pdf.get_y())
     pdf.ln(3)
-
-
-def _draw_col_header(pdf: FPDF, title: str, x: float, w: float) -> None:
-    pdf.set_xy(x, pdf.get_y())
-    pdf.set_font("Helvetica", "B", 7.5)
-    pdf.set_text_color(100, 130, 160)
-    pdf.cell(w, 5, title, new_x="RIGHT", new_y="TOP")
 
 
 def _draw_logo_header(
@@ -278,7 +315,7 @@ def _draw_status_badge(pdf: FPDF, x: float, y: float, w: float, h: float, has_da
         label = "En Atención"
     else:
         pdf.set_fill_color(220, 252, 231)    # #dcfce7
-        pdf.set_text_color(22, 101, 52)      # #166534
+        pdf.set_text_color(22, 101, 52)      # #166634
         label = "Correcto"
     pdf.set_xy(x, y)
     pdf.set_font("Helvetica", "B", 7)
@@ -289,7 +326,7 @@ def _draw_status_badge(pdf: FPDF, x: float, y: float, w: float, h: float, has_da
 def _draw_checklist_badge(pdf: FPDF, x: float, y: float, w: float, h: float, checked: bool) -> None:
     if checked:
         pdf.set_fill_color(220, 252, 231)    # #dcfce7
-        pdf.set_text_color(22, 101, 52)      # #166534
+        pdf.set_text_color(22, 101, 52)      # #166634
         label = "Sí"
     else:
         pdf.set_fill_color(243, 244, 246)    # #f3f4f6
@@ -352,34 +389,35 @@ def _draw_one_sig_box(
     sig_path: str | None,
 ) -> None:
     LBL_W = 18.0
+    row_h = 5.5
     pdf.set_xy(x, y)
-    pdf.set_font("Helvetica", "B", 7.5)
+    pdf.set_font("Helvetica", "B", 9)
     pdf.set_text_color(100, 130, 160)
-    pdf.cell(w, 4.5, title, new_x="LEFT", new_y="NEXT")
+    pdf.cell(w, row_h, title, new_x="LEFT", new_y="NEXT")
     pdf.set_x(x)
     pdf.set_draw_color(220, 220, 220)
     pdf.line(x, pdf.get_y(), x + w, pdf.get_y())
     pdf.ln(1)
 
     pdf.set_xy(x, pdf.get_y())
-    pdf.set_font("Helvetica", "B", 7.5)
+    pdf.set_font("Helvetica", "B", 9)
     pdf.set_text_color(100, 130, 160)
-    pdf.cell(LBL_W, 4.5, "Nombre:")
-    pdf.set_font("Helvetica", "", 7.5)
+    pdf.cell(LBL_W, row_h, "Nombre:")
+    pdf.set_font("Helvetica", "", 9)
     pdf.set_text_color(30, 30, 30)
-    pdf.cell(w - LBL_W, 4.5, _safe(name), new_x="LEFT", new_y="NEXT")
+    pdf.cell(w - LBL_W, row_h, _safe(name), new_x="LEFT", new_y="NEXT")
     pdf.set_x(x)
 
     if role is not None:
-        pdf.set_font("Helvetica", "B", 7.5)
+        pdf.set_font("Helvetica", "B", 9)
         pdf.set_text_color(100, 130, 160)
-        pdf.cell(LBL_W, 4.5, "Cargo:")
-        pdf.set_font("Helvetica", "", 7.5)
+        pdf.cell(LBL_W, row_h, "Cargo:")
+        pdf.set_font("Helvetica", "", 9)
         pdf.set_text_color(30, 30, 30)
-        pdf.cell(w - LBL_W, 4.5, _safe(role), new_x="LEFT", new_y="NEXT")
+        pdf.cell(w - LBL_W, row_h, _safe(role), new_x="LEFT", new_y="NEXT")
         pdf.set_x(x)
     else:
-        pdf.ln(4.5)  # spacer to align signature box with client side
+        pdf.ln(row_h)  # spacer to align signature box with client side
 
     pdf.ln(2)
     box_y = pdf.get_y()
@@ -410,7 +448,7 @@ def _draw_equipment_table(pdf: FPDF, report_data: list[_ReportData]) -> None:
     # #(8) | Modelo(38) | Serie(32) | Planta(24) | Área(24) | Tipo(24) | Estado(30)
     cols = [8.0, 38.0, 32.0, 24.0, 24.0, 24.0, 30.0]
     headers = ["#", "Modelo", "Serie", "Planta", "Área", "Tipo servicio", "Estado"]
-    row_h = 5.5
+    row_h = 6.0
 
     # Header row
     pdf.set_fill_color(245, 247, 250)
@@ -419,7 +457,7 @@ def _draw_equipment_table(pdf: FPDF, report_data: list[_ReportData]) -> None:
     header_y = pdf.get_y()
     for i, (hdr, cw) in enumerate(zip(headers, cols)):
         pdf.set_xy(x, header_y)
-        pdf.set_font("Helvetica", "B", 7)
+        pdf.set_font("Helvetica", "B", 9)
         pdf.set_text_color(26, 58, 92)
         pdf.cell(cw, row_h, hdr, border=1, fill=True, align="C")
         x += cw
@@ -444,7 +482,7 @@ def _draw_equipment_table(pdf: FPDF, report_data: list[_ReportData]) -> None:
         values = [str(idx + 1), model_str, serial, plant_name, area_name, service_type]
         for i, (val, cw) in enumerate(zip(values, cols[:-1])):
             pdf.set_xy(x, row_y)
-            pdf.set_font("Helvetica", "", 7)
+            pdf.set_font("Helvetica", "", 9)
             pdf.set_text_color(30, 30, 30)
             pdf.cell(cw, row_h, val, border=1, fill=True)
             x += cw
@@ -470,7 +508,7 @@ def _draw_checklist(pdf: FPDF, checkboxes: dict) -> None:
 
     ITEM_COL_W = W * 0.72
     BADGE_W = 10.0
-    ROW_H = 5.0
+    ROW_H = 6.0
     GAP = 4.0
 
     # Two-column layout
@@ -486,7 +524,7 @@ def _draw_checklist(pdf: FPDF, checkboxes: dict) -> None:
             item = left_items[i]
             checked = checkboxes.get(item) is True
             pdf.set_xy(MARGIN, row_y)
-            pdf.set_font("Helvetica", "", 7.5)
+            pdf.set_font("Helvetica", "", 9)
             pdf.set_text_color(30, 30, 30)
             pdf.cell(W / 2 - BADGE_W - GAP, ROW_H, item)
             _draw_checklist_badge(pdf, MARGIN + W / 2 - BADGE_W - GAP - 2, row_y + 0.5, BADGE_W, ROW_H - 1, checked)
@@ -495,7 +533,7 @@ def _draw_checklist(pdf: FPDF, checkboxes: dict) -> None:
             item = right_items[i]
             checked = checkboxes.get(item) is True
             pdf.set_xy(right_x, row_y)
-            pdf.set_font("Helvetica", "", 7.5)
+            pdf.set_font("Helvetica", "", 9)
             pdf.set_text_color(30, 30, 30)
             pdf.cell(W / 2 - BADGE_W - GAP, ROW_H, item)
             _draw_checklist_badge(pdf, right_x + W / 2 - BADGE_W - GAP - 2, row_y + 0.5, BADGE_W, ROW_H - 1, checked)
@@ -530,7 +568,11 @@ def _draw_photos(pdf: FPDF, photo_paths: list[str]) -> None:
                 continue
             try:
                 x = MARGIN + j * (img_w + gap)
-                pdf.image(path, x=x, y=row_y, w=img_w, h=img_h)
+                # Correct EXIF orientation (phone photos may be rotated)
+                img_src = _corrected_image_bytes(path)
+                if img_src is None:
+                    img_src = path
+                pdf.image(img_src, x=x, y=row_y, w=img_w, h=img_h)
                 pdf.set_draw_color(200, 200, 200)
                 pdf.rect(x, row_y, img_w, img_h)
             except Exception:
@@ -565,7 +607,9 @@ def generate_delivery_pdf(delivery_id: str, db: Session) -> str | None:
         tech: User | None = db.get(User, delivery.tech_id)
         tech_name = tech.name if tech else "No especificado"
 
-        # Resolve tech signature path
+        # Resolve tech signature path — try User.signature_path first,
+        # then fall back to EntityFile (signature_path is not always populated
+        # when signatures sync via POST /api/files).
         tech_sig_path: str | None = None
         if tech and tech.signature_path:
             p = Path(tech.signature_path)
@@ -573,6 +617,20 @@ def generate_delivery_pdf(delivery_id: str, db: Session) -> str | None:
                 p = Path(settings.upload_dir) / p
             if p.exists():
                 tech_sig_path = str(p)
+
+        if tech_sig_path is None and tech:
+            ef_tech = (
+                db.query(EntityFile)
+                .filter(
+                    EntityFile.entity_id == tech.id,
+                    EntityFile.entity_type == "signature",
+                )
+                .join(EntityFile.file)
+                .order_by(EntityFile.id.desc())
+                .first()
+            )
+            if ef_tech and ef_tech.file and Path(ef_tech.file.storage_path).exists():
+                tech_sig_path = ef_tech.file.storage_path
 
         # Resolve client (delivery) signature path via EntityFile
         client_sig_path: str | None = None
@@ -733,9 +791,9 @@ def generate_delivery_pdf(delivery_id: str, db: Session) -> str | None:
             # Notes
             if rd.report.notes:
                 _section_title(pdf, "NOTAS DEL SERVICIO")
-                pdf.set_font("Helvetica", "", 8)
+                pdf.set_font("Helvetica", "", 9)
                 pdf.set_text_color(30, 30, 30)
-                pdf.multi_cell(pdf.w - 2 * MARGIN, 4.5, _safe(rd.report.notes))
+                pdf.multi_cell(pdf.w - 2 * MARGIN, 5.0, _safe(rd.report.notes))
                 pdf.ln(2)
                 pdf.set_draw_color(200, 200, 200)
                 pdf.line(MARGIN, pdf.get_y(), pdf.w - MARGIN, pdf.get_y())
@@ -744,14 +802,14 @@ def generate_delivery_pdf(delivery_id: str, db: Session) -> str | None:
             # Photos
             _draw_photos(pdf, rd.photo_paths)
 
-            # Tech signature only on report pages
+            # Tech signature on report pages
             _section_title(pdf, "FIRMA DEL TÉCNICO")
-            pdf.set_font("Helvetica", "B", 7.5)
+            pdf.set_font("Helvetica", "B", 9)
             pdf.set_text_color(100, 130, 160)
-            pdf.cell(20, 4.5, "Nombre:")
-            pdf.set_font("Helvetica", "", 7.5)
+            pdf.cell(20, 5.5, "Nombre:")
+            pdf.set_font("Helvetica", "", 9)
             pdf.set_text_color(30, 30, 30)
-            pdf.cell(0, 4.5, _safe(tech_name), new_x="LMARGIN", new_y="NEXT")
+            pdf.cell(0, 5.5, _safe(tech_name), new_x="LMARGIN", new_y="NEXT")
             pdf.ln(2)
             sig_box_y = pdf.get_y()
             sig_box_h = 20.0
@@ -763,6 +821,12 @@ def generate_delivery_pdf(delivery_id: str, db: Session) -> str | None:
                     pdf.image(tech_sig_path, x=MARGIN + 2, y=sig_box_y + 1, w=sig_box_w - 4, h=sig_box_h - 2)
                 except Exception:
                     pass
+            else:
+                pdf.set_xy(MARGIN, sig_box_y + sig_box_h / 2 - 2)
+                pdf.set_font("Helvetica", "I", 7)
+                pdf.set_text_color(180, 180, 180)
+                pdf.cell(sig_box_w, 4, "Sin firma", align="C")
+                pdf.set_text_color(30, 30, 30)
             pdf.set_y(sig_box_y + sig_box_h + 3)
 
         # ── Save PDF to disk ─────────────────────────────────────────────────

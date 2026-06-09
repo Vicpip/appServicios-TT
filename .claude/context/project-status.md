@@ -536,6 +536,17 @@ dart run build_runner build --delete-conflicting-outputs
 
 ---
 
+## ✅ Fix visual PDF entrega (08/06/2026)
+
+| Fix | Descripción |
+|-----|-------------|
+| Columnas sin traslape | `_two_col_info` rediseñada: dibuja toda la columna izquierda con `set_xy` explícito, luego resetea Y al inicio de la sección y dibuja toda la columna derecha independientemente. Elimina el overlap de headers. |
+| Fuentes más grandes | Títulos de sección: 10pt bold. Labels y valores en tablas de info: 9pt. Encabezados y filas de tabla de equipos: 9pt. Ítems del checklist: 9pt. |
+| EXIF orientation fix | `_corrected_image_bytes()`: usa Pillow para leer tag EXIF 274 (Orientation) y rotar la imagen antes de insertarla. Aplica en todas las fotos de `_draw_photos`. Fallback silencioso si Pillow falla. `Pillow>=10.0.0` agregado a `requirements.txt`. |
+| Firma técnico desde EntityFile | Cuando `User.signature_path` es null o el archivo no existe, busca fallback en `EntityFile` (entity_type='signature', entity_id=user_id). Antes, `signature_path` nunca se llenaba al sincronizar archivos desde la app. |
+
+---
+
 ## ✅ PDF entrega generado en backend (08/06/2026)
 
 | Cambio | Archivo | Descripción |
