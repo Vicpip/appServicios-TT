@@ -240,6 +240,20 @@ def _info_row(pdf: _DeliveryPDF, label: str, value: str, lbl_w: float = 24.0, co
     pdf.cell(col_w - lbl_w, 6.5, _safe(value), new_x="LMARGIN", new_y="NEXT")
 
 
+def _truncate(pdf: _DeliveryPDF, text: str, max_w: float) -> str:
+    """Truncate text with '...' if it exceeds max_w (measured with current font)."""
+    if pdf.get_string_width(text) <= max_w:
+        return text
+    ellipsis_w = pdf.get_string_width("...")
+    result = ""
+    for ch in text:
+        if pdf.get_string_width(result + ch) + ellipsis_w <= max_w:
+            result += ch
+        else:
+            break
+    return result + "..."
+
+
 def _split_text(pdf: _DeliveryPDF, text: str, max_w: float) -> list[str]:
     """Split text into lines that fit within max_w, measured with current font."""
     words = text.split(" ")
@@ -488,8 +502,9 @@ def _draw_one_sig_box(
 def _draw_equipment_table(pdf: _DeliveryPDF, report_data: list[_ReportData]) -> None:
     _section_title(pdf, f"EQUIPOS ATENDIDOS ({len(report_data)})")
 
-    # Column widths (total ≈ 180 mm)
-    cols = [8.0, 38.0, 32.0, 24.0, 24.0, 24.0, 30.0]
+    # Column widths — total = 180 mm
+    # #(10) | Modelo(32) | Serie(38) | Planta(30) | Área(20) | Tipo(28) | Estado(22)
+    cols = [10.0, 32.0, 38.0, 30.0, 20.0, 28.0, 22.0]
     headers = ["#", "Modelo", "Serie", "Planta", "\xc1rea", "Tipo servicio", "Estado"]
     row_h = 6.5
 
@@ -524,9 +539,12 @@ def _draw_equipment_table(pdf: _DeliveryPDF, report_data: list[_ReportData]) -> 
         for i, (val, cw) in enumerate(zip(values, cols[:-1])):
             pdf.set_xy(x, row_y)
             # Serial (index 2) is bold; all others are normal
-            pdf.set_font(pdf._font_family, "B" if i == 2 else "", 10)
+            style = "B" if i == 2 else ""
+            pdf.set_font(pdf._font_family, style, 10)
             pdf.set_text_color(30, 30, 30)
-            pdf.cell(cw, row_h, val, border=1, fill=True)
+            # Truncate if text is wider than the cell (leave 2 mm padding)
+            display_val = _truncate(pdf, val, cw - 2)
+            pdf.cell(cw, row_h, display_val, border=1, fill=True)
             x += cw
 
         badge_x = x
@@ -567,6 +585,9 @@ def _draw_checklist(pdf: _DeliveryPDF, checkboxes: dict) -> None:
             BADGE_H,
             checked,
         )
+        # Separator line at the bottom of each row
+        pdf.set_draw_color(229, 231, 235)   # #e5e7eb
+        pdf.line(MARGIN, row_y + ROW_H, pdf.w - MARGIN, row_y + ROW_H)
         pdf.ln(ROW_H)
 
     pdf.ln(2)
