@@ -678,12 +678,16 @@ def get_printer(
         except (json.JSONDecodeError, TypeError):
             pass
 
-    if latest_report is None:
-        printer_status_detail = "Sin Historial"
-    elif active_warnings:
-        printer_status_detail = "En Atención"
-    else:
-        printer_status_detail = "Correcto"
+    printer_status_detail = "Sin Historial"
+    if latest_report:
+        try:
+            cb = json.loads(latest_report.technical_checkboxes or "{}")
+            if any(cb.get(k) is True for k in _DAMAGE_KEYS):
+                printer_status_detail = "En Atención"
+            else:
+                printer_status_detail = "Correcto"
+        except (json.JSONDecodeError, TypeError):
+            printer_status_detail = "Sin Historial"
 
     return PortalPrinterDetail(
         id=printer.id,
