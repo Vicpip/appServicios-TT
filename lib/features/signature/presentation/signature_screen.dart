@@ -68,14 +68,24 @@ class _SignatureScreenState extends ConsumerState<SignatureScreen> {
   Future<void> _checkAndHandleActiveVisit() async {
     final String? printerId = ref.read(captureProvider).printerId;
     if (printerId != null && printerId.isNotEmpty) {
-      final PolicyPrinter? pp = await (localDatabase
+      final List<PolicyPrinter> pps = await (localDatabase
               .select(localDatabase.policyPrinters)
             ..where((PolicyPrinters t) => t.printerId.equals(printerId)))
-          .getSingleOrNull();
-      if (pp != null) {
-        final PolicyVisit? visit =
-            await ref.read(activeVisitProvider(pp.policyId).future);
-        if (visit != null && mounted) {
+          .get();
+      PolicyVisit? visit;
+      for (final PolicyPrinter candidate in pps) {
+        final PolicyVisit? v =
+            await ref.read(activeVisitProvider(candidate.policyId).future);
+        debugPrint(
+          '[SignatureScreen] _checkAndHandleActiveVisit: '
+          'policyId=${candidate.policyId} activeVisit=${v?.id}',
+        );
+        if (v != null) {
+          visit = v;
+          break;
+        }
+      }
+      if (visit != null && mounted) {
           debugPrint(
             '[SignatureScreen] visita activa ${visit.id} → '
             'auto-guardando como pending_delivery',
@@ -87,7 +97,6 @@ class _SignatureScreenState extends ConsumerState<SignatureScreen> {
           await _saveAsPendingDelivery();
           return;
         }
-      }
     }
     if (mounted) setState(() => _isCheckingVisit = false);
   }
@@ -508,22 +517,30 @@ class _SignatureScreenState extends ConsumerState<SignatureScreen> {
       // Regla de negocio: reporte va a 'pending_delivery' SOLO si:
       //   1) La impresora pertenece a una póliza, Y
       //   2) Esa póliza tiene una visita con status='in_progress'
-      final PolicyPrinter? policyPrinterRow = await (localDatabase
+      final List<PolicyPrinter> policyPrinterRows = await (localDatabase
               .select(localDatabase.policyPrinters)
             ..where((PolicyPrinters t) => t.printerId.equals(printerId)))
-          .getSingleOrNull();
+          .get();
 
       String reportStatus = 'Signed';
-      if (policyPrinterRow != null) {
-        final PolicyVisit? activeVisit = await ref.read(
-          activeVisitProvider(policyPrinterRow.policyId).future,
+      PolicyVisit? activeVisit;
+      for (final PolicyPrinter candidate in policyPrinterRows) {
+        final PolicyVisit? v =
+            await ref.read(activeVisitProvider(candidate.policyId).future);
+        debugPrint(
+          '[SignatureScreen] _onFinishPressed: '
+          'policyId=${candidate.policyId} activeVisit=${v?.id}',
         );
-        if (activeVisit != null) {
-          reportStatus = 'pending_delivery';
-          debugPrint('[SignatureScreen] visita activa ${activeVisit.id} → pending_delivery');
-        } else {
-          debugPrint('[SignatureScreen] póliza sin visita activa → Signed');
+        if (v != null) {
+          activeVisit = v;
+          break;
         }
+      }
+      if (activeVisit != null) {
+        reportStatus = 'pending_delivery';
+        debugPrint('[SignatureScreen] visita activa ${activeVisit.id} → pending_delivery');
+      } else if (policyPrinterRows.isNotEmpty) {
+        debugPrint('[SignatureScreen] póliza sin visita activa → Signed');
       } else {
         debugPrint('[SignatureScreen] sin póliza → Signed');
       }

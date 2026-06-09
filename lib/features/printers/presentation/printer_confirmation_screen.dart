@@ -38,19 +38,34 @@ class _PrinterConfirmationScreenState
   }
 
   Future<void> _loadActiveVisit() async {
-    // Find policy for this printer
     final db = localDatabase;
-    final policyPrinter = await (db.select(db.policyPrinters)
+    final List<PolicyPrinter> rows = await (db.select(db.policyPrinters)
           ..where((pp) => pp.printerId.equals(widget.printer.printerId)))
-        .getSingleOrNull();
-    if (policyPrinter == null) return;
+        .get();
+    debugPrint('[PrinterConfirmation] printerId=${widget.printer.printerId} rows=${rows.length}');
+    if (rows.isEmpty) {
+      debugPrint('[PrinterConfirmation] sin póliza asignada → sin banner');
+      return;
+    }
 
-    final visit = await ref.read(
-      activeVisitProvider(policyPrinter.policyId).future,
-    );
+    PolicyPrinter? policyPrinter;
+    PolicyVisit? visit;
+    for (final candidate in rows) {
+      final v = await ref.read(activeVisitProvider(candidate.policyId).future);
+      debugPrint('[PrinterConfirmation] policyId=${candidate.policyId} activeVisit=${v?.id}');
+      if (v != null) {
+        policyPrinter = candidate;
+        visit = v;
+        break;
+      }
+    }
+    policyPrinter ??= rows.first;
+
+    debugPrint('[PrinterConfirmation] selected policyId=${policyPrinter.policyId} activeVisit=${visit?.id} visitNumber=${visit?.visitNumber}');
     final allVisits = await ref.read(
       policyVisitsProvider(policyPrinter.policyId).future,
     );
+    debugPrint('[PrinterConfirmation] totalVisits=${allVisits.length}');
     if (mounted) {
       setState(() {
         _activeVisit = visit;

@@ -332,17 +332,23 @@ class SyncService {
               status: d['status'] as String,
             ),
           );
+      final String policyId = d['id'] as String;
       final List<dynamic> printerIds =
           (d['printerIds'] as List<dynamic>?) ?? <dynamic>[];
-      for (final dynamic pid in printerIds) {
-        await _db.into(_db.policyPrinters).insertOnConflictUpdate(
-              PolicyPrintersCompanion.insert(
-                id: '${d['id']}_${pid as String}',
-                policyId: d['id'] as String,
-                printerId: pid,
-              ),
-            );
-      }
+      await _db.transaction(() async {
+        await (_db.delete(_db.policyPrinters)
+              ..where((PolicyPrinters pp) => pp.policyId.equals(policyId)))
+            .go();
+        for (final dynamic pid in printerIds) {
+          await _db.into(_db.policyPrinters).insertOnConflictUpdate(
+                PolicyPrintersCompanion.insert(
+                  id: '${policyId}_${pid as String}',
+                  policyId: policyId,
+                  printerId: pid as String,
+                ),
+              );
+        }
+      });
     }
 
     final List<dynamic> reports =

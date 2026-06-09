@@ -49,15 +49,34 @@ final pendingDeliveryProvider =
 
   if (pendingReports.isEmpty) return <PolicyWithPendingReports>[];
 
-  // Group by policyId via PolicyPrinters link
+  // Group by policyId via PolicyPrinters link.
+  // A printer can appear in multiple policies (e.g. last year + this year).
+  // We must find the specific policy whose visit is currently in_progress —
+  // using getSingleOrNull() would throw StateError when multiple rows match.
   final Map<String, List<Report>> byPolicy = <String, List<Report>>{};
   for (final Report r in pendingReports) {
-    // Find PolicyPrinter for this printer
-    final PolicyPrinter? pp = await (db.select(db.policyPrinters)
+    // All policies that contain this printer.
+    final List<PolicyPrinter> candidates = await (db.select(db.policyPrinters)
           ..where((PolicyPrinters t) => t.printerId.equals(r.printerId)))
-        .getSingleOrNull();
+        .get();
 
-    final String key = pp?.policyId ?? '__no_policy__';
+    // Pick the policy that has an active (in_progress) visit for THIS printer.
+    String? activePolicyId;
+    for (final PolicyPrinter candidate in candidates) {
+      final bool hasActiveVisit = await (db.select(db.policyVisits)
+            ..where((PolicyVisits v) =>
+                v.policyId.equals(candidate.policyId) &
+                v.status.equals('in_progress'))
+            ..limit(1))
+          .getSingleOrNull()
+          .then((v) => v != null);
+      if (hasActiveVisit) {
+        activePolicyId = candidate.policyId;
+        break;
+      }
+    }
+
+    final String key = activePolicyId ?? '__no_policy__';
     byPolicy.putIfAbsent(key, () => <Report>[]).add(r);
   }
 
@@ -66,12 +85,6 @@ final pendingDeliveryProvider =
   for (final MapEntry<String, List<Report>> entry in byPolicy.entries) {
     final String policyId = entry.key;
     if (policyId == '__no_policy__') continue;
-
-    // Only show the button when there is an active (in_progress) visit.
-    final List<PolicyVisit> visits = await (db.select(db.policyVisits)
-          ..where((v) => v.policyId.equals(policyId)))
-        .get();
-    if (!visits.any((v) => v.status == 'in_progress')) continue;
 
     final Policy? policy = await (db.select(db.policies)
           ..where((Policies t) => t.id.equals(policyId)))
