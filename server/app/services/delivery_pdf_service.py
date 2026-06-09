@@ -52,7 +52,7 @@ _LOGO_PATH = Path(__file__).parent.parent / "static" / "logo_smp.png"
 
 def _fmt_date(dt: Any) -> str:
     if dt is None:
-        return "—"
+        return "-"
     return f"{dt.day:02d} {_MONTHS[dt.month - 1]} {dt.year}"
 
 
@@ -67,6 +67,21 @@ def _parse_checkboxes(raw: Any) -> dict:
 
 def _has_damage(checkboxes: dict) -> bool:
     return any(checkboxes.get(k) is True for k in _DAMAGE_KEYS)
+
+
+def _safe(text: str | None) -> str:
+    if not text:
+        return "-"
+    return (
+        text
+        .replace("—", "-")
+        .replace("–", "-")
+        .replace("‘", "'")
+        .replace("’", "'")
+        .replace("“", '"')
+        .replace("”", '"')
+        .replace("…", "...")
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -121,7 +136,7 @@ class _DeliveryPDF(FPDF):
         self.set_y(-12)
         self.set_font("Helvetica", "I", 7)
         self.set_text_color(160, 160, 160)
-        self.cell(0, 5, f"Pág. {self.page_no()} — Póliza {self._policy_folio}", align="C")
+        self.cell(0, 5, f"Pag. {self.page_no()} - Poliza {self._policy_folio}", align="C")
 
 
 # ---------------------------------------------------------------------------
@@ -155,7 +170,7 @@ def _info_row(pdf: FPDF, label: str, value: str, lbl_w: float = 22.0, col_w: flo
     pdf.cell(lbl_w, 4.5, f"{label}:")
     pdf.set_font("Helvetica", "", 7.5)
     pdf.set_text_color(30, 30, 30)
-    pdf.cell(col_w - lbl_w, 4.5, value or "—", new_x="LMARGIN", new_y="NEXT")
+    pdf.cell(col_w - lbl_w, 4.5, _safe(value), new_x="LMARGIN", new_y="NEXT")
 
 
 def _two_col_info(
@@ -187,7 +202,7 @@ def _two_col_info(
             pdf.cell(LBL_W, row_h, f"{lbl}:")
             pdf.set_font("Helvetica", "", 7.5)
             pdf.set_text_color(30, 30, 30)
-            pdf.cell(COL_W - LBL_W, row_h, val or "—")
+            pdf.cell(COL_W - LBL_W, row_h, _safe(val))
         if i < len(right_rows):
             lbl, val = right_rows[i]
             pdf.set_xy(right_x, row_y)
@@ -196,7 +211,7 @@ def _two_col_info(
             pdf.cell(LBL_W, row_h, f"{lbl}:")
             pdf.set_font("Helvetica", "", 7.5)
             pdf.set_text_color(30, 30, 30)
-            pdf.cell(COL_W - LBL_W, row_h, val or "—")
+            pdf.cell(COL_W - LBL_W, row_h, _safe(val))
         pdf.ln(row_h)
 
     pdf.ln(2)
@@ -352,7 +367,7 @@ def _draw_one_sig_box(
     pdf.cell(LBL_W, 4.5, "Nombre:")
     pdf.set_font("Helvetica", "", 7.5)
     pdf.set_text_color(30, 30, 30)
-    pdf.cell(w - LBL_W, 4.5, name or "—", new_x="LEFT", new_y="NEXT")
+    pdf.cell(w - LBL_W, 4.5, _safe(name), new_x="LEFT", new_y="NEXT")
     pdf.set_x(x)
 
     if role is not None:
@@ -361,7 +376,7 @@ def _draw_one_sig_box(
         pdf.cell(LBL_W, 4.5, "Cargo:")
         pdf.set_font("Helvetica", "", 7.5)
         pdf.set_text_color(30, 30, 30)
-        pdf.cell(w - LBL_W, 4.5, role or "—", new_x="LEFT", new_y="NEXT")
+        pdf.cell(w - LBL_W, 4.5, _safe(role), new_x="LEFT", new_y="NEXT")
         pdf.set_x(x)
     else:
         pdf.ln(4.5)  # spacer to align signature box with client side
@@ -412,13 +427,13 @@ def _draw_equipment_table(pdf: FPDF, report_data: list[_ReportData]) -> None:
 
     # Data rows
     for idx, rd in enumerate(report_data):
-        model_str = (
-            f"{rd.model.brand} {rd.model.model_name}" if rd.model else "—"
+        model_str = _safe(
+            f"{rd.model.brand} {rd.model.model_name}" if rd.model else None
         )
-        serial = rd.printer.serial_number if rd.printer else rd.report.printer_id[:8]
-        plant_name = rd.plant.name if rd.plant else "—"
-        area_name = rd.area.name if rd.area else "—"
-        service_type = rd.report.service_type or "—"
+        serial = _safe(rd.printer.serial_number if rd.printer else rd.report.printer_id[:8])
+        plant_name = _safe(rd.plant.name if rd.plant else None)
+        area_name = _safe(rd.area.name if rd.area else None)
+        service_type = _safe(rd.report.service_type)
         damage = _has_damage(rd.checkboxes)
 
         fill_color = (255, 255, 255) if idx % 2 == 0 else (248, 250, 252)
@@ -635,18 +650,18 @@ def generate_delivery_pdf(delivery_id: str, db: Session) -> str | None:
         _draw_logo_header(pdf, logo_path, "ACTA DE ENTREGA DE PÓLIZA", f"Póliza: {folio}", date_str)
 
         # Client + Policy info (two columns)
-        coverage = policy.coverage_type if policy else "—"
+        coverage = _safe(policy.coverage_type) if policy else "-"
         vigencia = (
-            f"{_fmt_date(policy.start_date)} — {_fmt_date(policy.end_date)}"
-            if policy else "—"
+            f"{_fmt_date(policy.start_date)} - {_fmt_date(policy.end_date)}"
+            if policy else "-"
         )
         _two_col_info(
             pdf,
             left_title="DATOS DEL CLIENTE",
             left_rows=[
-                ("Cliente", client.name if client else "—"),
-                ("RFC", client.rfc if client else "—"),
-                ("Dirección", client.address if client else "—"),
+                ("Cliente", client.name if client else "-"),
+                ("RFC", client.rfc if client else "-"),
+                ("Direccion", client.address if client else "-"),
             ],
             right_title="DATOS DE LA PÓLIZA",
             right_rows=[
@@ -679,36 +694,36 @@ def generate_delivery_pdf(delivery_id: str, db: Session) -> str | None:
             _draw_logo_header(
                 pdf,
                 logo_path,
-                f"RESUMEN DE SERVICIO — Equipo {i + 1}/{len(report_data)}",
+                f"RESUMEN DE SERVICIO - Equipo {i + 1}/{len(report_data)}",
                 f"Póliza: {folio}  |  {report_code}",
                 date_str,
             )
 
             # Client + Printer info
-            model_str = (
+            model_str = _safe(
                 f"{rd.model.brand} {rd.model.model_name} {rd.model.dpi}dpi"
-                if rd.model else "—"
+                if rd.model else None
             )
-            printer_code = rd.printer.code if rd.printer else "—"
-            serial = rd.printer.serial_number if rd.printer else "—"
+            printer_code = _safe(rd.printer.code if rd.printer else None)
+            serial = _safe(rd.printer.serial_number if rd.printer else None)
 
             _two_col_info(
                 pdf,
-                left_title="INFORMACIÓN DEL CLIENTE",
+                left_title="INFORMACION DEL CLIENTE",
                 left_rows=[
-                    ("Nombre", client.name if client else "—"),
-                    ("RFC", client.rfc if client else "—"),
-                    ("Dirección", client.address if client else "—"),
-                    ("Planta", rd.plant.name if rd.plant else "—"),
-                    ("Área", rd.area.name if rd.area else "—"),
+                    ("Nombre", client.name if client else "-"),
+                    ("RFC", client.rfc if client else "-"),
+                    ("Direccion", client.address if client else "-"),
+                    ("Planta", rd.plant.name if rd.plant else "-"),
+                    ("Area", rd.area.name if rd.area else "-"),
                 ],
                 right_title="DATOS DE LA IMPRESORA",
                 right_rows=[
-                    ("Código", printer_code),
+                    ("Codigo", printer_code),
                     ("Serie", f"S/N: {serial}"),
                     ("Modelo", model_str),
-                    ("Contador", f"{rd.report.linear_inches_counter} pulg." if rd.report.linear_inches_counter is not None else "—"),
-                    ("Temperatura", str(rd.report.darkness_level) if rd.report.darkness_level is not None else "—"),
+                    ("Contador", f"{rd.report.linear_inches_counter} pulg." if rd.report.linear_inches_counter is not None else "-"),
+                    ("Temperatura", str(rd.report.darkness_level) if rd.report.darkness_level is not None else "-"),
                 ],
             )
 
@@ -720,7 +735,7 @@ def generate_delivery_pdf(delivery_id: str, db: Session) -> str | None:
                 _section_title(pdf, "NOTAS DEL SERVICIO")
                 pdf.set_font("Helvetica", "", 8)
                 pdf.set_text_color(30, 30, 30)
-                pdf.multi_cell(pdf.w - 2 * MARGIN, 4.5, rd.report.notes)
+                pdf.multi_cell(pdf.w - 2 * MARGIN, 4.5, _safe(rd.report.notes))
                 pdf.ln(2)
                 pdf.set_draw_color(200, 200, 200)
                 pdf.line(MARGIN, pdf.get_y(), pdf.w - MARGIN, pdf.get_y())
@@ -736,7 +751,7 @@ def generate_delivery_pdf(delivery_id: str, db: Session) -> str | None:
             pdf.cell(20, 4.5, "Nombre:")
             pdf.set_font("Helvetica", "", 7.5)
             pdf.set_text_color(30, 30, 30)
-            pdf.cell(0, 4.5, tech_name, new_x="LMARGIN", new_y="NEXT")
+            pdf.cell(0, 4.5, _safe(tech_name), new_x="LMARGIN", new_y="NEXT")
             pdf.ln(2)
             sig_box_y = pdf.get_y()
             sig_box_h = 20.0
