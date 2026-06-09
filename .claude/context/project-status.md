@@ -563,6 +563,16 @@ dart run build_runner build --delete-conflicting-outputs
 
 ---
 
+## ✅ Fix PDF: texto largo + bold consistente (09/06/2026)
+
+| Fix | Descripción |
+|-----|-------------|
+| Texto largo sin encimarse | `_split_text()`: divide texto en líneas usando `get_string_width()` con fuente actual. `_two_col_info` refactorizada con closure `_col_rows()` que dibuja cada línea con `set_xy()` explícito — evita que `multi_cell` resetee X al margen de página dentro de la columna |
+| Bold consistente en secciones info | Valores en `_two_col_info` siempre en bold 10pt; labels en normal 10pt gris — ambas columnas izquierda y derecha |
+| Bold en número de serie (tabla equipos) | `_draw_equipment_table`: columna Serie (índice 2) usa `"B"`; resto de celdas de datos usan `""` |
+
+---
+
 ## ✅ PDF entrega generado en backend (08/06/2026)
 
 | Cambio | Archivo | Descripción |
