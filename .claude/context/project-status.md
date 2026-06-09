@@ -573,6 +573,16 @@ dart run build_runner build --delete-conflicting-outputs
 
 ---
 
+## ✅ Fix PDF tabla y checklist (09/06/2026)
+
+| Fix | Descripción |
+|-----|-------------|
+| Anchos de columna redistribuidos | `cols = [10,32,38,30,20,28,22]` (total 180mm): Planta sube a 30mm, Área a 20mm, Tipo baja a 28mm, Estado a 22mm — "Vibracoustic 2" ya cabe |
+| Truncación con "..." | `_truncate()`: mide con `get_string_width()` y recorta char-a-char hasta que `texto + "..."` cabe en `cw - 2mm`; se aplica a todas las celdas de datos |
+| Separadores en checklist | Línea horizontal `#e5e7eb` al final de cada fila del checklist (`row_y + ROW_H`), igual que la tabla de equipos |
+
+---
+
 ## ✅ PDF entrega generado en backend (08/06/2026)
 
 | Cambio | Archivo | Descripción |
