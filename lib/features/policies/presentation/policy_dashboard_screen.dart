@@ -1532,6 +1532,7 @@ class _PolicyDetailScreenState extends ConsumerState<PolicyDetailScreen> {
   PolicyVisit? _activeVisit;
   int _pendingDeliveryCount = 0;
   List<PolicyDelivery> _deliveries = const <PolicyDelivery>[];
+  Map<String, int> _deliveryReportCounts = const <String, int>{};
 
   @override
   void initState() {
@@ -1585,6 +1586,17 @@ class _PolicyDetailScreenState extends ConsumerState<PolicyDetailScreen> {
           .toList();
       debugPrint('[PolicyDetail] PolicyPrinterAssignments para ESTE policyId: ${assignmentsPorPoliza.length}');
       // ───────────────────────────────────────────────────────────────────────
+
+      // Única fuente de verdad para la visita in_progress: se usa tanto para
+      // el corte de fecha de isDone como para el auto-completado y reportsExist.
+      final List<PolicyVisit> activeVisitResult = await (db.select(db.policyVisits)
+            ..where((PolicyVisits v) =>
+                v.policyId.equals(widget.policy.id) &
+                v.status.equals('in_progress'))
+            ..orderBy([(PolicyVisits v) => OrderingTerm.desc(v.startedAt)])
+            ..limit(1))
+          .get();
+      activeVisit = activeVisitResult.firstOrNull;
 
       for (final PolicyPrinter pp in policyPrinters) {
         final Printer? printer = await (db.select(db.printers)
@@ -1645,13 +1657,31 @@ class _PolicyDetailScreenState extends ConsumerState<PolicyDetailScreen> {
           }
         }
 
+        // isDone se evalúa para TODAS las impresoras del parque (no solo
+        // isMine): "Parque Total" necesita el estado real de cada equipo.
+        final DateTime? visitStart = activeVisit?.startedAt;
+        final List<Report> doneReports = await (db.select(db.reports)
+              ..where((Reports r) {
+                Expression<bool> cond = r.printerId.equals(pp.printerId) &
+                    (r.status.equals('pending_delivery') |
+                        r.status.equals('signed'));
+                if (visitStart != null) {
+                  cond = cond & r.serviceDate.isBiggerOrEqualValue(visitStart);
+                }
+                return cond;
+              }))
+            .get();
+        final bool isDone = doneReports.isNotEmpty;
+
         parque.add(_PolicyAsset(
+          printerId: printer.id,
           model: model != null ? '${model.brand} ${model.modelName}' : 'Modelo desconocido',
           serial: printer.serialNumber,
           plant: plant?.name ?? '—',
           area: area?.name ?? '—',
           isMine: isMine,
           assignedTo: assignedTo,
+          isDone: isDone,
         ));
       }
 
@@ -1666,14 +1696,6 @@ class _PolicyDetailScreenState extends ConsumerState<PolicyDetailScreen> {
       if (visits.isNotEmpty) {
         debugPrint('[PolicyDetail] primera visita: ${visits.first}');
       }
-      final List<PolicyVisit> activeVisits = await (db.select(db.policyVisits)
-            ..where((PolicyVisits v) =>
-                v.policyId.equals(widget.policy.id) &
-                v.status.equals('in_progress'))
-            ..orderBy([(PolicyVisits v) => OrderingTerm.desc(v.startedAt)])
-            ..limit(1))
-          .get();
-      activeVisit = activeVisits.firstOrNull;
 
       // pendingCount: reports still awaiting a delivery signature.
       // reportsExist: reports created SINCE this visit was activated (serviceDate
@@ -1735,21 +1757,47 @@ class _PolicyDetailScreenState extends ConsumerState<PolicyDetailScreen> {
             ..orderBy([(PolicyDeliveries d) => OrderingTerm.desc(d.deliveryDate)]))
           .get();
 
+      // Contar reportes por entrega (para badge PARCIAL)
+      final Map<String, int> deliveryReportCounts = <String, int>{};
+      for (final PolicyDelivery d in deliveries) {
+        final int count = (await (db.select(db.policyDeliveryReports)
+                ..where((PolicyDeliveryReports r) => r.deliveryId.equals(d.id)))
+            .get())
+            .length;
+        deliveryReportCounts[d.id] = count;
+      }
+
       if (mounted) {
-        setState(() {
-          _parqueTotal = parque;
-          _misTareas = parque.where((_PolicyAsset a) => a.isMine).toList();
-          _visits = visits;
-          _activeVisit = activeVisit;
-          _pendingDeliveryCount = pendingCount;
-          _deliveries = deliveries;
+        // Diferido a addPostFrameCallback: con ~31 impresoras el loop de
+        // queries puede resolver justo mientras el frame actual (p.ej. el de
+        // PolicyDashboardScreen) todavía está en build, y un setState()
+        // síncrono en ese punto dispara "setState() called during build".
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!mounted) return;
+          setState(() {
+            _parqueTotal = parque;
+            _misTareas = parque.where((_PolicyAsset a) => a.isMine).toList()
+              ..sort((_PolicyAsset a, _PolicyAsset b) {
+                if (a.isDone == b.isDone) return 0;
+                return a.isDone ? 1 : -1; // pendientes primero
+              });
+            _visits = visits;
+            _activeVisit = activeVisit;
+            _pendingDeliveryCount = pendingCount;
+            _deliveries = deliveries;
+            _deliveryReportCounts = deliveryReportCounts;
+          });
         });
       }
     } catch (e, stack) {
       debugPrint('[PolicyDetail] ERROR en _loadData: $e');
       debugPrint('[PolicyDetail] Stack: $stack');
     } finally {
-      if (mounted) setState(() => _loading = false);
+      if (mounted) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) setState(() => _loading = false);
+        });
+      }
     }
   }
 
@@ -2009,17 +2057,6 @@ class _PolicyDetailScreenState extends ConsumerState<PolicyDetailScreen> {
                       children: <Widget>[
                         _MyTasksTab(
                           tasks: _misTareas,
-                          onStartService: () {
-                            ScaffoldMessenger.of(context).hideCurrentSnackBar();
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(
-                                content: Text(
-                                  'Abriendo Checklist de ${_misTareas.length} equipos...',
-                                ),
-                                behavior: SnackBarBehavior.floating,
-                              ),
-                            );
-                          },
                         ),
                         _ParqueTotalTab(printers: _parqueTotal),
                         _VisitsTab(
@@ -2028,6 +2065,7 @@ class _PolicyDetailScreenState extends ConsumerState<PolicyDetailScreen> {
                           totalPrinters: _parqueTotal.length,
                           pendingDeliveryCount: _pendingDeliveryCount,
                           deliveries: _deliveries,
+                          deliveryReportCounts: _deliveryReportCounts,
                         ),
                       ],
                     ),
@@ -2084,41 +2122,44 @@ class _PolicyDetailScreenState extends ConsumerState<PolicyDetailScreen> {
 class _MyTasksTab extends StatelessWidget {
   const _MyTasksTab({
     required this.tasks,
-    required this.onStartService,
   });
 
   final List<_PolicyAsset> tasks;
-  final VoidCallback onStartService;
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      children: <Widget>[
-        Expanded(
-          child: ListView.separated(
-            itemCount: tasks.length,
-            separatorBuilder: (_, __) => const SizedBox(height: 8),
-            itemBuilder: (BuildContext context, int index) {
-              final _PolicyAsset item = tasks[index];
-              return _TaskCard(item: item, showMineBadge: true);
-            },
-          ),
-        ),
-        const SizedBox(height: 10),
-        SizedBox(
-          height: 52,
-          width: double.infinity,
-          child: FilledButton(
-            onPressed: onStartService,
-            child: Text(
-              '✓ INICIAR MI SERVICIO (${tasks.length} EQUIPOS)',
-              style: const TextStyle(
-                fontWeight: FontWeight.w800,
-                fontSize: 14,
-              ),
+    final List<_PolicyAsset> pending = tasks.where((t) => !t.isDone).toList();
+    final List<_PolicyAsset> done = tasks.where((t) => t.isDone).toList();
+    final bool hasBoth = pending.isNotEmpty && done.isNotEmpty;
+
+    Widget sectionLabel(String text) => Padding(
+          padding: const EdgeInsets.only(bottom: 6),
+          child: Text(
+            text,
+            style: const TextStyle(
+              color: Colors.white54,
+              fontWeight: FontWeight.w700,
+              fontSize: 12,
+              letterSpacing: 0.5,
             ),
           ),
-        ),
+        );
+
+    return ListView(
+      children: <Widget>[
+        if (hasBoth) sectionLabel('Por atender (${pending.length})'),
+        for (int i = 0; i < pending.length; i++) ...<Widget>[
+          _TaskCard(item: pending[i], showMineBadge: true),
+          if (i < pending.length - 1) const SizedBox(height: 8),
+        ],
+        if (hasBoth) ...<Widget>[
+          const SizedBox(height: 12),
+          sectionLabel('Atendidos (${done.length})'),
+        ],
+        for (int i = 0; i < done.length; i++) ...<Widget>[
+          _TaskCard(item: done[i], showMineBadge: true),
+          if (i < done.length - 1) const SizedBox(height: 8),
+        ],
       ],
     );
   }
@@ -2133,13 +2174,44 @@ class _ParqueTotalTab extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ListView.separated(
-      itemCount: printers.length,
-      separatorBuilder: (_, __) => const SizedBox(height: 8),
-      itemBuilder: (BuildContext context, int index) {
-        final _PolicyAsset item = printers[index];
-        return _TaskCard(item: item, showMineBadge: false);
-      },
+    final int atendidos = printers.where((_PolicyAsset p) => p.isDone).length;
+    final int pendientes = printers.length - atendidos;
+    final List<_PolicyAsset> sorted = List<_PolicyAsset>.of(printers)
+      ..sort((_PolicyAsset a, _PolicyAsset b) {
+        if (a.isDone == b.isDone) return 0;
+        return a.isDone ? 1 : -1; // pendientes primero
+      });
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: <Widget>[
+        Padding(
+          padding: const EdgeInsets.only(bottom: 8),
+          child: Text(
+            '$atendidos atendidos · $pendientes pendientes',
+            style: const TextStyle(
+              color: Colors.white54,
+              fontWeight: FontWeight.w700,
+              fontSize: 12,
+              letterSpacing: 0.3,
+            ),
+          ),
+        ),
+        Expanded(
+          child: ListView.separated(
+            itemCount: sorted.length,
+            separatorBuilder: (_, __) => const SizedBox(height: 8),
+            itemBuilder: (BuildContext context, int index) {
+              final _PolicyAsset item = sorted[index];
+              return _TaskCard(
+                item: item,
+                showMineBadge: false,
+                showStatusBadge: true,
+              );
+            },
+          ),
+        ),
+      ],
     );
   }
 }
@@ -2148,10 +2220,12 @@ class _TaskCard extends StatelessWidget {
   const _TaskCard({
     required this.item,
     required this.showMineBadge,
+    this.showStatusBadge = false,
   });
 
   final _PolicyAsset item;
   final bool showMineBadge;
+  final bool showStatusBadge;
 
   @override
   Widget build(BuildContext context) {
@@ -2179,22 +2253,49 @@ class _TaskCard extends StatelessWidget {
                   ),
                 ),
                 if (showMineBadge)
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFF1E304D),
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: const Color(0xFF355A8C)),
-                    ),
-                    child: const Text(
-                      'TU ASIGNACIÓN',
-                      style: TextStyle(
-                        color: AppPalette.accentBlue,
-                        fontSize: 10,
-                        fontWeight: FontWeight.w800,
-                      ),
-                    ),
-                  )
+                  item.isDone
+                      ? Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 8, vertical: 5),
+                          decoration: BoxDecoration(
+                            color: AppPalette.successDark,
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(color: AppPalette.success),
+                          ),
+                          child: const Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: <Widget>[
+                              Icon(Icons.check_circle_rounded,
+                                  size: 12, color: AppPalette.success),
+                              SizedBox(width: 4),
+                              Text(
+                                'COMPLETADO',
+                                style: TextStyle(
+                                  color: AppPalette.success,
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.w800,
+                                ),
+                              ),
+                            ],
+                          ),
+                        )
+                      : Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 8, vertical: 5),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF1E304D),
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(color: const Color(0xFF355A8C)),
+                          ),
+                          child: const Text(
+                            'TU ASIGNACIÓN',
+                            style: TextStyle(
+                              color: AppPalette.accentBlue,
+                              fontSize: 10,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                        )
                 else
                   _AssigneeBadge(item: item),
               ],
@@ -2207,6 +2308,33 @@ class _TaskCard extends StatelessWidget {
                 fontWeight: FontWeight.w700,
               ),
             ),
+            if (showStatusBadge && item.isDone) ...<Widget>[
+              const SizedBox(height: 7),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+                decoration: BoxDecoration(
+                  color: AppPalette.successDark,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: AppPalette.success),
+                ),
+                child: const Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: <Widget>[
+                    Icon(Icons.check_circle_rounded,
+                        size: 12, color: AppPalette.success),
+                    SizedBox(width: 4),
+                    Text(
+                      'ATENDIDO',
+                      style: TextStyle(
+                        color: AppPalette.success,
+                        fontSize: 10,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
             const SizedBox(height: 7),
             Row(
               children: <Widget>[
@@ -2474,20 +2602,24 @@ class _CalendarTab extends StatelessWidget {
 @immutable
 class _PolicyAsset {
   const _PolicyAsset({
+    required this.printerId,
     required this.model,
     required this.serial,
     required this.plant,
     required this.area,
     required this.isMine,
     required this.assignedTo,
+    this.isDone = false,
   });
 
+  final String printerId;
   final String model;
   final String serial;
   final String plant;
   final String area;
   final bool isMine;
   final String assignedTo;
+  final bool isDone;
 }
 
 enum _VisitStatus {
@@ -2534,6 +2666,7 @@ class _VisitsTab extends StatelessWidget {
     required this.totalPrinters,
     required this.pendingDeliveryCount,
     required this.deliveries,
+    required this.deliveryReportCounts,
   });
 
   final List<PolicyVisit> visits;
@@ -2541,6 +2674,7 @@ class _VisitsTab extends StatelessWidget {
   final int totalPrinters;
   final int pendingDeliveryCount;
   final List<PolicyDelivery> deliveries;
+  final Map<String, int> deliveryReportCounts;
 
   @override
   Widget build(BuildContext context) {
@@ -2660,7 +2794,11 @@ class _VisitsTab extends StatelessWidget {
           const SizedBox(height: 8),
           ...deliveries.map((PolicyDelivery d) => Padding(
                 padding: const EdgeInsets.only(bottom: 8),
-                child: _DeliveryHistoryRow(delivery: d),
+                child: _DeliveryHistoryRow(
+                  delivery: d,
+                  reportCount: deliveryReportCounts[d.id] ?? 0,
+                  totalPrinters: totalPrinters,
+                ),
               )),
         ],
       ],
@@ -2759,14 +2897,22 @@ class _VisitRow extends StatelessWidget {
 }
 
 class _DeliveryHistoryRow extends StatelessWidget {
-  const _DeliveryHistoryRow({required this.delivery});
+  const _DeliveryHistoryRow({
+    required this.delivery,
+    required this.reportCount,
+    required this.totalPrinters,
+  });
 
   final PolicyDelivery delivery;
+  final int reportCount;
+  final int totalPrinters;
 
   String _formatDate(DateTime date) => formatLocalCDMX(date);
 
   @override
   Widget build(BuildContext context) {
+    final bool isPartial = reportCount > 0 && reportCount < totalPrinters;
+
     return Container(
       padding: const EdgeInsets.fromLTRB(14, 10, 14, 10),
       decoration: BoxDecoration(
@@ -2776,20 +2922,49 @@ class _DeliveryHistoryRow extends StatelessWidget {
       ),
       child: Row(
         children: <Widget>[
-          const Icon(Icons.check_circle_rounded,
-              color: AppPalette.success, size: 18),
+          Icon(
+            isPartial
+                ? Icons.check_circle_outline_rounded
+                : Icons.check_circle_rounded,
+            color: isPartial ? AppPalette.warning : AppPalette.success,
+            size: 18,
+          ),
           const SizedBox(width: 10),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: <Widget>[
-                Text(
-                  _formatDate(delivery.deliveryDate),
-                  style: const TextStyle(
-                    color: AppPalette.backgroundLight,
-                    fontWeight: FontWeight.w700,
-                    fontSize: 14,
-                  ),
+                Row(
+                  children: <Widget>[
+                    Text(
+                      _formatDate(delivery.deliveryDate),
+                      style: const TextStyle(
+                        color: AppPalette.backgroundLight,
+                        fontWeight: FontWeight.w700,
+                        fontSize: 14,
+                      ),
+                    ),
+                    if (isPartial) ...<Widget>[
+                      const SizedBox(width: 6),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 6, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: AppPalette.warningDark,
+                          borderRadius: BorderRadius.circular(6),
+                          border: Border.all(color: AppPalette.warning),
+                        ),
+                        child: const Text(
+                          'PARCIAL',
+                          style: TextStyle(
+                            color: AppPalette.warning,
+                            fontSize: 10,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ],
                 ),
                 const SizedBox(height: 2),
                 Text(

@@ -298,6 +298,8 @@ class PolicyDeliveryItem(BaseModel):
     signature_image_path: str | None
     report_count: int
     pdf_path: str | None = None
+    total_printers: int = 0
+    visit_id: str | None = None
 
 
 class CatalogModelCreate(BaseModel):

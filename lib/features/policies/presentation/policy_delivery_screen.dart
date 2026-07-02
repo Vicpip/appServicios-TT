@@ -1,5 +1,6 @@
 import 'dart:io' as io;
 
+import 'package:drift/drift.dart' hide Column;
 import 'package:flutter/material.dart';
 import 'package:industrial_service_reports/core/utils/date_utils.dart' show formatLocalCDMX;
 import 'package:go_router/go_router.dart';
@@ -26,12 +27,14 @@ class _PolicyDeliveryScreenState extends ConsumerState<PolicyDeliveryScreen> {
   late final PageController _pageController;
   int _currentPage = 0;
   int? _totalAssigned;
+  int? _alreadyDeliveredCount;
 
   @override
   void initState() {
     super.initState();
     _pageController = PageController();
     _loadTotalAssigned();
+    _loadAlreadyDelivered();
   }
 
   Future<void> _loadTotalAssigned() async {
@@ -41,6 +44,47 @@ class _PolicyDeliveryScreenState extends ConsumerState<PolicyDeliveryScreen> {
               pp.policyId.equals(widget.policy.policyId)))
         .get();
     if (mounted) setState(() => _totalAssigned = printers.length);
+  }
+
+  /// Counts reports with status 'signed' for this policy's printers since the
+  /// active visit started. This is subtracted from _totalAssigned to compute
+  /// how many printers are actually still pending in this visit round, so the
+  /// button label correctly reads "PARCIAL" only when the current batch does not
+  /// cover ALL remaining printers (not the historical total).
+  Future<void> _loadAlreadyDelivered() async {
+    final AppDatabase db = localDatabase;
+
+    final List<PolicyPrinter> pps = await (db.select(db.policyPrinters)
+          ..where((PolicyPrinters pp) =>
+              pp.policyId.equals(widget.policy.policyId)))
+        .get();
+    final List<String> printerIds = pps.map((pp) => pp.printerId).toList();
+
+    if (printerIds.isEmpty) {
+      if (mounted) setState(() => _alreadyDeliveredCount = 0);
+      return;
+    }
+
+    final PolicyVisit? activeVisit = await (db.select(db.policyVisits)
+          ..where((PolicyVisits v) =>
+              v.policyId.equals(widget.policy.policyId) &
+              v.status.equals('in_progress'))
+          ..limit(1))
+        .getSingleOrNull();
+
+    final List<Report> signed = await (db.select(db.reports)
+          ..where((Reports r) {
+            Expression<bool> cond =
+                r.printerId.isIn(printerIds) & r.status.equals('signed');
+            if (activeVisit?.startedAt != null) {
+              cond = cond &
+                  r.serviceDate.isBiggerOrEqualValue(activeVisit!.startedAt!);
+            }
+            return cond;
+          }))
+        .get();
+
+    if (mounted) setState(() => _alreadyDeliveredCount = signed.length);
   }
 
   @override
@@ -145,19 +189,25 @@ class _PolicyDeliveryScreenState extends ConsumerState<PolicyDeliveryScreen> {
           child: Builder(builder: (BuildContext ctx) {
             final int completed = widget.policy.reports.length;
             final int? assigned = _totalAssigned;
-            final bool canSign =
-                assigned != null && assigned > 0 && completed >= assigned;
-            final int remaining =
-                assigned != null ? (assigned - completed).clamp(0, assigned) : 0;
+            // canSign: at least one report ready — partial delivery is allowed
+            final bool canSign = assigned != null && completed > 0;
+
+            // pendingTotalEnVisita: how many printers are STILL pending in this
+            // visit round = total printers − already signed in this visit.
+            // Used only for the label, never to block signing.
+            final int pendingTotalEnVisita = (assigned ?? 0) -
+                (_alreadyDeliveredCount ?? 0);
+            final bool isPartial =
+                pendingTotalEnVisita > 0 && completed < pendingTotalEnVisita;
 
             return Column(
               mainAxisSize: MainAxisSize.min,
               children: <Widget>[
-                if (!canSign && remaining > 0)
+                if (!canSign && assigned != null && assigned > 0)
                   Padding(
                     padding: const EdgeInsets.only(bottom: 8),
                     child: Text(
-                      'Faltan $remaining equipo(s) por atender',
+                      'Sin reportes listos para entregar',
                       style: const TextStyle(
                         color: AppPalette.warning,
                         fontSize: 13,
@@ -169,20 +219,35 @@ class _PolicyDeliveryScreenState extends ConsumerState<PolicyDeliveryScreen> {
                 SizedBox(
                   height: 52,
                   width: double.infinity,
-                  child: FilledButton.icon(
+                  child: FilledButton(
                     onPressed: canSign ? _goToSignature : null,
-                    icon: const Icon(Icons.draw_rounded, size: 20),
-                    label: const Text(
-                      'FIRMAR ENTREGA',
-                      style:
-                          TextStyle(fontSize: 17, fontWeight: FontWeight.w800),
-                    ),
                     style: FilledButton.styleFrom(
-                      backgroundColor:
-                          canSign ? AppPalette.success : Colors.grey.shade700,
+                      backgroundColor: canSign
+                          ? (isPartial
+                              ? AppPalette.warning
+                              : AppPalette.success)
+                          : Colors.grey.shade700,
                       foregroundColor: AppPalette.backgroundLight,
                       shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(12)),
+                    ),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: <Widget>[
+                        const Icon(Icons.draw_rounded, size: 20),
+                        const SizedBox(width: 8),
+                        Flexible(
+                          child: Text(
+                            isPartial
+                                ? 'FIRMAR ENTREGA PARCIAL ($completed de $pendingTotalEnVisita equipos)'
+                                : 'FIRMAR ENTREGA ($completed equipo${completed != 1 ? 's' : ''})',
+                            style: const TextStyle(
+                                fontSize: 16, fontWeight: FontWeight.w800),
+                            overflow: TextOverflow.ellipsis,
+                            textAlign: TextAlign.center,
+                          ),
+                        ),
+                      ],
                     ),
                   ),
                 ),

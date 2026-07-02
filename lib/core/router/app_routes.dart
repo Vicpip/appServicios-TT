@@ -21,4 +21,6 @@ abstract final class AppRoutes {
   static const String policyDeliverySignature  = 'policyDeliverySignature';
   static const String policyDeliverySuccess    = 'policyDeliverySuccess';
   static const String visitSummary             = 'visitSummary';
+  static const String groupSignature           = 'groupSignature';
+  static const String reports                  = 'reports';
 }

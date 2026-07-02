@@ -38,7 +38,11 @@
       "Bash(New-Item -ItemType Directory -Force \"C:\\\\Proyectos\\\\AppTT\\\\appServicios-TT\\\\server\\\\app\\\\static\")",
       "Bash(Out-Null)",
       "Bash(Copy-Item \"C:\\\\Proyectos\\\\AppTT\\\\appServicios-TT\\\\lib\\\\img\\\\logo_smp.png\" \"C:\\\\Proyectos\\\\AppTT\\\\appServicios-TT\\\\server\\\\app\\\\static\\\\logo_smp.png\")",
-      "Bash(Write-Output \"ok\")"
+      "Bash(Write-Output \"ok\")",
+      "mcp__codebase-memory-mcp__list_projects",
+      "mcp__codebase-memory-mcp__search_graph",
+      "mcp__codebase-memory-mcp__search_code",
+      "mcp__codebase-memory-mcp__get_code_snippet"
     ]
   }
 }

@@ -26,6 +26,8 @@ import 'package:industrial_service_reports/features/reports/presentation/report_
 import 'package:industrial_service_reports/features/signature/presentation/signature_screen.dart';
 import 'package:industrial_service_reports/features/reports/presentation/report_view_screen.dart';
 import 'package:industrial_service_reports/features/policies/presentation/visit_summary_screen.dart';
+import 'package:industrial_service_reports/features/reports/presentation/group_signature_screen.dart';
+import 'package:industrial_service_reports/features/reports/presentation/reports_screen.dart';
 import 'package:industrial_service_reports/features/sync/presentation/sync_dashboard_screen.dart';
 
 final routerProvider = Provider<GoRouter>((ref) {
@@ -221,6 +223,19 @@ final routerProvider = Provider<GoRouter>((ref) {
           final VisitSummaryArgs args = state.extra! as VisitSummaryArgs;
           return VisitSummaryScreen(args: args);
         },
+      ),
+      GoRoute(
+        path: '/group-signature',
+        name: AppRoutes.groupSignature,
+        builder: (_, state) {
+          final GroupSignatureArgs args = state.extra! as GroupSignatureArgs;
+          return GroupSignatureScreen(args: args);
+        },
+      ),
+      GoRoute(
+        path: '/reports',
+        name: AppRoutes.reports,
+        builder: (_, __) => const ReportsScreen(),
       ),
     ],
   );

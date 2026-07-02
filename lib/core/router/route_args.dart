@@ -80,3 +80,12 @@ class VisitSummaryArgs {
   final String deliveryId;
   final String policyFolio;
 }
+
+class GroupSignatureArgs {
+  const GroupSignatureArgs({
+    required this.signatureBlockId,
+    required this.clientName,
+  });
+  final String signatureBlockId;
+  final String clientName;
+}

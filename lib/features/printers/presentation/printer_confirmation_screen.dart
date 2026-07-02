@@ -30,6 +30,9 @@ class _PrinterConfirmationScreenState
     extends ConsumerState<PrinterConfirmationScreen> {
   PolicyVisit? _activeVisit;
   int _totalVisits = 0;
+  String? _openGroupBlockId;
+  int _openGroupCount = 0;
+  String _openGroupClientName = '';
 
   @override
   void initState() {
@@ -72,6 +75,50 @@ class _PrinterConfirmationScreenState
         _totalVisits = allVisits.length;
       });
     }
+
+    // Check for an open group for this printer's client
+    final Printer? printerRecord = await (db.select(db.printers)
+          ..where((Printers p) => p.id.equals(widget.printer.printerId)))
+        .getSingleOrNull();
+    if (printerRecord == null) return;
+
+    final Client? clientRecord = await (db.select(db.clients)
+          ..where((Clients c) => c.id.equals(printerRecord.clientId)))
+        .getSingleOrNull();
+
+    final List<Printer> clientPrinters = await (db.select(db.printers)
+          ..where((Printers p) => p.clientId.equals(printerRecord.clientId)))
+        .get();
+    final List<String> clientPrinterIds =
+        clientPrinters.map((Printer p) => p.id).toList();
+
+    if (clientPrinterIds.isEmpty) return;
+
+    final Report? openReport = await (db.select(db.reports)
+          ..where((Reports r) => Expression.and(<Expression<bool>>[
+                r.status.equals('pending_group_signature'),
+                r.reportBlockStatus.equals('open'),
+                r.printerId.isIn(clientPrinterIds),
+              ]))
+          ..limit(1))
+        .getSingleOrNull();
+
+    if (openReport == null || openReport.signatureBlockId == null) return;
+
+    final List<Report> groupReports = await (db.select(db.reports)
+          ..where((Reports r) => Expression.and(<Expression<bool>>[
+                r.signatureBlockId.equals(openReport.signatureBlockId!),
+                r.reportBlockStatus.equals('open'),
+              ])))
+        .get();
+
+    if (mounted) {
+      setState(() {
+        _openGroupBlockId = openReport.signatureBlockId;
+        _openGroupCount = groupReports.length;
+        _openGroupClientName = clientRecord?.name ?? widget.printer.clientName;
+      });
+    }
   }
 
   @override
@@ -90,6 +137,9 @@ class _PrinterConfirmationScreenState
                 printer: widget.printer,
                 activeVisit: _activeVisit,
                 totalVisits: _totalVisits,
+                openGroupBlockId: _openGroupBlockId,
+                openGroupCount: _openGroupCount,
+                openGroupClientName: _openGroupClientName,
                 onCreateReport: _handleCreateReport,
               ),
             ),
@@ -210,12 +260,18 @@ class _ConfirmationCard extends StatelessWidget {
     required this.onCreateReport,
     this.activeVisit,
     this.totalVisits = 0,
+    this.openGroupBlockId,
+    this.openGroupCount = 0,
+    this.openGroupClientName = '',
   });
 
   final PrinterSummary printer;
   final VoidCallback onCreateReport;
   final PolicyVisit? activeVisit;
   final int totalVisits;
+  final String? openGroupBlockId;
+  final int openGroupCount;
+  final String openGroupClientName;
 
   @override
   Widget build(BuildContext context) {
@@ -291,6 +347,53 @@ class _ConfirmationCard extends StatelessWidget {
                           fontWeight: FontWeight.w600,
                         ),
                       ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+            if (openGroupBlockId != null) ...[
+              const SizedBox(height: 12),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF1A2A1A),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: AppPalette.success, width: 1.2),
+                ),
+                child: Row(
+                  children: <Widget>[
+                    const Icon(Icons.group_work_rounded,
+                        color: AppPalette.success, size: 18),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        'Grupo $openGroupClientName en curso — $openGroupCount reporte${openGroupCount == 1 ? '' : 's'} sin firmar',
+                        style: const TextStyle(
+                          color: AppPalette.backgroundLight,
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    FilledButton(
+                      onPressed: () => context.pushNamed(
+                        AppRoutes.groupSignature,
+                        extra: GroupSignatureArgs(
+                          signatureBlockId: openGroupBlockId!,
+                          clientName: openGroupClientName,
+                        ),
+                      ),
+                      style: FilledButton.styleFrom(
+                        backgroundColor: AppPalette.success,
+                        foregroundColor: AppPalette.backgroundLight,
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 10, vertical: 8),
+                        textStyle: const TextStyle(
+                            fontWeight: FontWeight.w700, fontSize: 12),
+                      ),
+                      child: Text('Firmar ($openGroupCount)'),
                     ),
                   ],
                 ),

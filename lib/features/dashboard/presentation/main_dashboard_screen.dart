@@ -3,7 +3,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:industrial_service_reports/core/router/app_routes.dart';
 import 'package:industrial_service_reports/core/theme/app_palette.dart';
+import 'package:industrial_service_reports/core/router/route_args.dart';
 import 'package:industrial_service_reports/features/auth/providers/session_provider.dart';
+import 'package:industrial_service_reports/features/reports/providers/group_signature_provider.dart';
 import 'package:industrial_service_reports/features/sync/providers/startup_sync_provider.dart';
 import 'package:industrial_service_reports/features/sync/providers/sync_queue_provider.dart';
 
@@ -18,6 +20,8 @@ class MainDashboardScreen extends ConsumerWidget {
         MediaQuery.of(context).orientation == Orientation.landscape;
     final int pendingCount =
         ref.watch(pendingSyncCountProvider).valueOrNull ?? 0;
+    final List<ClientGroupWithReports> openGroups =
+        ref.watch(pendingGroupProvider).valueOrNull ?? <ClientGroupWithReports>[];
     final bool isOnline =
         ref.watch(startupSyncProvider).phase == StartupSyncPhase.done;
 
@@ -135,6 +139,30 @@ class MainDashboardScreen extends ConsumerWidget {
                     ),
                     const SizedBox(height: 14),
                   ],
+                  for (final ClientGroupWithReports group in openGroups) ...<Widget>[
+                    _OpenGroupBanner(
+                      group: group,
+                      onSignTap: () => context.pushNamed(
+                        AppRoutes.groupSignature,
+                        extra: GroupSignatureArgs(
+                          signatureBlockId: group.signatureBlockId,
+                          clientName: group.clientName,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+                  ],
+                  SizedBox(
+                    width: double.infinity,
+                    height: 80,
+                    child: DashboardButton(
+                      title: 'Escanear QR',
+                      icon: Icons.qr_code_scanner_rounded,
+                      isHighlighted: true,
+                      onTap: () => context.pushNamed(AppRoutes.qrScanner),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
                   GridView.count(
                     shrinkWrap: true,
                     physics: const NeverScrollableScrollPhysics(),
@@ -143,12 +171,6 @@ class MainDashboardScreen extends ConsumerWidget {
                     crossAxisSpacing: 12,
                     childAspectRatio: isLandscape ? 2.05 : 1.85,
                     children: <Widget>[
-                      DashboardButton(
-                        title: 'Escanear QR',
-                        icon: Icons.qr_code_scanner_rounded,
-                        isHighlighted: true,
-                        onTap: () => context.pushNamed(AppRoutes.qrScanner),
-                      ),
                       DashboardButton(
                         title: 'Por Sync',
                         icon: Icons.sync_problem_rounded,
@@ -174,6 +196,11 @@ class MainDashboardScreen extends ConsumerWidget {
                         title: 'Impresoras',
                         icon: Icons.print_rounded,
                         onTap: () => context.pushNamed(AppRoutes.printerInventory),
+                      ),
+                      DashboardButton(
+                        title: 'Reportes',
+                        icon: Icons.description_rounded,
+                        onTap: () => context.pushNamed(AppRoutes.reports),
                       ),
                     ],
                   ),
@@ -240,6 +267,54 @@ class _PendingSyncBanner extends StatelessWidget {
               textStyle: const TextStyle(fontWeight: FontWeight.w800, fontSize: 14),
             ),
             child: const Text('Ir a Sincronizar'),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _OpenGroupBanner extends StatelessWidget {
+  const _OpenGroupBanner({required this.group, required this.onSignTap});
+
+  final ClientGroupWithReports group;
+  final VoidCallback onSignTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final int n = group.reports.length;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+      decoration: BoxDecoration(
+        color: const Color(0xFF1A3A5C),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: AppPalette.primary, width: 1.2),
+      ),
+      child: Row(
+        children: <Widget>[
+          const Icon(Icons.group_work_rounded, color: AppPalette.primary),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              'Grupo ${group.clientName} en curso — $n reporte${n == 1 ? '' : 's'} sin firmar',
+              style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                    color: AppPalette.backgroundLight,
+                    fontSize: 15,
+                  ),
+            ),
+          ),
+          const SizedBox(width: 10),
+          FilledButton(
+            onPressed: onSignTap,
+            style: FilledButton.styleFrom(
+              backgroundColor: AppPalette.primary,
+              foregroundColor: AppPalette.backgroundLight,
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              textStyle: const TextStyle(
+                  fontWeight: FontWeight.w800, fontSize: 13),
+            ),
+            child: Text('Cerrar y firmar ($n)'),
           ),
         ],
       ),

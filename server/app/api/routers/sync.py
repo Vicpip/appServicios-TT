@@ -714,8 +714,29 @@ def create_policy_delivery(
     if body.visit_id:
         visit = db.get(PolicyVisit, body.visit_id)
         if visit:
-            visit.status = "completed"
-            visit.completed_at = datetime.now(timezone.utc)
+            # Only close the visit if no pending_delivery reports remain for
+            # this policy's printers (same date cutoff Flutter uses: >= started_at).
+            printer_ids = [
+                pp.printer_id
+                for pp in db.query(PolicyPrinter)
+                .filter(PolicyPrinter.policy_id == visit.policy_id)
+                .all()
+            ]
+            has_remaining = False
+            if printer_ids:
+                remaining_q = db.query(Report).filter(
+                    Report.printer_id.in_(printer_ids),
+                    Report.status == "pending_delivery",
+                )
+                if visit.started_at:
+                    remaining_q = remaining_q.filter(
+                        Report.service_date >= visit.started_at
+                    )
+                has_remaining = remaining_q.first() is not None
+            if not has_remaining:
+                visit.status = "completed"
+                visit.completed_at = datetime.now(timezone.utc)
+            # else: keep visit in_progress — more reports still pending delivery
 
     _record_sync_log(
         db,

@@ -1716,6 +1716,11 @@ def list_deliveries(policy_id: str, db: Session = Depends(get_db)) -> dict:
         .order_by(PolicyDelivery.delivery_date.desc())
         .all()
     )
+    total_printers = (
+        db.query(func.count(PolicyPrinter.id))
+        .filter(PolicyPrinter.policy_id == policy_id)
+        .scalar() or 0
+    )
     items = []
     for d in rows:
         report_count = (
@@ -1733,6 +1738,8 @@ def list_deliveries(policy_id: str, db: Session = Depends(get_db)) -> dict:
             signature_image_path=d.signature_image_path,
             report_count=report_count,
             pdf_path=d.pdf_path,
+            total_printers=total_printers,
+            visit_id=d.visit_id,
         ).model_dump())
     return {"total": len(items), "items": items}
 

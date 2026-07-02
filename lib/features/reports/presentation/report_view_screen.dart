@@ -11,6 +11,7 @@ import 'package:http/http.dart' as http;
 import 'package:industrial_service_reports/core/constants.dart';
 import 'package:industrial_service_reports/data/local/app_database.dart';
 import 'package:industrial_service_reports/features/auth/services/auth_service.dart';
+import 'package:industrial_service_reports/features/reports/presentation/widgets/fullscreen_image_gallery.dart';
 import 'package:industrial_service_reports/features/reports/services/pdf_service.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:printing/printing.dart' as printing_pkg;
@@ -569,9 +570,10 @@ class _ReportViewScreenState extends State<ReportViewScreen> {
 
   Widget _buildContent() {
     final Report report = _report!;
-    final List<String> photos = List<String>.from(
-      jsonDecode(report.photoPaths) as List<dynamic>,
-    );
+    List<String> photos = const <String>[];
+    try {
+      photos = List<String>.from(jsonDecode(report.photoPaths) as List<dynamic>);
+    } catch (_) {}
     final Map<String, dynamic> checkboxes = report.technicalCheckboxes;
 
     return Form(
@@ -936,11 +938,19 @@ class _ReportViewScreenState extends State<ReportViewScreen> {
             ),
             itemCount: existingPhotos.length,
             itemBuilder: (BuildContext context, int index) {
-              return ClipRRect(
-                borderRadius: BorderRadius.circular(10),
-                child: Image.file(
-                  io.File(existingPhotos[index]),
-                  fit: BoxFit.cover,
+              return GestureDetector(
+                onTap: () => Navigator.of(context).push(
+                  FullscreenImageGallery.route(
+                    photoPaths: existingPhotos,
+                    initialIndex: index,
+                  ),
+                ),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(10),
+                  child: Image.file(
+                    io.File(existingPhotos[index]),
+                    fit: BoxFit.cover,
+                  ),
                 ),
               );
             },

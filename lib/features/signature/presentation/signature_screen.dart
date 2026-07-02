@@ -2,17 +2,17 @@ import 'dart:convert';
 import 'dart:io' as io;
 import 'dart:typed_data';
 
-import 'package:drift/drift.dart' show Value;
+import 'package:drift/drift.dart' show Expression, Value;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import 'package:industrial_service_reports/core/router/app_routes.dart';
 import 'package:industrial_service_reports/core/theme/app_palette.dart';
 import 'package:industrial_service_reports/data/local/app_database.dart';
 import 'package:industrial_service_reports/data/local/local_database.dart';
 import 'package:industrial_service_reports/features/auth/providers/session_provider.dart';
 import 'package:industrial_service_reports/features/policies/providers/policy_visit_provider.dart';
 import 'package:industrial_service_reports/features/reports/providers/capture_provider.dart';
+import 'package:industrial_service_reports/features/reports/providers/group_signature_provider.dart';
 import 'package:industrial_service_reports/features/reports/services/pdf_service.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:signature/signature.dart';
@@ -389,33 +389,221 @@ class _SignatureScreenState extends ConsumerState<SignatureScreen> {
             border:
                 Border(top: BorderSide(color: AppPalette.surfaceDarkHighlight)),
           ),
-          child: SizedBox(
-            height: 52,
-            child: FilledButton(
-              onPressed: _isSaving ? null : _onFinishPressed,
-              style: FilledButton.styleFrom(
-                backgroundColor: AppPalette.success,
-                foregroundColor: AppPalette.backgroundLight,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: <Widget>[
+              SizedBox(
+                height: 52,
+                width: double.infinity,
+                child: FilledButton(
+                  onPressed: _isSaving ? null : _onFinishPressed,
+                  style: FilledButton.styleFrom(
+                    backgroundColor: AppPalette.success,
+                    foregroundColor: AppPalette.backgroundLight,
+                  ),
+                  child: _isSaving
+                      ? const SizedBox(
+                          height: 22,
+                          width: 22,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2.5,
+                            color: AppPalette.backgroundLight,
+                          ),
+                        )
+                      : const Text(
+                          'Finalizar y Guardar Reporte',
+                          style: TextStyle(
+                              fontSize: 17, fontWeight: FontWeight.w800),
+                        ),
+                ),
               ),
-              child: _isSaving
-                  ? const SizedBox(
-                      height: 22,
-                      width: 22,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2.5,
-                        color: AppPalette.backgroundLight,
-                      ),
-                    )
-                  : const Text(
-                      'Finalizar y Guardar Reporte',
-                      style:
-                          TextStyle(fontSize: 17, fontWeight: FontWeight.w800),
-                    ),
-            ),
+              const SizedBox(height: 8),
+              SizedBox(
+                height: 46,
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  onPressed: _isSaving ? null : _onGroupPressed,
+                  icon: const Icon(Icons.group_work_rounded, size: 18),
+                  label: const Text(
+                    'Agrupar con otros reportes de este cliente',
+                    style: TextStyle(fontWeight: FontWeight.w700),
+                  ),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: AppPalette.backgroundLight,
+                    side: const BorderSide(
+                        color: AppPalette.surfaceDarkHighlight, width: 1.5),
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10)),
+                  ),
+                ),
+              ),
+            ],
           ),
         ),
       ),
     );
+  }
+
+  /// Guarda el reporte como pending_group_signature y lo incorpora al grupo
+  /// abierto del cliente (o crea uno nuevo si no existe).
+  Future<void> _onGroupPressed() async {
+    setState(() => _isSaving = true);
+    try {
+      final CaptureState captureState = ref.read(captureProvider);
+      final SessionState sessionState = ref.read(sessionProvider);
+
+      final String? printerId = captureState.printerId;
+      if (printerId == null || printerId.isEmpty) {
+        throw Exception('No hay impresora asociada al reporte.');
+      }
+
+      // Obtener clientId desde la impresora
+      final Printer? printer =
+          await (localDatabase.select(localDatabase.printers)
+                ..where((Printers t) => t.id.equals(printerId)))
+              .getSingleOrNull();
+      if (printer == null) throw Exception('Impresora no encontrada.');
+      final String clientId = printer.clientId;
+
+      // Buscar grupo abierto existente para este cliente
+      final List<Printer> clientPrinters =
+          await (localDatabase.select(localDatabase.printers)
+                ..where((Printers t) => t.clientId.equals(clientId)))
+              .get();
+      final List<String> clientPrinterIds =
+          clientPrinters.map((Printer p) => p.id).toList();
+
+      String? existingBlockId;
+      if (clientPrinterIds.isNotEmpty) {
+        final Report? openReport =
+            await (localDatabase.select(localDatabase.reports)
+                  ..where((Reports r) => Expression.and(<Expression<bool>>[
+                        r.status.equals('pending_group_signature'),
+                        r.reportBlockStatus.equals('open'),
+                        r.printerId.isIn(clientPrinterIds),
+                      ]))
+                  ..limit(1))
+                .getSingleOrNull();
+        existingBlockId = openReport?.signatureBlockId;
+      }
+      final String blockId = existingBlockId ?? const Uuid().v4();
+
+      // Obtener techId
+      String techId = sessionState.userId;
+      if (techId.isEmpty) {
+        const String defaultTechId = '00000000-0000-0000-0000-000000000001';
+        final User? existingUser =
+            await (localDatabase.select(localDatabase.users)
+                  ..where((Users u) => u.id.equals(defaultTechId)))
+                .getSingleOrNull();
+        if (existingUser == null) {
+          await localDatabase.into(localDatabase.users).insert(
+                UsersCompanion.insert(
+                  id: defaultTechId,
+                  name: sessionState.userName.isEmpty
+                      ? 'Técnico'
+                      : sessionState.userName,
+                  email: sessionState.email.isEmpty
+                      ? 'tecnico@empresa.com'
+                      : sessionState.email,
+                  role: 'technician',
+                ),
+              );
+        }
+        techId = defaultTechId;
+      }
+
+      final CatalogLabelType? labelTypeRow =
+          await (localDatabase.select(localDatabase.catalogLabelTypes)
+                ..where(
+                    (t) => t.name.equals(captureState.selectedLabelType)))
+              .getSingleOrNull();
+
+      final int counterValue =
+          int.tryParse(captureState.counterValue.replaceAll(',', '')) ?? 0;
+      final int? darknessValue = captureState.darknessValue.isNotEmpty
+          ? int.tryParse(captureState.darknessValue)
+          : null;
+
+      final int reportCount =
+          await (localDatabase.select(localDatabase.reports))
+              .get()
+              .then((List<Report> l) => l.length);
+      final String reportCode =
+          'R-${(reportCount + 1).toString().padLeft(3, '0')}';
+      final String reportId = const Uuid().v4();
+
+      // Copiar fotos a almacenamiento persistente antes de guardar el reporte
+      final io.Directory photosDir = io.Directory(
+        '${(await getApplicationDocumentsDirectory()).path}/reports/photos',
+      );
+      await photosDir.create(recursive: true);
+
+      final List<String> persistentPhotoPaths = <String>[];
+      for (final String photoPath in captureState.photoPaths) {
+        String persistentPath = photoPath;
+        final io.File src = io.File(photoPath);
+        if (src.existsSync() && !photoPath.startsWith(photosDir.path)) {
+          final String ext = photoPath.contains('.')
+              ? photoPath.split('.').last.toLowerCase()
+              : 'jpg';
+          final String destPath =
+              '${photosDir.path}/${const Uuid().v4()}.$ext';
+          await src.copy(destPath);
+          persistentPath = destPath;
+        }
+        persistentPhotoPaths.add(persistentPath);
+      }
+
+      final String photoPathsJson = jsonEncode(persistentPhotoPaths);
+
+      // Insertar reporte en BD local
+      await localDatabase.into(localDatabase.reports).insert(
+            ReportsCompanion.insert(
+              id: reportId,
+              printerId: printerId,
+              techId: techId,
+              serviceType: captureState.selectedServiceType,
+              status: 'pending_group_signature',
+              serviceDate: DateTime.now(),
+              linearInchesCounter: counterValue,
+              technicalCheckboxes: captureState.checkValues,
+              darknessLevel: Value(darknessValue),
+              labelTypeId: Value(labelTypeRow?.id),
+              notes: Value(
+                  captureState.notes.isEmpty ? null : captureState.notes),
+              signatureName: const Value(null),
+              signatureRole: const Value(null),
+              photoPaths: Value(photoPathsJson),
+              photoCount: Value(persistentPhotoPaths.length),
+              signatureImagePath: const Value(null),
+              code: Value(reportCode),
+              assignmentOverride: Value(captureState.assignmentOverride),
+              signatureBlockId: Value(blockId),
+              reportBlockStatus: const Value('open'),
+            ),
+          );
+
+      ref.read(captureProvider.notifier).resetCapture();
+      ref.invalidate(pendingGroupProvider);
+
+      if (!mounted) return;
+      setState(() => _isSaving = false);
+      context.go(
+        '/policy-delivery-success',
+        extra: <String, dynamic>{'count': 1, 'isDelivery': false},
+      );
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _isSaving = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          backgroundColor: Theme.of(context).colorScheme.error,
+          content: Text('Error al agrupar: $e'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
   }
 
   Future<void> _onFinishPressed() async {

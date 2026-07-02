@@ -627,6 +627,41 @@ dart run build_runner build --delete-conflicting-outputs
 
 ---
 
+## ✅ Agrupación de reportes sin póliza (firma grupal) (30/06/2026)
+
+| Cambio | Archivo | Descripción |
+|--------|---------|-------------|
+| Provider de grupos abiertos | `lib/features/reports/providers/group_signature_provider.dart` | `pendingGroupProvider` (FutureProvider) retorna `List<ClientGroupWithReports>` — todos los grupos abiertos agrupados por `signatureBlockId`. Modelo `ClientGroupWithReports` incluye `clientId`, `clientName`, `signatureBlockId`, `reports: List<ReportDeliveryItem>`. |
+| Pantalla de firma grupal | `lib/features/reports/presentation/group_signature_screen.dart` | `GroupSignatureScreen` recibe `GroupSignatureArgs(signatureBlockId, clientName)`. Lista reportes del grupo, pide firma del cliente. Al confirmar: marca todos los reportes como `Signed/closed`, guarda firma en cada uno, encola JSON + fotos + firma + PDFs individuales en sync_queue. Navega a pantalla de éxito existente. |
+| Ruta `/group-signature` | `lib/core/router/app_router.dart`, `app_routes.dart`, `route_args.dart` | Nueva ruta registrada; `GroupSignatureArgs` agregado a `route_args.dart`; constante `groupSignature` en `AppRoutes`. |
+| Botón "Agrupar" en firma individual | `lib/features/signature/presentation/signature_screen.dart` | Segundo botón "Agrupar con otros reportes de este cliente" en la barra inferior, solo cuando se muestra el formulario de firma (sin visita activa de póliza). Método `_onGroupPressed()`: obtiene clientId via printer, busca grupo abierto existente para ese cliente (reutiliza `signatureBlockId`) o crea nuevo UUID, guarda reporte con `status='pending_group_signature'` y `reportBlockStatus='open'`. Copia fotos a almacenamiento persistente antes de guardar. NO encola para sync (se encolará al firmar el grupo). |
+| Banner en dashboard | `lib/features/dashboard/presentation/main_dashboard_screen.dart` | Un banner `_OpenGroupBanner` por cada grupo abierto (via `pendingGroupProvider`). Muestra "Grupo {cliente} en curso — N reportes sin firmar" + botón "Cerrar y firmar (N)" que navega a `/group-signature`. |
+| Banner en confirmación de impresora | `lib/features/printers/presentation/printer_confirmation_screen.dart` | En `_loadActiveVisit()`, al terminar la carga de la visita activa, también busca grupos abiertos del mismo cliente. Si existe, muestra banner verde con botón "Firmar (N)" en la tarjeta de confirmación. |
+
+**Flujo completo:**
+1. Técnico escanea impresora → llena reporte → llega a SignatureScreen
+2. Si NO hay visita activa de póliza: ve dos botones — "Finalizar y Guardar Reporte" (firma individual inmediata) y "Agrupar con otros reportes de este cliente"
+3. Al agrupar: reporte queda en `pending_group_signature`/`open`; pantalla de éxito "Servicio registrado"
+4. Dashboard muestra banner por cada grupo abierto; confirmación de impresora del mismo cliente también muestra banner
+5. Al presionar "Cerrar y firmar": `GroupSignatureScreen` lista los reportes, pide firma del cliente
+6. Al confirmar: todos los reportes pasan a `Signed/closed`, se encolan para sync, se generan PDFs
+
+**Backend:** NO requiere cambios. `ReportCreate` ya tiene `signature_block_id` y `report_block_status`. Cada reporte sube individualmente con `status='Signed'` después de firmarse. El `signatureBlockId` también se incluye en el payload por trazabilidad, pero el backend no lo procesa de forma especial.
+
+---
+
+## ✅ Firma parcial de entregas en visitas de póliza (30/06/2026)
+
+| Cambio | Archivo | Descripción |
+|--------|---------|-------------|
+| Desbloquear firma parcial | `policy_delivery_screen.dart` | `canSign` ahora requiere solo `completed > 0` (antes: `completed >= assigned`). Botón muestra "FIRMAR ENTREGA PARCIAL (N de M equipos)" en ámbar cuando hay equipos pendientes, o "FIRMAR ENTREGA (M equipos)" en verde cuando cubre todo. |
+| No cerrar visita si quedan reportes | `server/app/api/routers/sync.py`, `create_policy_delivery()` | Antes de marcar `visit.status = "completed"`, verifica si existen reportes `pending_delivery` para impresoras de esa póliza con `service_date >= visit.started_at`. Si quedan → visita permanece `in_progress`. |
+| Badge PARCIAL en Flutter | `policy_dashboard_screen.dart` | Carga `PolicyDeliveryReports` por entrega en `_loadData()` (mapa `deliveryReportCounts`). `_DeliveryHistoryRow` recibe `reportCount` y `totalPrinters`; muestra badge "PARCIAL" en ámbar cuando `reportCount < totalPrinters`. |
+| Schema backend delivery list | `server/app/schemas/admin.py`, `server/app/api/routers/admin.py` | `PolicyDeliveryItem` agrega `total_printers: int = 0` y `visit_id: str \| None`. `list_deliveries()` calcula `total_printers` con COUNT de `PolicyPrinter` y añade `d.visit_id` a cada item. |
+| Badge Parcial + conteo en Admin Web | `admin-web/src/pages/PolicyDetailPage.tsx` | Interface `PolicyDeliveryItem` agrega `total_printers` y `visit_id`. Badge ámbar "Parcial" aparece junto al badge de equipos cuando `report_count < total_printers`. Tarjetas de visita muestran "N entregas registradas" cuando la visita tiene deliveries asociados via `visit_id`. |
+
+---
+
 ## ✅ Bug fixes: FIRMAR ENTREGA + refresh lista pólizas (02/06/2026)
 
 | Fix | Archivo | Cambio |

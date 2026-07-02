@@ -12,6 +12,7 @@ import 'package:industrial_service_reports/core/theme/app_palette.dart';
 import 'package:industrial_service_reports/data/local/app_database.dart';
 import 'package:industrial_service_reports/data/local/local_database.dart';
 import 'package:industrial_service_reports/features/reports/providers/capture_provider.dart';
+import 'package:industrial_service_reports/features/reports/presentation/widgets/fullscreen_image_gallery.dart';
 
 // ---------------------------------------------------------------------------
 // Modelos de datos locales
@@ -907,16 +908,24 @@ class _EvidenceCard extends StatelessWidget {
                     childAspectRatio: 1.0,
                   ),
                   itemBuilder: (BuildContext context, int index) {
-                    return ClipRRect(
-                      borderRadius: BorderRadius.circular(8),
-                      child: Image.file(
-                        io.File(photoPaths[index]),
-                        fit: BoxFit.cover,
-                        errorBuilder: (_, __, ___) => Container(
-                          color: AppPalette.surfaceDarkHighlight,
-                          child: const Icon(
-                            Icons.broken_image_rounded,
-                            color: Colors.white38,
+                    return GestureDetector(
+                      onTap: () => Navigator.of(context).push(
+                        FullscreenImageGallery.route(
+                          photoPaths: photoPaths,
+                          initialIndex: index,
+                        ),
+                      ),
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(8),
+                        child: Image.file(
+                          io.File(photoPaths[index]),
+                          fit: BoxFit.cover,
+                          errorBuilder: (_, __, ___) => Container(
+                            color: AppPalette.surfaceDarkHighlight,
+                            child: const Icon(
+                              Icons.broken_image_rounded,
+                              color: Colors.white38,
+                            ),
                           ),
                         ),
                       ),

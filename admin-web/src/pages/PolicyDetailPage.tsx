@@ -35,6 +35,8 @@ interface PolicyDeliveryItem {
   signature_image_path: string | null
   report_count: number
   pdf_path: string | null
+  total_printers: number
+  visit_id: string | null
 }
 
 interface PolicyDeliveryDetailReport {
@@ -479,6 +481,11 @@ export default function PolicyDetailPage() {
                             )}
                           </div>
                           <div className="flex items-center gap-2.5 shrink-0">
+                            {d.total_printers > 0 && d.report_count < d.total_printers && (
+                              <span className="inline-flex items-center px-2 py-0.5 rounded-full border text-xs font-semibold font-sans text-amber-700 border-amber-200 bg-amber-50">
+                                Parcial
+                              </span>
+                            )}
                             <span className="inline-flex items-center justify-center rounded-full bg-[#1A4FD6]/10 text-[#1A4FD6] text-xs font-bold font-sans px-2.5 py-0.5">
                               {d.report_count} equipo{d.report_count !== 1 ? 's' : ''}
                             </span>
@@ -741,6 +748,10 @@ export default function PolicyDetailPage() {
                       ? 'text-green-700 border-green-200 bg-green-50'
                       : 'text-gray-500 border-gray-200 bg-gray-50'
 
+                    const visitDeliveryCount = deliveriesData?.filter(
+                      (d) => d.visit_id === v.id
+                    ).length ?? 0
+
                     return (
                       <div
                         key={v.id}
@@ -758,6 +769,11 @@ export default function PolicyDetailPage() {
                           {isActive && (
                             <p className="text-xs text-blue-600 font-sans font-medium">
                               {v.attended_count}/{v.total_printers} equipos atendidos
+                            </p>
+                          )}
+                          {visitDeliveryCount > 0 && (
+                            <p className="text-xs text-gray-400 font-sans mt-0.5">
+                              {visitDeliveryCount} entrega{visitDeliveryCount !== 1 ? 's' : ''} registrada{visitDeliveryCount !== 1 ? 's' : ''}
                             </p>
                           )}
                         </div>
