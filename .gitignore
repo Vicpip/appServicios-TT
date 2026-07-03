@@ -30,3 +30,8 @@ server/*.db
 
 server/.env
 admin-web/.env
+
+cbm-ui/
+cbm-ui-extract/
+cbm-ui.zip
+install.ps1
