@@ -95,6 +95,7 @@ def _upsert_report(db: Session, data: ReportCreate) -> Report:
         existing.notes = data.notes
         existing.signature_name = data.signature_name
         existing.signature_role = data.signature_role
+        existing.signature_image_path = data.signature_image_path
         existing.internal_notes = data.internal_notes
         existing.supersedes_report_id = data.supersedes_report_id
         existing.photo_paths = photo_paths_json
@@ -119,6 +120,7 @@ def _upsert_report(db: Session, data: ReportCreate) -> Report:
             notes=data.notes,
             signature_name=data.signature_name,
             signature_role=data.signature_role,
+            signature_image_path=data.signature_image_path,
             internal_notes=data.internal_notes,
             supersedes_report_id=data.supersedes_report_id,
             photo_paths=photo_paths_json,
@@ -345,6 +347,21 @@ async def sync_file(
                             "sync_file: regenerated delivery PDF for %s → %s",
                             entity_id, pdf_relative,
                         )
+
+                    linked = db.query(PolicyDeliveryReport).filter(
+                        PolicyDeliveryReport.delivery_id == entity_id
+                    ).all()
+                    report_ids = [lr.report_id for lr in linked]
+                    if report_ids:
+                        db.query(Report).filter(Report.id.in_(report_ids)).update(
+                            {
+                                "signature_image_path": storage_path,
+                                "signature_name": delivery_record.signature_name,
+                                "signature_role": delivery_record.signature_role,
+                            },
+                            synchronize_session=False,
+                        )
+                        db.commit()
             except Exception:
                 log.exception(
                     "sync_file: PDF regeneration failed for signature entity_id=%s (non-fatal)",
@@ -701,6 +718,7 @@ def create_policy_delivery(
     db.add(delivery)
     db.flush()
 
+    reports: list[Report] = []
     for report_id in body.report_ids:
         db.add(PolicyDeliveryReport(
             id=str(uuid.uuid4()),
@@ -710,6 +728,23 @@ def create_policy_delivery(
         report = db.get(Report, report_id)
         if report:
             report.status = "signed"
+            report.signature_name = body.signature_name
+            report.signature_role = body.signature_role
+            reports.append(report)
+
+    ef = (
+        db.query(EntityFile)
+        .join(EntityFile.file)
+        .filter(
+            EntityFile.entity_id == delivery.id,
+            EntityFile.entity_type == "signature",
+        )
+        .order_by(EntityFile.id.desc())
+        .first()
+    )
+    if ef and ef.file:
+        for report in reports:
+            report.signature_image_path = ef.file.storage_path
 
     if body.visit_id:
         visit = db.get(PolicyVisit, body.visit_id)

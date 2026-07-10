@@ -825,7 +825,8 @@ class SyncService {
     try {
       final http.MultipartRequest request =
           http.MultipartRequest('POST', Uri.parse(url))
-            ..fields['entity_type'] = 'report'
+            ..fields['entity_type'] =
+                item.entityType == 'signature' ? 'signature' : 'report'
             ..fields['entity_id'] = item.entityId
             ..fields['file_category'] = fileCategory
             ..files.add(await http.MultipartFile.fromPath('file', localPath));

@@ -36,6 +36,7 @@ class ReportCreate(BaseModel):
     notes: str | None = None
     signature_name: str | None = None
     signature_role: str | None = None
+    signature_image_path: str | None = None
     internal_notes: str | None = None
     supersedes_report_id: str | None = None
     photo_paths: list[str] = []
@@ -61,3 +62,4 @@ class ReportUpdate(BaseModel):
     notes: Optional[str] = None
     linear_inches_counter: Optional[int] = None
     darkness_level: Optional[int] = None
+    signature_image_path: Optional[str] = None
