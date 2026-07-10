@@ -103,6 +103,25 @@ def _safe(text: str | None) -> str:
     return text.encode("latin-1", errors="replace").decode("latin-1")
 
 
+def _resolve_upload_path(raw_path: str) -> str:
+    """Build an absolute path from a stored (possibly relative) path value.
+
+    Stored paths are sometimes already prefixed with the same folder name
+    as settings.upload_dir (e.g. "uploads/signatures/x.png" when
+    upload_dir is "./uploads"), which produced a doubled
+    "uploads/uploads/..." path when naively joined. Strip that leading
+    segment before joining so both relative forms resolve correctly.
+    """
+    p = Path(raw_path)
+    if p.is_absolute():
+        return str(p)
+    upload_dir = Path(get_settings().upload_dir)
+    parts = p.parts
+    if parts and parts[0] == upload_dir.name:
+        p = Path(*parts[1:])
+    return str(upload_dir / p)
+
+
 def _corrected_image_bytes(path: str) -> BytesIO | None:
     """Return BytesIO with EXIF-orientation-corrected image, or None on failure."""
     try:
@@ -518,9 +537,9 @@ def _draw_equipment_table(pdf: _DeliveryPDF, report_data: list[_ReportData]) -> 
     _section_title(pdf, f"EQUIPOS ATENDIDOS ({len(report_data)})")
 
     # Column widths — total = 180 mm
-    # #(10) | Modelo(32) | Serie(38) | Planta(30) | Área(20) | Tipo(28) | Estado(22)
-    cols = [10.0, 32.0, 38.0, 30.0, 20.0, 28.0, 22.0]
-    headers = ["#", "Modelo", "Serie", "Planta", "\xc1rea", "Tipo servicio", "Estado"]
+    # #(10) | Modelo(42) | Serie(48) | Planta(30) | Área(28) | Estado(22)
+    cols = [10.0, 42.0, 48.0, 30.0, 28.0, 22.0]
+    headers = ["#", "Modelo", "Serie", "Planta", "\xc1rea", "Estado"]
     row_h = 6.5
 
     def _draw_header_row() -> None:
@@ -545,7 +564,6 @@ def _draw_equipment_table(pdf: _DeliveryPDF, report_data: list[_ReportData]) -> 
         serial = _safe(rd.printer.serial_number if rd.printer else rd.report.printer_id[:8])
         plant_name = _safe(rd.plant.name if rd.plant else None)
         area_name = _safe(rd.area.name if rd.area else None)
-        service_type = _safe(rd.report.service_type)
         damage = _has_damage(rd.checkboxes)
 
         # Manual page-break check before drawing this row — re-draw the
@@ -559,7 +577,7 @@ def _draw_equipment_table(pdf: _DeliveryPDF, report_data: list[_ReportData]) -> 
 
         row_y = pdf.get_y()
         x = MARGIN
-        values = [str(idx + 1), model_str, serial, plant_name, area_name, service_type]
+        values = [str(idx + 1), model_str, serial, plant_name, area_name]
         for i, (val, cw) in enumerate(zip(values, cols[:-1])):
             pdf.set_xy(x, row_y)
             # Serial (index 2) is bold; all others are normal
@@ -606,11 +624,11 @@ def _draw_attention_section(pdf: _DeliveryPDF, report_data: list[_ReportData]) -
     pdf.set_text_color(30, 30, 30)
     pdf.set_y(y + BAR_H + 2)
 
-    # Column widths scaled to fit the 180 mm content width (same proportions
-    # as # | Modelo | Serie | Planta | Área | Daños detectados | Observaciones)
-    cols = [6.0, 31.0, 30.0, 22.0, 22.0, 39.0]
-    cols.append(W - sum(cols))
-    headers = ["#", "Modelo", "Serie", "Planta", "\xc1rea", "Da\xf1os detectados", "Observaciones"]
+    # 5-column layout — Planta/Área are dropped here (less critical than the
+    # damage detail) so Observaciones gets enough width to wrap instead of
+    # truncating. Total = 180 mm.
+    cols = [8.0, 42.0, 38.0, 42.0, 50.0]
+    headers = ["#", "Modelo", "Serie", "Da\xf1os detectados", "Observaciones"]
     HEADER_H = 6.5
 
     def _draw_header_row() -> None:
@@ -633,8 +651,6 @@ def _draw_attention_section(pdf: _DeliveryPDF, report_data: list[_ReportData]) -
     for idx, rd in enumerate(attention_items):
         model_str = _safe(f"{rd.model.brand} {rd.model.model_name}" if rd.model else None)
         serial = _safe(rd.printer.serial_number if rd.printer else None)
-        plant_name = _safe(rd.plant.name if rd.plant else None)
-        area_name = _safe(rd.area.name if rd.area else None)
         damages = ", ".join(
             _safe(item) for item in _CHECKLIST_ITEMS
             if item in _DAMAGE_KEYS and rd.checkboxes.get(item) is True
@@ -657,7 +673,7 @@ def _draw_attention_section(pdf: _DeliveryPDF, report_data: list[_ReportData]) -
 
         row_y = pdf.get_y()
         x = MARGIN
-        values = [str(idx + 1), model_str, serial, plant_name, area_name, damages]
+        values = [str(idx + 1), model_str, serial, damages]
         for i, (val, cw) in enumerate(zip(values, cols[:-1])):
             pdf.set_xy(x, row_y)
             style = "B" if i == 2 else ""
@@ -800,11 +816,9 @@ def generate_delivery_pdf(delivery_id: str, db: Session) -> str | None:
         # when signatures sync via POST /api/files).
         tech_sig_path: str | None = None
         if tech and tech.signature_path:
-            p = Path(tech.signature_path)
-            if not p.is_absolute():
-                p = Path(settings.upload_dir) / p
-            if p.exists():
-                tech_sig_path = str(p)
+            resolved = _resolve_upload_path(tech.signature_path)
+            if Path(resolved).exists():
+                tech_sig_path = resolved
 
         if tech_sig_path is None and tech:
             ef_tech = (
@@ -817,8 +831,10 @@ def generate_delivery_pdf(delivery_id: str, db: Session) -> str | None:
                 .order_by(EntityFile.id.desc())
                 .first()
             )
-            if ef_tech and ef_tech.file and Path(ef_tech.file.storage_path).exists():
-                tech_sig_path = ef_tech.file.storage_path
+            if ef_tech and ef_tech.file:
+                resolved = _resolve_upload_path(ef_tech.file.storage_path)
+                if Path(resolved).exists():
+                    tech_sig_path = resolved
 
         # Resolve client (delivery) signature path via EntityFile
         client_sig_path: str | None = None
@@ -831,8 +847,10 @@ def generate_delivery_pdf(delivery_id: str, db: Session) -> str | None:
             .join(EntityFile.file)
             .first()
         )
-        if ef_sig and ef_sig.file and Path(ef_sig.file.storage_path).exists():
-            client_sig_path = ef_sig.file.storage_path
+        if ef_sig and ef_sig.file:
+            resolved = _resolve_upload_path(ef_sig.file.storage_path)
+            if Path(resolved).exists():
+                client_sig_path = resolved
 
         # Load all delivery reports
         dr_rows = (
