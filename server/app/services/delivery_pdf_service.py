@@ -523,17 +523,20 @@ def _draw_equipment_table(pdf: _DeliveryPDF, report_data: list[_ReportData]) -> 
     headers = ["#", "Modelo", "Serie", "Planta", "\xc1rea", "Tipo servicio", "Estado"]
     row_h = 6.5
 
-    pdf.set_fill_color(245, 247, 250)
-    pdf.set_draw_color(209, 213, 219)
-    x = MARGIN
-    header_y = pdf.get_y()
-    for hdr, cw in zip(headers, cols):
-        pdf.set_xy(x, header_y)
-        pdf.set_font(pdf._font_family, "B", 10)
-        pdf.set_text_color(26, 58, 92)
-        pdf.cell(cw, row_h, hdr, border=1, fill=True, align="C")
-        x += cw
-    pdf.ln(row_h)
+    def _draw_header_row() -> None:
+        pdf.set_fill_color(245, 247, 250)
+        pdf.set_draw_color(209, 213, 219)
+        x = MARGIN
+        header_y = pdf.get_y()
+        for hdr, cw in zip(headers, cols):
+            pdf.set_xy(x, header_y)
+            pdf.set_font(pdf._font_family, "B", 10)
+            pdf.set_text_color(26, 58, 92)
+            pdf.cell(cw, row_h, hdr, border=1, fill=True, align="C")
+            x += cw
+        pdf.ln(row_h)
+
+    _draw_header_row()
 
     for idx, rd in enumerate(report_data):
         model_str = _safe(
@@ -544,6 +547,12 @@ def _draw_equipment_table(pdf: _DeliveryPDF, report_data: list[_ReportData]) -> 
         area_name = _safe(rd.area.name if rd.area else None)
         service_type = _safe(rd.report.service_type)
         damage = _has_damage(rd.checkboxes)
+
+        # Manual page-break check before drawing this row — re-draw the
+        # header on the new page so every page of the table has one
+        if pdf.get_y() + row_h + 2 > pdf.h - 20:
+            pdf.add_page()
+            _draw_header_row()
 
         fill_color = (255, 255, 255) if idx % 2 == 0 else (248, 250, 252)
         pdf.set_fill_color(*fill_color)
@@ -568,6 +577,107 @@ def _draw_equipment_table(pdf: _DeliveryPDF, report_data: list[_ReportData]) -> 
         pdf.cell(cols[-1], row_h, "", border=1, fill=True)
         _draw_status_badge(pdf, badge_x + 1, row_y + 0.75, cols[-1] - 2, row_h - 1.5, damage)
         pdf.ln(row_h)
+
+    pdf.ln(3)
+    pdf.set_draw_color(200, 200, 200)
+    pdf.line(MARGIN, pdf.get_y(), pdf.w - MARGIN, pdf.get_y())
+    pdf.ln(3)
+
+
+def _draw_attention_section(pdf: _DeliveryPDF, report_data: list[_ReportData]) -> None:
+    """Summary table of equipment flagged with active damage checkboxes."""
+    attention_items = [rd for rd in report_data if _has_damage(rd.checkboxes)]
+    if not attention_items:
+        return
+
+    pdf.ln(6)
+
+    # Section header bar — amber fill (matches the "En Atención" badge tone),
+    # white bold text on a dark background.
+    W = pdf.w - 2 * MARGIN
+    BAR_H = 8.0
+    y = pdf.get_y()
+    pdf.set_fill_color(146, 64, 14)   # #92400e
+    pdf.rect(MARGIN, y, W, BAR_H, style="F")
+    pdf.set_xy(MARGIN + 3, y)
+    pdf.set_font(pdf._font_family, "B", 10)
+    pdf.set_text_color(255, 255, 255)
+    pdf.cell(W - 6, BAR_H, "EQUIPOS EN ATENCI\xd3N", align="L")
+    pdf.set_text_color(30, 30, 30)
+    pdf.set_y(y + BAR_H + 2)
+
+    # Column widths scaled to fit the 180 mm content width (same proportions
+    # as # | Modelo | Serie | Planta | Área | Daños detectados | Observaciones)
+    cols = [6.0, 31.0, 30.0, 22.0, 22.0, 39.0]
+    cols.append(W - sum(cols))
+    headers = ["#", "Modelo", "Serie", "Planta", "\xc1rea", "Da\xf1os detectados", "Observaciones"]
+    HEADER_H = 6.5
+
+    def _draw_header_row() -> None:
+        pdf.set_fill_color(245, 247, 250)
+        pdf.set_draw_color(209, 213, 219)
+        x = MARGIN
+        header_y = pdf.get_y()
+        for hdr, cw in zip(headers, cols):
+            pdf.set_xy(x, header_y)
+            pdf.set_font(pdf._font_family, "B", 10)
+            pdf.set_text_color(26, 58, 92)
+            pdf.cell(cw, HEADER_H, hdr, border=1, fill=True, align="C")
+            x += cw
+        pdf.ln(HEADER_H)
+
+    _draw_header_row()
+
+    row_h_min = 6.5
+    line_h = 5.0
+    for idx, rd in enumerate(attention_items):
+        model_str = _safe(f"{rd.model.brand} {rd.model.model_name}" if rd.model else None)
+        serial = _safe(rd.printer.serial_number if rd.printer else None)
+        plant_name = _safe(rd.plant.name if rd.plant else None)
+        area_name = _safe(rd.area.name if rd.area else None)
+        damages = ", ".join(
+            _safe(item) for item in _CHECKLIST_ITEMS
+            if item in _DAMAGE_KEYS and rd.checkboxes.get(item) is True
+        ) or "-"
+        observations = _safe(rd.report.notes) if rd.report.notes else "-"
+
+        # Measure wrapped Observaciones lines (with the font actually used
+        # to render it) so the row height is known before drawing anything
+        pdf.set_font(pdf._font_family, "", 9)
+        obs_lines = _split_text(pdf, observations, cols[-1] - 2)
+        row_h = max(row_h_min, line_h * len(obs_lines) + 1.5)
+
+        # Manual page-break check before drawing this row
+        if pdf.get_y() + row_h + 2 > pdf.h - 20:
+            pdf.add_page()
+            _draw_header_row()
+
+        fill_color = (255, 255, 255) if idx % 2 == 0 else (254, 249, 235)
+        pdf.set_fill_color(*fill_color)
+
+        row_y = pdf.get_y()
+        x = MARGIN
+        values = [str(idx + 1), model_str, serial, plant_name, area_name, damages]
+        for i, (val, cw) in enumerate(zip(values, cols[:-1])):
+            pdf.set_xy(x, row_y)
+            style = "B" if i == 2 else ""
+            pdf.set_font(pdf._font_family, style, 9)
+            pdf.set_text_color(30, 30, 30)
+            display_val = _truncate(pdf, val, cw - 2)
+            pdf.cell(cw, row_h, display_val, border=1, fill=True)
+            x += cw
+
+        # Observaciones — bordered/filled cell spans the full row height;
+        # text is rendered on top with multi_cell so long notes wrap
+        obs_w = cols[-1]
+        pdf.set_xy(x, row_y)
+        pdf.cell(obs_w, row_h, "", border=1, fill=True)
+        pdf.set_xy(x + 1, row_y + 0.75)
+        pdf.set_font(pdf._font_family, "", 9)
+        pdf.set_text_color(30, 30, 30)
+        pdf.multi_cell(obs_w - 2, line_h, observations)
+
+        pdf.set_xy(MARGIN, row_y + row_h)
 
     pdf.ln(3)
     pdf.set_draw_color(200, 200, 200)
@@ -816,6 +926,13 @@ def generate_delivery_pdf(delivery_id: str, db: Session) -> str | None:
         )
 
         _draw_equipment_table(pdf, report_data)
+
+        _draw_attention_section(pdf, report_data)
+
+        # Ensure the signatures section fits on the current page; otherwise
+        # start a fresh page so it isn't cut off (~60mm for title + 2 boxes)
+        if pdf.get_y() + 60 > pdf.h - 20:
+            pdf.add_page()
 
         _draw_signatures(
             pdf,
