@@ -6,10 +6,13 @@ import 'package:drift/drift.dart' show Expression, Value;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:http/http.dart' as http;
+import 'package:industrial_service_reports/core/constants.dart';
 import 'package:industrial_service_reports/core/theme/app_palette.dart';
 import 'package:industrial_service_reports/data/local/app_database.dart';
 import 'package:industrial_service_reports/data/local/local_database.dart';
 import 'package:industrial_service_reports/features/auth/providers/session_provider.dart';
+import 'package:industrial_service_reports/features/auth/services/auth_service.dart';
 import 'package:industrial_service_reports/features/policies/providers/policy_visit_provider.dart';
 import 'package:industrial_service_reports/features/reports/providers/capture_provider.dart';
 import 'package:industrial_service_reports/features/reports/providers/group_signature_provider.dart';
@@ -901,6 +904,10 @@ class _SignatureScreenState extends ConsumerState<SignatureScreen> {
       if (!mounted) return;
       setState(() => _isSaving = false);
 
+      // Enviar el reporte por email a los contactos del cliente (no bloqueante)
+      await _sendReportEmailAfterSignature(reportId, printerId);
+      if (!mounted) return;
+
       // CAMBIO 1: si es pending_delivery, navegar a pantalla de éxito de póliza
       if (reportStatus == 'pending_delivery') {
         context.go('/policy-delivery-success', extra: <String, dynamic>{'count': 1, 'isDelivery': false});
@@ -973,6 +980,150 @@ class _SignatureScreenState extends ConsumerState<SignatureScreen> {
       return 'Campo obligatorio';
     }
     return null;
+  }
+
+  /// Envía el reporte firmado por email a los contactos del cliente.
+  /// No bloqueante: cualquier error solo muestra un SnackBar naranja.
+  Future<void> _sendReportEmailAfterSignature(
+    String reportId,
+    String printerId,
+  ) async {
+    try {
+      final Printer? printer = await (localDatabase.select(localDatabase.printers)
+            ..where((Printers t) => t.id.equals(printerId)))
+          .getSingleOrNull();
+      if (printer == null) return;
+
+      final String? authToken = await AuthService().getToken();
+      final http.Response contactsResponse = await http.get(
+        Uri.parse(
+            '$kServerBaseUrlDevice/api/admin/clients/${printer.clientId}/contact-emails'),
+        headers: <String, String>{
+          if (authToken != null) 'Authorization': 'Bearer $authToken',
+        },
+      );
+      if (contactsResponse.statusCode != 200) {
+        throw Exception('HTTP ${contactsResponse.statusCode}');
+      }
+
+      final List<dynamic> contacts =
+          jsonDecode(contactsResponse.body) as List<dynamic>;
+
+      if (contacts.isNotEmpty) {
+        await _postSendEmail(reportId, null, authToken);
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            backgroundColor: AppPalette.success,
+            content: Text(
+              'Reporte enviado por email a ${contacts.length} contacto${contacts.length == 1 ? '' : 's'}',
+            ),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+        return;
+      }
+
+      if (!mounted) return;
+      await _promptExtraEmailAndSend(reportId, authToken);
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          backgroundColor: Colors.orange,
+          content: Text('No se pudo enviar el email'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
+  }
+
+  Future<void> _postSendEmail(
+    String reportId,
+    String? extraEmail,
+    String? authToken,
+  ) async {
+    final http.Response response = await http.post(
+      Uri.parse('$kServerBaseUrlDevice/api/reports/$reportId/send-email'),
+      headers: <String, String>{
+        'Content-Type': 'application/json',
+        if (authToken != null) 'Authorization': 'Bearer $authToken',
+      },
+      body: jsonEncode(<String, dynamic>{'extra_email': extraEmail}),
+    );
+    if (response.statusCode != 200 && response.statusCode != 201) {
+      throw Exception('HTTP ${response.statusCode}: ${response.body}');
+    }
+  }
+
+  Future<void> _promptExtraEmailAndSend(
+    String reportId,
+    String? authToken,
+  ) async {
+    final TextEditingController emailController = TextEditingController();
+    final GlobalKey<FormState> dialogFormKey = GlobalKey<FormState>();
+
+    final bool? shouldSend = await showDialog<bool>(
+      context: context,
+      builder: (BuildContext dialogContext) {
+        return AlertDialog(
+          title: const Text('Sin correos registrados'),
+          content: Form(
+            key: dialogFormKey,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                const Text(
+                  'El cliente no tiene correos de contacto. Ingresa un correo para enviar el reporte:',
+                ),
+                const SizedBox(height: 12),
+                TextFormField(
+                  controller: emailController,
+                  keyboardType: TextInputType.emailAddress,
+                  decoration:
+                      const InputDecoration(labelText: 'Correo electrónico'),
+                  validator: (String? value) {
+                    final String v = (value ?? '').trim();
+                    if (v.isEmpty) return 'Campo obligatorio';
+                    final RegExp emailRegex =
+                        RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$');
+                    if (!emailRegex.hasMatch(v)) return 'Correo inválido';
+                    return null;
+                  },
+                ),
+              ],
+            ),
+          ),
+          actions: <Widget>[
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(false),
+              child: const Text('Omitir'),
+            ),
+            FilledButton(
+              onPressed: () {
+                if (dialogFormKey.currentState?.validate() ?? false) {
+                  Navigator.of(dialogContext).pop(true);
+                }
+              },
+              child: const Text('Enviar'),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (shouldSend != true) return;
+
+    await _postSendEmail(reportId, emailController.text.trim(), authToken);
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        backgroundColor: AppPalette.success,
+        content: Text('Reporte enviado por email'),
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
   }
 }
 
