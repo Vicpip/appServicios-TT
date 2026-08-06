@@ -11,6 +11,7 @@ import ImpresoraDetalle from '@/pages/ImpresoraDetalle'
 import Reportes from '@/pages/Reportes'
 import Polizas from '@/pages/Polizas'
 import PolizaDetalle from '@/pages/PolizaDetalle'
+import Configuracion from '@/pages/Configuracion'
 
 const router = createBrowserRouter([
   { path: '/login', element: <Login /> },
@@ -32,6 +33,7 @@ const router = createBrowserRouter([
       { path: 'reportes', element: <Reportes /> },
       { path: 'polizas', element: <Polizas /> },
       { path: 'polizas/:id', element: <PolizaDetalle /> },
+      { path: 'configuracion', element: <Configuracion /> },
     ],
   },
   { path: '*', element: <Navigate to="/login" replace /> },

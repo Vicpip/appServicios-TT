@@ -12,6 +12,14 @@ export const API = {
     clientDetail: (id: string) => `/api/admin/clients/${id}/detail`,
     uploadLogo: (id: string) => `/api/admin/clients/${id}/logo`,
     deleteLogo: (id: string) => `/api/admin/clients/${id}/logo`,
+    contactEmails: {
+      list: (clientId: string) => `/api/admin/clients/${clientId}/contact-emails`,
+      create: (clientId: string) => `/api/admin/clients/${clientId}/contact-emails`,
+      update: (clientId: string, emailId: string) =>
+        `/api/admin/clients/${clientId}/contact-emails/${emailId}`,
+      delete: (clientId: string, emailId: string) =>
+        `/api/admin/clients/${clientId}/contact-emails/${emailId}`,
+    },
   },
   technicians: {
     list: '/api/admin/technicians',

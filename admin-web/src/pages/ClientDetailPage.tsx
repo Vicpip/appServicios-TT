@@ -1,10 +1,10 @@
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import {
   ArrowLeft, MapPin, Printer,
   CheckCircle2, AlertTriangle, Award, Mail, X, Users,
-  Upload, Trash2, ImageOff,
+  Upload, Trash2, ImageOff, Plus, ToggleLeft, ToggleRight,
 } from 'lucide-react'
 import apiClient from '@/api/client'
 import { API } from '@/api/endpoints'
@@ -84,6 +84,14 @@ interface PortalUserRow {
   created_at: string
 }
 
+interface ContactEmailRow {
+  id: string
+  client_id: string
+  email: string
+  label: string | null
+  is_active: boolean
+}
+
 // ---------------------------------------------------------------------------
 // KPI card — ultra-compact for grid-cols-6
 // ---------------------------------------------------------------------------
@@ -135,6 +143,17 @@ export default function ClientDetailPage() {
   // Portal users management state
   const [togglingIds, setTogglingIds] = useState<Set<string>>(new Set())
   const [toggleError, setToggleError] = useState<string | null>(null)
+
+  // Contact emails state
+  const [contactEmails, setContactEmails] = useState<ContactEmailRow[]>([])
+  const [showAddEmailForm, setShowAddEmailForm] = useState(false)
+  const [newEmailValue, setNewEmailValue] = useState('')
+  const [newEmailLabel, setNewEmailLabel] = useState('')
+  const [addEmailError, setAddEmailError] = useState<string | null>(null)
+  const [addEmailLoading, setAddEmailLoading] = useState(false)
+  const [emailActionIds, setEmailActionIds] = useState<Set<string>>(new Set())
+  const [deleteEmailConfirmId, setDeleteEmailConfirmId] = useState<string | null>(null)
+  const [emailActionError, setEmailActionError] = useState<string | null>(null)
 
   // Logo state
   const [logoLoading, setLogoLoading] = useState(false)
@@ -272,6 +291,87 @@ export default function ClientDetailPage() {
     },
     enabled: !!id,
   })
+
+  const {
+    data: contactEmailsData,
+    isLoading: contactEmailsLoading,
+  } = useQuery<ContactEmailRow[]>({
+    queryKey: ['contact-emails', id],
+    queryFn: async () => {
+      const res = await apiClient.get(API.clients.contactEmails.list(id!))
+      return res.data
+    },
+    enabled: !!id,
+  })
+
+  useEffect(() => {
+    if (contactEmailsData) setContactEmails(contactEmailsData)
+  }, [contactEmailsData])
+
+  async function handleAddEmail(e: React.FormEvent) {
+    e.preventDefault()
+    setAddEmailError(null)
+    const trimmed = newEmailValue.trim()
+    if (!EMAIL_RE.test(trimmed)) {
+      setAddEmailError('Ingresa un correo electrónico válido.')
+      return
+    }
+    setAddEmailLoading(true)
+    try {
+      const res = await apiClient.post(API.clients.contactEmails.create(id!), {
+        email: trimmed,
+        label: newEmailLabel.trim() || null,
+      })
+      setContactEmails((prev) => [...prev, res.data])
+      setNewEmailValue('')
+      setNewEmailLabel('')
+      setShowAddEmailForm(false)
+    } catch (err: unknown) {
+      const msg = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail
+      setAddEmailError(msg ?? 'Error al agregar el correo.')
+    } finally {
+      setAddEmailLoading(false)
+    }
+  }
+
+  async function handleToggleEmail(emailId: string, currentActive: boolean) {
+    setEmailActionIds((prev) => new Set(prev).add(emailId))
+    setEmailActionError(null)
+    try {
+      const res = await apiClient.patch(API.clients.contactEmails.update(id!, emailId), {
+        is_active: !currentActive,
+      })
+      setContactEmails((prev) => prev.map((ce) => (ce.id === emailId ? res.data : ce)))
+    } catch (err: unknown) {
+      const msg = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail
+      setEmailActionError(msg ?? 'Error al actualizar el correo.')
+    } finally {
+      setEmailActionIds((prev) => {
+        const next = new Set(prev)
+        next.delete(emailId)
+        return next
+      })
+    }
+  }
+
+  async function handleDeleteEmail(emailId: string) {
+    setEmailActionIds((prev) => new Set(prev).add(emailId))
+    setEmailActionError(null)
+    try {
+      await apiClient.delete(API.clients.contactEmails.delete(id!, emailId))
+      setContactEmails((prev) => prev.filter((ce) => ce.id !== emailId))
+    } catch (err: unknown) {
+      const msg = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail
+      setEmailActionError(msg ?? 'Error al eliminar el correo.')
+    } finally {
+      setEmailActionIds((prev) => {
+        const next = new Set(prev)
+        next.delete(emailId)
+        return next
+      })
+      setDeleteEmailConfirmId(null)
+    }
+  }
 
   if (isLoading) {
     return (
@@ -546,6 +646,176 @@ export default function ClientDetailPage() {
                         >
                           Reenviar
                         </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      {/* ------------------------------------------------------------------ */}
+      {/* Correos de contacto                                                 */}
+      {/* ------------------------------------------------------------------ */}
+      <div className="bg-white rounded-xl border border-border shadow-sm">
+        <div className="px-4 py-3 border-b border-border flex items-center gap-2">
+          <Mail size={15} className="text-primary" />
+          <h2 className="font-semibold text-[#1A1A2E] font-heading text-sm">Correos de contacto</h2>
+          {contactEmails.length > 0 && (
+            <span className="px-2 py-0.5 bg-gray-100 text-gray-600 text-xs rounded-full font-sans">
+              {contactEmails.length}
+            </span>
+          )}
+          <button
+            onClick={() => { setShowAddEmailForm((v) => !v); setAddEmailError(null) }}
+            className="ml-auto flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold font-sans text-primary bg-primary/10 border border-primary/20 hover:bg-primary/20 rounded-lg transition-colors"
+          >
+            <Plus size={13} />
+            Agregar correo
+          </button>
+        </div>
+
+        {showAddEmailForm && (
+          <form
+            onSubmit={handleAddEmail}
+            className="px-4 py-3 border-b border-border bg-gray-50/60 flex items-start gap-2 flex-wrap"
+          >
+            <div className="flex-1 min-w-[200px]">
+              <input
+                type="email"
+                value={newEmailValue}
+                onChange={(e) => { setNewEmailValue(e.target.value); setAddEmailError(null) }}
+                placeholder="correo@empresa.com"
+                className="w-full text-sm font-sans border border-border rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-colors"
+                autoFocus
+              />
+            </div>
+            <div className="w-44">
+              <input
+                type="text"
+                value={newEmailLabel}
+                onChange={(e) => setNewEmailLabel(e.target.value)}
+                placeholder="Etiqueta (opcional)"
+                className="w-full text-sm font-sans border border-border rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-colors"
+              />
+            </div>
+            <button
+              type="submit"
+              disabled={addEmailLoading}
+              className="px-4 py-2 text-sm font-semibold font-sans text-white bg-primary hover:bg-primary/90 disabled:opacity-60 disabled:cursor-not-allowed rounded-lg transition-colors"
+            >
+              {addEmailLoading ? 'Guardando...' : 'Guardar'}
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setShowAddEmailForm(false)
+                setNewEmailValue('')
+                setNewEmailLabel('')
+                setAddEmailError(null)
+              }}
+              className="px-4 py-2 text-sm font-semibold font-sans text-gray-600 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors"
+            >
+              Cancelar
+            </button>
+            {addEmailError && (
+              <p className="w-full text-xs text-red-600 font-sans">{addEmailError}</p>
+            )}
+          </form>
+        )}
+
+        {emailActionError && (
+          <div className="mx-4 mt-3 text-xs text-red-600 font-sans bg-red-50 border border-red-200 rounded-lg px-3 py-2">
+            {emailActionError}
+          </div>
+        )}
+
+        {contactEmailsLoading && (
+          <div className="p-4 space-y-2">
+            {[1, 2].map((i) => (
+              <div key={i} className="h-9 bg-gray-100 rounded-lg animate-pulse" />
+            ))}
+          </div>
+        )}
+
+        {!contactEmailsLoading && contactEmails.length === 0 && (
+          <div className="p-8 text-center text-gray-400 font-sans text-sm">
+            Sin correos de contacto registrados
+          </div>
+        )}
+
+        {!contactEmailsLoading && contactEmails.length > 0 && (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm font-sans">
+              <thead>
+                <tr className="border-b border-border bg-gray-50">
+                  {['Correo', 'Etiqueta', 'Estado', 'Acciones'].map((h) => (
+                    <th
+                      key={h}
+                      className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide whitespace-nowrap"
+                    >
+                      {h}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-50">
+                {contactEmails.map((ce) => (
+                  <tr key={ce.id} className="hover:bg-gray-50/60 transition-colors">
+                    <td className="px-4 py-2.5 text-gray-800 font-mono text-xs">{ce.email}</td>
+                    <td className="px-4 py-2.5 text-gray-600">{ce.label ?? '—'}</td>
+                    <td className="px-4 py-2.5">
+                      {ce.is_active ? (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-semibold rounded-full bg-green-50 text-green-700 border border-green-200 font-sans">
+                          Activo
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-semibold rounded-full bg-gray-100 text-gray-500 border border-gray-200 font-sans">
+                          Inactivo
+                        </span>
+                      )}
+                    </td>
+                    <td className="px-4 py-2.5">
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={() => handleToggleEmail(ce.id, ce.is_active)}
+                          disabled={emailActionIds.has(ce.id)}
+                          title={ce.is_active ? 'Desactivar' : 'Activar'}
+                          className="p-1.5 rounded-lg text-gray-400 hover:text-primary hover:bg-primary/10 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+                        >
+                          {ce.is_active ? (
+                            <ToggleRight size={18} className="text-primary" />
+                          ) : (
+                            <ToggleLeft size={18} />
+                          )}
+                        </button>
+                        {deleteEmailConfirmId === ce.id ? (
+                          <div className="flex items-center gap-1">
+                            <button
+                              onClick={() => handleDeleteEmail(ce.id)}
+                              disabled={emailActionIds.has(ce.id)}
+                              className="px-2 py-1 text-xs font-semibold font-sans text-white bg-red-600 hover:bg-red-700 rounded-lg transition-colors disabled:opacity-60"
+                            >
+                              {emailActionIds.has(ce.id) ? '...' : 'Confirmar'}
+                            </button>
+                            <button
+                              onClick={() => setDeleteEmailConfirmId(null)}
+                              className="px-2 py-1 text-xs font-semibold font-sans text-gray-600 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors"
+                            >
+                              Cancelar
+                            </button>
+                          </div>
+                        ) : (
+                          <button
+                            onClick={() => setDeleteEmailConfirmId(ce.id)}
+                            title="Eliminar"
+                            className="p-1.5 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50 transition-colors"
+                          >
+                            <Trash2 size={15} />
+                          </button>
+                        )}
                       </div>
                     </td>
                   </tr>

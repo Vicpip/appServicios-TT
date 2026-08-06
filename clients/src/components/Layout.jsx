@@ -5,6 +5,7 @@ import {
   Printer,
   FileText,
   ShieldCheck,
+  Settings,
   ChevronLeft,
   ChevronRight,
   LogOut,
@@ -18,6 +19,7 @@ const NAV_ITEMS = [
   { path: '/impresoras', icon: Printer, label: 'Mis Impresoras' },
   { path: '/reportes', icon: FileText, label: 'Reportes' },
   { path: '/polizas', icon: ShieldCheck, label: 'Mis Pólizas' },
+  { path: '/configuracion', icon: Settings, label: 'Configuración' },
 ]
 
 const SECTION_LABELS = {
@@ -25,6 +27,7 @@ const SECTION_LABELS = {
   '/impresoras': 'Mis Impresoras',
   '/reportes': 'Reportes',
   '/polizas': 'Mis Pólizas',
+  '/configuracion': 'Configuración',
 }
 
 function getSectionTitle(pathname) {
