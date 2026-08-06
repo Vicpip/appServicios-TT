@@ -1114,3 +1114,15 @@ for (final String path in photoPaths) {
 
 **Verificado:** `from app.main import app` importa sin errores (100 rutas registradas) en `venv313`; `alembic history` muestra cadena `009 -> 010 (head)` correcta. Pendiente probar en Swagger con datos reales y correr `alembic upgrade head` en la BD local antes de usar los endpoints.
 
+---
+
+## ✅ Sprint C — Botón "Enviar al cliente" en entregas de póliza (06/08/2026)
+
+| Cambio | Archivo | Descripción |
+|--------|---------|-------------|
+| Nuevo endpoint | `server/app/api/routers/admin.py` | `POST /api/admin/policy-deliveries/{delivery_id}/send-email`. Busca `PolicyDelivery`, exige `pdf_path` (422 si falta), junta `client_contact_emails` activos del cliente de la póliza (422 "El cliente no tiene correos de contacto registrados" si no hay ninguno). `tech_name` sale del primer `PolicyDeliveryReport` → `Report.tech_id` → `User.name`, fallback `"Técnico SMPC"`. `printer_serial/printer_model`: si los reportes de la entrega cubren 1 sola impresora → serie+modelo real; si cubren varias → `printer_model="Varios equipos (n)"`. `folio` usa `f"ENT-{delivery.id[:8]}"` (el modelo `PolicyDelivery` no tiene columna `folio`). Resuelve `pdf_path` con helper local `_resolve_delivery_pdf_path` (mismo patrón anti-doble-prefijo que `delivery_pdf_service._resolve_upload_path`) y llama `send_service_report_email()` (Sprint A, no-fatal internamente). Retorna `{sent_to: [...]}`. |
+| Endpoint en cliente | `admin-web/src/api/endpoints.ts` | `policies.sendEmail(deliveryId)` → `/api/admin/policy-deliveries/{id}/send-email` |
+| Botón en UI | `admin-web/src/pages/PolicyDetailPage.tsx` | Botón "Enviar al cliente" (ícono `Mail`) junto a "Regenerar" en cada fila del historial de entregas, visible solo si `d.pdf_path` existe. `sendEmailMutation` independiente de `regeneratePdfMutation` (ninguno deshabilita al otro). Estados: "Enviando..." + spinner, éxito → banner verde "Email enviado a N contactos", error 422 → banner ámbar "El cliente no tiene correos registrados", otros errores → banner rojo "Error al enviar". Reutiliza el banner `deliveryNotif` existente (tipo ampliado a `'success' \| 'error' \| 'warning'`). |
+
+**Verificado:** `from app.main import app` importa sin errores (101 rutas registradas) en `venv313`; `npx tsc --noEmit` en `admin-web` sin errores. Pendiente probar en Swagger/UI con datos reales (requiere correos de contacto activos y una entrega con PDF generado).
+

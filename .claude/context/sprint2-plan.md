@@ -402,3 +402,10 @@ Tarjetas con:
 Fuera del orden de fases original: tabla `client_contact_emails` + CRUD + `send_service_report_email()` +
 `POST /api/reports/{id}/send-email`. Detalle completo en `project-status.md` → sección "Sprint A".
 Pendiente: `alembic upgrade head` en BD local (está en 006, faltan 007-010) y prueba manual en Swagger.
+
+## ✅ Sprint C — Botón "Enviar al cliente" en entregas de póliza (06/08/2026)
+
+`POST /api/admin/policy-deliveries/{id}/send-email` + botón "Enviar al cliente" en `PolicyDetailPage.tsx`
+(reutiliza `send_service_report_email()` de Sprint A). Detalle completo en `project-status.md` → sección "Sprint C".
+Pendiente: probar en Swagger/UI con datos reales (requiere `alembic upgrade head` aplicado, correos de contacto
+activos y una entrega con PDF ya generado).
