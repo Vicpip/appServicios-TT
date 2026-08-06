@@ -55,6 +55,7 @@ export const API = {
     deliveries: (id: string) => `/api/admin/policies/${id}/deliveries`,
     deliveryDetail: (deliveryId: string) => `/api/admin/policy-deliveries/${deliveryId}/detail`,
     regeneratePdf: (deliveryId: string) => `/api/admin/policy-deliveries/${deliveryId}/regenerate-pdf`,
+    sendEmail: (deliveryId: string) => `/api/admin/policy-deliveries/${deliveryId}/send-email`,
     visits: (id: string) => `/api/admin/policies/${id}/visits`,
     generateVisits: (id: string) => `/api/admin/policies/${id}/visits/generate`,
     updateVisit: (policyId: string, visitId: string) =>

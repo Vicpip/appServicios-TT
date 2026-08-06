@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   ArrowLeft, ShieldCheck, Pencil, Users, CalendarCheck, Info, ClipboardList,
-  Play, X, ChevronDown, ChevronRight, FileText, FileDown, AlertTriangle, RefreshCw,
+  Play, X, ChevronDown, ChevronRight, FileText, FileDown, AlertTriangle, RefreshCw, Mail,
 } from 'lucide-react'
 import apiClient from '@/api/client'
 import { API } from '@/api/endpoints'
@@ -169,7 +169,8 @@ export default function PolicyDetailPage() {
   const [expandedDeliveryId, setExpandedDeliveryId] = useState<string | null>(null)
   const [hasAutoExpanded, setHasAutoExpanded] = useState(false)
   const [regeneratingId, setRegeneratingId] = useState<string | null>(null)
-  const [deliveryNotif, setDeliveryNotif] = useState<{ type: 'success' | 'error'; msg: string } | null>(null)
+  const [sendingEmailId, setSendingEmailId] = useState<string | null>(null)
+  const [deliveryNotif, setDeliveryNotif] = useState<{ type: 'success' | 'error' | 'warning'; msg: string } | null>(null)
 
   // Policy detail
   const { data: policy, isLoading: loadingPolicy } = useQuery<PolicyDetail>({
@@ -270,6 +271,33 @@ export default function PolicyDetailPage() {
       setRegeneratingId(null)
       const detail = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail
       setDeliveryNotif({ type: 'error', msg: detail ?? 'Error al regenerar PDF' })
+    },
+  })
+
+  const sendEmailMutation = useMutation({
+    mutationFn: async (deliveryId: string) => {
+      const res = await apiClient.post<{ sent_to: string[] }>(
+        API.policies.sendEmail(deliveryId),
+      )
+      return res.data
+    },
+    onMutate: (deliveryId) => {
+      setSendingEmailId(deliveryId)
+      setDeliveryNotif(null)
+    },
+    onSuccess: (data) => {
+      setSendingEmailId(null)
+      setDeliveryNotif({ type: 'success', msg: `Email enviado a ${data.sent_to.length} contacto${data.sent_to.length !== 1 ? 's' : ''}` })
+      setTimeout(() => setDeliveryNotif(null), 4000)
+    },
+    onError: (err: unknown) => {
+      setSendingEmailId(null)
+      const status = (err as { response?: { status?: number } })?.response?.status
+      if (status === 422) {
+        setDeliveryNotif({ type: 'warning', msg: 'El cliente no tiene correos registrados' })
+      } else {
+        setDeliveryNotif({ type: 'error', msg: 'Error al enviar' })
+      }
     },
   })
 
@@ -430,6 +458,8 @@ export default function PolicyDetailPage() {
               <div className={`px-5 py-3 text-sm font-sans flex items-center gap-2 border-b border-border ${
                 deliveryNotif.type === 'success'
                   ? 'bg-green-50 text-green-700'
+                  : deliveryNotif.type === 'warning'
+                  ? 'bg-amber-50 text-amber-700'
                   : 'bg-red-50 text-red-600'
               }`}>
                 <span className="flex-1">{deliveryNotif.msg}</span>
@@ -517,6 +547,19 @@ export default function PolicyDetailPage() {
                             : <RefreshCw size={14} />}
                           <span className="hidden sm:inline">Regenerar</span>
                         </button>
+                        {d.pdf_path && (
+                          <button
+                            onClick={() => sendEmailMutation.mutate(d.id)}
+                            disabled={sendingEmailId === d.id}
+                            className="flex items-center gap-1.5 px-4 py-4 text-xs font-semibold text-[#1A4FD6] hover:bg-[#1A4FD6]/5 transition-colors shrink-0 font-sans border-l border-gray-100 disabled:opacity-50"
+                            title="Enviar PDF al cliente"
+                          >
+                            {sendingEmailId === d.id
+                              ? <span className="w-3.5 h-3.5 border-2 border-current border-t-transparent rounded-full animate-spin inline-block" />
+                              : <Mail size={14} />}
+                            <span className="hidden sm:inline">{sendingEmailId === d.id ? 'Enviando...' : 'Enviar al cliente'}</span>
+                          </button>
+                        )}
                       </div>
 
                       {/* Expanded body */}

@@ -30,6 +30,7 @@ from app.models.printer import Printer
 from app.models.report import Report
 from app.models.sync import SyncLog
 from app.models.user import User
+from app.services.email_service import send_service_report_email
 
 settings = get_settings()
 from app.schemas.admin import (
@@ -1825,6 +1826,93 @@ def regenerate_delivery_pdf_endpoint(
     db.commit()
 
     return {"success": True, "pdf_url": pdf_path}
+
+
+def _resolve_delivery_pdf_path(raw_path: str) -> Path:
+    """Build an absolute path from a stored (possibly relative) storage path."""
+    p = Path(raw_path)
+    if p.is_absolute():
+        return p
+    upload_dir = Path(settings.upload_dir)
+    parts = p.parts
+    if parts and parts[0] == upload_dir.name:
+        p = Path(*parts[1:])
+    return upload_dir / p
+
+
+@router.post("/policy-deliveries/{delivery_id}/send-email", response_model=dict)
+def send_delivery_email(
+    delivery_id: str,
+    db: Session = Depends(get_db),
+    _current_user: User = Depends(get_current_user),
+) -> dict:
+    """Email the policy delivery's PDF to the client's registered contact emails."""
+    delivery = db.get(PolicyDelivery, delivery_id)
+    if not delivery:
+        raise HTTPException(status_code=404, detail="Delivery not found")
+    if not delivery.pdf_path:
+        raise HTTPException(status_code=422, detail="La entrega aún no tiene un PDF generado")
+
+    policy = db.get(Policy, delivery.policy_id)
+    if not policy:
+        raise HTTPException(status_code=404, detail="Policy not found")
+    client = db.get(Client, policy.client_id)
+    if not client:
+        raise HTTPException(status_code=404, detail="Client not found")
+
+    contact_rows = (
+        db.query(ClientContactEmail)
+        .filter(ClientContactEmail.client_id == client.id, ClientContactEmail.is_active.is_(True))
+        .all()
+    )
+    to_emails = [row.email for row in contact_rows]
+    if not to_emails:
+        raise HTTPException(
+            status_code=422,
+            detail="El cliente no tiene correos de contacto registrados",
+        )
+
+    delivery_reports = (
+        db.query(PolicyDeliveryReport)
+        .filter(PolicyDeliveryReport.delivery_id == delivery_id)
+        .all()
+    )
+    reports = [r for r in (db.get(Report, dr.report_id) for dr in delivery_reports) if r]
+
+    tech_name = "Técnico SMPC"
+    if reports and reports[0].tech_id:
+        tech = db.get(User, reports[0].tech_id)
+        if tech:
+            tech_name = tech.name
+
+    printer_ids = {r.printer_id for r in reports if r.printer_id}
+    if len(printer_ids) == 1:
+        printer = db.get(Printer, next(iter(printer_ids)))
+        model = db.get(CatalogModel, printer.model_id) if printer and printer.model_id else None
+        printer_serial = printer.serial_number if printer else "-"
+        printer_model = f"{model.brand} {model.model_name}" if model else "-"
+    else:
+        printer_serial = "-"
+        printer_model = f"Varios equipos ({len(printer_ids)})"
+
+    folio = getattr(delivery, "folio", None) or f"ENT-{delivery.id[:8]}"
+
+    pdf_path = _resolve_delivery_pdf_path(delivery.pdf_path)
+    if not pdf_path.exists():
+        raise HTTPException(status_code=404, detail="El archivo PDF de la entrega no existe en el servidor")
+
+    send_service_report_email(
+        to_emails=to_emails,
+        client_name=client.name,
+        tech_name=tech_name,
+        printer_serial=printer_serial,
+        printer_model=printer_model,
+        service_date=delivery.delivery_date.strftime("%d/%m/%Y") if delivery.delivery_date else "",
+        folio=folio,
+        pdf_path=str(pdf_path),
+    )
+
+    return {"sent_to": to_emails}
 
 
 # ===========================================================================
