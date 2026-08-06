@@ -409,3 +409,11 @@ Pendiente: `alembic upgrade head` en BD local (está en 006, faltan 007-010) y p
 (reutiliza `send_service_report_email()` de Sprint A). Detalle completo en `project-status.md` → sección "Sprint C".
 Pendiente: probar en Swagger/UI con datos reales (requiere `alembic upgrade head` aplicado, correos de contacto
 activos y una entrega con PDF ya generado).
+
+## ✅ Sprint B — Flutter: envío de email tras firma individual y grupal (06/08/2026)
+
+`signature_screen.dart` (`_onFinishPressed`) y `group_signature_screen.dart` (`_onConfirm`) llaman
+`GET /api/admin/clients/{clientId}/contact-emails` + `POST /api/reports/{id}/send-email` (Sprint A) tras
+generar el PDF y antes de navegar. Flujo no bloqueante con SnackBar verde/naranja y diálogo de correo
+adicional si el cliente no tiene contactos registrados. Detalle completo en `project-status.md` → sección "Sprint B".
+Pendiente: probar en dispositivo/emulador con datos reales (requiere backend con Sprint A desplegado).

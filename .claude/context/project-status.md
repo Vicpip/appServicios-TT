@@ -1126,3 +1126,15 @@ for (final String path in photoPaths) {
 
 **Verificado:** `from app.main import app` importa sin errores (101 rutas registradas) en `venv313`; `npx tsc --noEmit` en `admin-web` sin errores. Pendiente probar en Swagger/UI con datos reales (requiere correos de contacto activos y una entrega con PDF generado).
 
+---
+
+## ✅ Sprint B — Flutter: envío de email tras firma individual y grupal (06/08/2026)
+
+| Cambio | Archivo | Descripción |
+|--------|---------|-------------|
+| Email tras firma individual | `lib/features/signature/presentation/signature_screen.dart` | Al final de `_onFinishPressed()`, después de encolar el PDF y antes de navegar: `_sendReportEmailAfterSignature(reportId, printerId)`. Busca el `clientId` de la impresora, hace `GET /api/admin/clients/{clientId}/contact-emails`. Si hay correos activos → `POST /api/reports/{reportId}/send-email` con `{"extra_email": null}` + SnackBar verde. Si la lista está vacía → `AlertDialog` "Sin correos registrados" con `TextFormField` validado (regex email); botón "Enviar" hace el POST con el correo ingresado como `extra_email`, botón "Omitir" cierra sin enviar. Todo el flujo está envuelto en try/catch no-fatal: cualquier error (red, HTTP != 200/201) solo muestra SnackBar naranja "No se pudo enviar el email" sin bloquear la navegación. |
+| Email tras firma grupal | `lib/features/reports/presentation/group_signature_screen.dart` | Mismo patrón al final de `_onConfirm()` (después de `ref.invalidate(pendingGroupProvider)`, antes de `context.go(...)`): `_sendGroupReportEmails()`. Usa el `printerId` del primer reporte del grupo para resolver `clientId` (todos los reportes del grupo son del mismo cliente), consulta contactos una sola vez, y si hay correos o si el usuario ingresa uno en el diálogo, hace **un `POST /api/reports/{id}/send-email` por cada reporte del grupo** (`for (final Report r in _groupReports)`). |
+| Sin servicio HTTP nuevo | ambos archivos | Se reutilizó el patrón existente: `package:http` directo + `AuthService().getToken()` + `kServerBaseUrlDevice` (mismo patrón que `sync_service.dart`/`auth_service.dart`), sin crear un cliente HTTP nuevo. |
+
+**Verificado:** `flutter analyze` sin issues en ambos archivos (se agregó un `if (!mounted) return;` extra tras el `await` del envío de email en `signature_screen.dart` para evitar el warning `use_build_context_synchronously`). Pendiente probar en dispositivo/emulador con datos reales (requiere backend con Sprint A desplegado y `alembic upgrade head` aplicado).
+
