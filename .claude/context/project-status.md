@@ -1101,3 +1101,16 @@ for (final String path in photoPaths) {
 - [ ] Si hay fotos → página nueva con grid de imágenes
 - [ ] APK generado y en el escritorio
 
+---
+
+## ✅ Sprint A — Emails de contacto + servicio de email para reportes (06/08/2026)
+
+| Cambio | Archivo | Descripción |
+|--------|---------|-------------|
+| Tabla `client_contact_emails` | `server/app/models/client_contact_email.py`, `server/alembic/versions/010_add_client_contact_emails.py` | Nueva tabla (id, client_id FK cascade, email, label nullable, is_active, created_at). Relación `Client.contact_emails` agregada. Migración 010 (down_revision=009), **no aplicada aún** en la BD local (que sigue en 006 — pendiente correr `alembic upgrade head`, incluye también 007-009 preexistentes). |
+| CRUD contact-emails | `server/app/api/routers/admin.py`, `server/app/schemas/admin.py` | `GET/POST/PATCH/DELETE /api/admin/clients/{client_id}/contact-emails[/{email_id}]`. GET lista solo `is_active=True`. Schemas `ClientContactEmailItem/Create/Update`. |
+| `send_service_report_email()` | `server/app/services/email_service.py` | Nueva función (no toca las existentes `send_invitation_email/send_password_reset_email/send_welcome_email`). Usa `_base_email_template()`, tabla de detalle con header azul `#1A3557`/texto blanco, adjunta PDF vía `MIMEApplication`, envía a múltiples destinatarios en un solo `sendmail`, no-fatal (try/except + log). |
+| Endpoint envío de reporte | `server/app/api/routers/reports.py`, `server/app/schemas/report.py` | `POST /api/reports/{report_id}/send-email` (body `ReportSendEmailRequest.extra_email`). Junta contact emails activos del cliente + `extra_email` opcional; 422 si la lista queda vacía. Busca PDF en `EntityFile` (`entity_type='pdf'`, `entity_id=report_id`) más reciente, resuelve ruta absoluta con helper `_resolve_upload_path` (mismo patrón que `delivery_pdf_service._resolve_upload_path`). Retorna `{sent_to: [...]}`. |
+
+**Verificado:** `from app.main import app` importa sin errores (100 rutas registradas) en `venv313`; `alembic history` muestra cadena `009 -> 010 (head)` correcta. Pendiente probar en Swagger con datos reales y correr `alembic upgrade head` en la BD local antes de usar los endpoints.
+

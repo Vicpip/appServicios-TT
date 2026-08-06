@@ -394,3 +394,11 @@ Tarjetas con:
 | 4 | `npm run dev` en admin-web → ver datos reales en tablas |
 | 5 | Flutter → botón Sync → ver registro en PostgreSQL |
 | 6 | `docker-compose up` → app accede al servidor por IP de red |
+
+---
+
+## ✅ Sprint A — Emails de contacto (06/08/2026)
+
+Fuera del orden de fases original: tabla `client_contact_emails` + CRUD + `send_service_report_email()` +
+`POST /api/reports/{id}/send-email`. Detalle completo en `project-status.md` → sección "Sprint A".
+Pendiente: `alembic upgrade head` en BD local (está en 006, faltan 007-010) y prueba manual en Swagger.
