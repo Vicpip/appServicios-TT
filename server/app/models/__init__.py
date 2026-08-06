@@ -3,6 +3,7 @@
 
 from app.models.user import User  # noqa: F401
 from app.models.client import Client  # noqa: F401
+from app.models.client_contact_email import ClientContactEmail  # noqa: F401
 from app.models.plant import Plant  # noqa: F401
 from app.models.area import Area  # noqa: F401
 from app.models.catalog import (  # noqa: F401
@@ -32,6 +33,7 @@ from app.models.portal import (  # noqa: F401
 __all__ = [
     "User",
     "Client",
+    "ClientContactEmail",
     "Plant",
     "Area",
     "CatalogModel",

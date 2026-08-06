@@ -22,6 +22,7 @@ from app.models.catalog import CatalogLabelType, CatalogModel
 
 logger = logging.getLogger(__name__)
 from app.models.client import Client
+from app.models.client_contact_email import ClientContactEmail
 from app.models.file import EntityFile, File
 from app.models.plant import Plant
 from app.models.policy import Policy, PolicyDelivery, PolicyDeliveryReport, PolicyPrinter, PolicyPrinterAssignment, PolicyVisit
@@ -38,6 +39,9 @@ from app.schemas.admin import (
     AssignTechnicianRequest,
     CatalogModelCreate,
     CatalogModelItem,
+    ClientContactEmailCreate,
+    ClientContactEmailItem,
+    ClientContactEmailUpdate,
     ClientCreate,
     ClientListItem,
     ClientUpdate,
@@ -1990,6 +1994,82 @@ def delete_client(client_id: str, db: Session = Depends(get_db)) -> dict:
     client.is_active = False
     db.commit()
     return {"success": True, "id": client_id}
+
+
+# ===========================================================================
+# CRUD — Correos de contacto por cliente
+# ===========================================================================
+
+@router.get("/clients/{client_id}/contact-emails", response_model=list[ClientContactEmailItem])
+def list_contact_emails(client_id: str, db: Session = Depends(get_db)) -> list[ClientContactEmailItem]:
+    """List active contact emails for a client."""
+    client = db.get(Client, client_id)
+    if not client:
+        raise HTTPException(status_code=404, detail="Client not found")
+
+    rows = (
+        db.query(ClientContactEmail)
+        .filter(ClientContactEmail.client_id == client_id, ClientContactEmail.is_active.is_(True))
+        .order_by(ClientContactEmail.created_at)
+        .all()
+    )
+    return [ClientContactEmailItem.model_validate(row) for row in rows]
+
+
+@router.post("/clients/{client_id}/contact-emails", response_model=ClientContactEmailItem, status_code=201)
+def create_contact_email(
+    client_id: str, body: ClientContactEmailCreate, db: Session = Depends(get_db)
+) -> ClientContactEmailItem:
+    """Create a new contact email for a client."""
+    client = db.get(Client, client_id)
+    if not client:
+        raise HTTPException(status_code=404, detail="Client not found")
+
+    contact_email = ClientContactEmail(
+        id=str(uuid.uuid4()),
+        client_id=client_id,
+        email=body.email,
+        label=body.label,
+        is_active=True,
+    )
+    db.add(contact_email)
+    db.commit()
+    db.refresh(contact_email)
+    return ClientContactEmailItem.model_validate(contact_email)
+
+
+@router.patch("/clients/{client_id}/contact-emails/{email_id}", response_model=ClientContactEmailItem)
+def update_contact_email(
+    client_id: str,
+    email_id: str,
+    body: ClientContactEmailUpdate,
+    db: Session = Depends(get_db),
+) -> ClientContactEmailItem:
+    """Update label and/or is_active of a client contact email."""
+    contact_email = db.get(ClientContactEmail, email_id)
+    if not contact_email or contact_email.client_id != client_id:
+        raise HTTPException(status_code=404, detail="Contact email not found")
+
+    if body.label is not None:
+        contact_email.label = body.label
+    if body.is_active is not None:
+        contact_email.is_active = body.is_active
+
+    db.commit()
+    db.refresh(contact_email)
+    return ClientContactEmailItem.model_validate(contact_email)
+
+
+@router.delete("/clients/{client_id}/contact-emails/{email_id}", status_code=200)
+def delete_contact_email(client_id: str, email_id: str, db: Session = Depends(get_db)) -> dict:
+    """Permanently delete a client contact email."""
+    contact_email = db.get(ClientContactEmail, email_id)
+    if not contact_email or contact_email.client_id != client_id:
+        raise HTTPException(status_code=404, detail="Contact email not found")
+
+    db.delete(contact_email)
+    db.commit()
+    return {"success": True, "id": email_id}
 
 
 # ===========================================================================

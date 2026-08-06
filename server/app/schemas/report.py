@@ -63,3 +63,9 @@ class ReportUpdate(BaseModel):
     linear_inches_counter: Optional[int] = None
     darkness_level: Optional[int] = None
     signature_image_path: Optional[str] = None
+
+
+class ReportSendEmailRequest(BaseModel):
+    """Body for POST /api/reports/{id}/send-email."""
+
+    extra_email: Optional[str] = None

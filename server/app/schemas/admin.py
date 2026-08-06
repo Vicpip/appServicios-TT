@@ -201,6 +201,26 @@ class ClientUpdate(BaseModel):
     address: str | None = None
 
 
+class ClientContactEmailItem(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    client_id: str
+    email: str
+    label: str | None
+    is_active: bool
+
+
+class ClientContactEmailCreate(BaseModel):
+    email: str
+    label: str | None = None
+
+
+class ClientContactEmailUpdate(BaseModel):
+    label: str | None = None
+    is_active: bool | None = None
+
+
 class PrinterCreate(BaseModel):
     serial_number: str
     qr_uuid: str | None = None

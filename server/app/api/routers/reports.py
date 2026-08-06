@@ -10,12 +10,15 @@ from sqlalchemy.orm import Session
 from app.auth import get_current_user
 from app.config import get_settings
 from app.database import get_db
+from app.models.catalog import CatalogModel
 from app.models.client import Client
+from app.models.client_contact_email import ClientContactEmail
 from app.models.file import EntityFile, File
 from app.models.printer import Printer
 from app.models.report import Report
 from app.models.user import User
-from app.schemas.report import ReportUpdate
+from app.schemas.report import ReportSendEmailRequest, ReportUpdate
+from app.services.email_service import send_service_report_email
 
 router = APIRouter(prefix="/api/reports", tags=["reports"])
 settings = get_settings()
@@ -128,3 +131,83 @@ def update_report(
     db.refresh(report)
 
     return _build_report_response(report, db)
+
+
+# ---------------------------------------------------------------------------
+# POST /api/reports/{report_id}/send-email
+# ---------------------------------------------------------------------------
+
+def _resolve_upload_path(raw_path: str) -> Path:
+    """Build an absolute path from a stored (possibly relative) storage path."""
+    p = Path(raw_path)
+    if p.is_absolute():
+        return p
+    upload_dir = Path(settings.upload_dir)
+    parts = p.parts
+    if parts and parts[0] == upload_dir.name:
+        p = Path(*parts[1:])
+    return upload_dir / p
+
+
+@router.post("/{report_id}/send-email", response_model=dict)
+def send_report_email(
+    report_id: str,
+    body: ReportSendEmailRequest,
+    db: Session = Depends(get_db),
+    _current_user: dict = Depends(get_current_user),
+) -> dict:
+    """Email the report's PDF to the client's registered contact emails."""
+    report: Report | None = db.get(Report, report_id)
+    if not report:
+        raise HTTPException(status_code=404, detail="Report not found")
+
+    printer = db.get(Printer, report.printer_id) if report.printer_id else None
+    if not printer:
+        raise HTTPException(status_code=404, detail="Printer not found for this report")
+    client = db.get(Client, printer.client_id)
+    if not client:
+        raise HTTPException(status_code=404, detail="Client not found for this report")
+    tech = db.get(User, report.tech_id) if report.tech_id else None
+    model = db.get(CatalogModel, printer.model_id) if printer.model_id else None
+
+    contact_rows = (
+        db.query(ClientContactEmail)
+        .filter(ClientContactEmail.client_id == client.id, ClientContactEmail.is_active.is_(True))
+        .all()
+    )
+    to_emails = [row.email for row in contact_rows]
+    if body.extra_email:
+        to_emails.append(body.extra_email)
+
+    if not to_emails:
+        raise HTTPException(
+            status_code=422,
+            detail="No hay correos de contacto registrados para este cliente y no se proporcionó uno adicional.",
+        )
+
+    pdf_row = (
+        db.query(File)
+        .join(EntityFile, EntityFile.file_id == File.id)
+        .filter(EntityFile.entity_id == report_id, EntityFile.entity_type == "pdf")
+        .order_by(File.created_at.desc())
+        .first()
+    )
+    if not pdf_row:
+        raise HTTPException(status_code=404, detail="No se encontró el PDF de este reporte")
+
+    pdf_path = _resolve_upload_path(pdf_row.storage_path)
+    if not pdf_path.exists():
+        raise HTTPException(status_code=404, detail="El archivo PDF del reporte no existe en el servidor")
+
+    send_service_report_email(
+        to_emails=to_emails,
+        client_name=client.name,
+        tech_name=tech.name if tech else "",
+        printer_serial=printer.serial_number,
+        printer_model=f"{model.brand} {model.model_name}" if model else "",
+        service_date=report.service_date.strftime("%d/%m/%Y") if report.service_date else "",
+        folio=report.code or report.id,
+        pdf_path=str(pdf_path),
+    )
+
+    return {"sent_to": to_emails}

@@ -22,3 +22,6 @@ class Client(Base):
     plants: Mapped[list] = relationship("Plant", back_populates="client")
     printers: Mapped[list] = relationship("Printer", back_populates="client")
     policies: Mapped[list] = relationship("Policy", back_populates="client")
+    contact_emails: Mapped[list] = relationship(
+        "ClientContactEmail", back_populates="client"
+    )

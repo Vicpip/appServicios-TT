@@ -7,10 +7,14 @@ Public API:
   send_invitation_email(to_email, token, client_name)
   send_password_reset_email(to_email, token)
   send_welcome_email(to_email, name, client_name)
+  send_service_report_email(to_emails, client_name, tech_name, printer_serial,
+                             printer_model, service_date, folio, pdf_path)
 """
 
 import logging
+import os
 import smtplib
+from email.mime.application import MIMEApplication
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 
@@ -252,3 +256,95 @@ def send_welcome_email(to_email: str, name: str, client_name: str = "") -> None:
         f"Bienvenido al Portal de Clientes — {_COMPANY}",
         _base_email_template("Bienvenido", body),
     )
+
+
+def send_service_report_email(
+    to_emails: list[str],
+    client_name: str,
+    tech_name: str,
+    printer_serial: str,
+    printer_model: str,
+    service_date: str,
+    folio: str,
+    pdf_path: str,
+) -> None:
+    """Send a service report PDF to one or more client contact emails.
+
+    Non-fatal: exceptions are caught and logged, same behavior as the other
+    functions in this module — a mail failure never crashes the caller.
+    """
+    settings = get_settings()
+    subject = f"Reporte de servicio {folio} — {client_name}"
+    body = f"""
+      <h2 style="margin:0 0 16px;font-size:20px;font-weight:700;color:#1A3557;">
+        Reporte de servicio t&eacute;cnico
+      </h2>
+      <p style="margin:0 0 20px;font-size:15px;color:#4A5568;">
+        Se adjunta el reporte de servicio realizado a su equipo por
+        <strong style="color:#1A3557;">{_COMPANY}</strong>.
+      </p>
+      <table width="100%" cellpadding="0" cellspacing="0" border="0"
+             style="border-collapse:collapse;margin:0 0 24px;">
+        <tr>
+          <td colspan="2" style="background:#1A3557;color:#ffffff;padding:10px 14px;
+                                  font-size:13px;font-weight:700;letter-spacing:0.5px;">
+            DETALLE DEL SERVICIO
+          </td>
+        </tr>
+        <tr>
+          <td style="padding:10px 14px;font-size:13px;color:#8899CC;border-bottom:1px solid #E2E8F0;">Folio</td>
+          <td style="padding:10px 14px;font-size:14px;color:#1A1A2E;font-weight:600;border-bottom:1px solid #E2E8F0;">{folio}</td>
+        </tr>
+        <tr>
+          <td style="padding:10px 14px;font-size:13px;color:#8899CC;border-bottom:1px solid #E2E8F0;">Equipo</td>
+          <td style="padding:10px 14px;font-size:14px;color:#1A1A2E;font-weight:600;border-bottom:1px solid #E2E8F0;">{printer_serial} &mdash; {printer_model}</td>
+        </tr>
+        <tr>
+          <td style="padding:10px 14px;font-size:13px;color:#8899CC;border-bottom:1px solid #E2E8F0;">T&eacute;cnico</td>
+          <td style="padding:10px 14px;font-size:14px;color:#1A1A2E;font-weight:600;border-bottom:1px solid #E2E8F0;">{tech_name}</td>
+        </tr>
+        <tr>
+          <td style="padding:10px 14px;font-size:13px;color:#8899CC;">Fecha de servicio</td>
+          <td style="padding:10px 14px;font-size:14px;color:#1A1A2E;font-weight:600;">{service_date}</td>
+        </tr>
+      </table>
+      <p style="margin:0;font-size:13px;color:#8899CC;">
+        El reporte completo se encuentra adjunto a este correo en formato PDF.
+      </p>
+    """
+    html_body = _base_email_template("Reporte de servicio", body)
+
+    msg = MIMEMultipart("mixed")
+    msg["Subject"] = subject
+    msg["From"] = f"{_COMPANY} <{_SENDER}>"
+    msg["To"] = ", ".join(to_emails)
+    msg.attach(MIMEText(html_body, "html", "utf-8"))
+
+    try:
+        with open(pdf_path, "rb") as pdf_file:
+            attachment = MIMEApplication(pdf_file.read(), _subtype="pdf")
+        attachment.add_header(
+            "Content-Disposition", "attachment", filename=os.path.basename(pdf_path)
+        )
+        msg.attach(attachment)
+    except OSError as exc:
+        logger.error("Failed to attach PDF %s to service report email: %s", pdf_path, exc)
+        return
+
+    try:
+        with smtplib.SMTP(settings.smtp_host, settings.smtp_port, timeout=10) as smtp:
+            smtp.ehlo()
+            if settings.smtp_port != 1025:
+                smtp.starttls()
+                smtp.ehlo()
+            if settings.smtp_user and settings.smtp_password:
+                smtp.login(settings.smtp_user, settings.smtp_password)
+            smtp.sendmail(_SENDER, to_emails, msg.as_string())
+        logger.info("Service report email sent to %s | folio: %s", to_emails, folio)
+    except Exception as exc:  # noqa: BLE001
+        logger.error(
+            "Failed to send service report email to %s | folio: %s | error: %s",
+            to_emails,
+            folio,
+            exc,
+        )
