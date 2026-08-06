@@ -417,3 +417,12 @@ activos y una entrega con PDF ya generado).
 generar el PDF y antes de navegar. Flujo no bloqueante con SnackBar verde/naranja y diálogo de correo
 adicional si el cliente no tiene contactos registrados. Detalle completo en `project-status.md` → sección "Sprint B".
 Pendiente: probar en dispositivo/emulador con datos reales (requiere backend con Sprint A desplegado).
+
+## ✅ Sprint D — UI para gestionar correos de contacto del cliente (06/08/2026)
+
+Admin Web: sección "Correos de contacto" en `ClientDetailPage.tsx` (listar, agregar, eliminar, toggle
+activo/inactivo). Portal de Clientes: nueva página `Configuracion.jsx` (agregar/eliminar, sin toggle),
+ruta `/configuracion` + nav item. Ambos consumen los endpoints CRUD de Sprint A
+(`/api/admin/clients/{id}/contact-emails`). Detalle completo en `project-status.md` → sección "Sprint D".
+Pendiente: `npm install` en `clients/` (node_modules incompleto, build roto — no relacionado a este cambio),
+probar ambas UIs en navegador, y `alembic upgrade head` si sigue pendiente.

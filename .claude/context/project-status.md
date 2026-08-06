@@ -1138,3 +1138,14 @@ for (final String path in photoPaths) {
 
 **Verificado:** `flutter analyze` sin issues en ambos archivos (se agregó un `if (!mounted) return;` extra tras el `await` del envío de email en `signature_screen.dart` para evitar el warning `use_build_context_synchronously`). Pendiente probar en dispositivo/emulador con datos reales (requiere backend con Sprint A desplegado y `alembic upgrade head` aplicado).
 
+---
+
+## ✅ Sprint D — UI para gestionar correos de contacto del cliente (06/08/2026)
+
+| Cambio | Archivo | Descripción |
+|--------|---------|-------------|
+| Sección "Correos de contacto" en Admin Web | `admin-web/src/pages/ClientDetailPage.tsx`, `admin-web/src/api/endpoints.ts` | Nueva tabla entre "Usuarios con acceso al portal" y los KPIs: correo, etiqueta, estado (Activo/Inactivo), acciones. Botón "Agregar correo" abre form inline (email + etiqueta opcional). Toggle activo/inactivo con iconos `ToggleLeft/ToggleRight` (lucide-react) vía `PATCH .../contact-emails/{id}`. Eliminar con confirmación inline (botones Confirmar/Cancelar en la misma fila, sin `window.confirm`) vía `DELETE .../contact-emails/{id}`. `API.clients.contactEmails.{list,create,update,delete}` agregado a `endpoints.ts`. El estado local `contactEmails` se inicializa desde `useQuery` pero cada acción lo muta directamente (sin refetch) porque el `GET` del backend (Sprint A) solo devuelve `is_active=True` — un refetch tras desactivar haría desaparecer la fila y rompería el toggle visual dentro de la sesión. |
+| Página "Configuración" en Portal de Clientes | `clients/src/pages/Configuracion.jsx`, `clients/src/App.jsx`, `clients/src/components/Layout.jsx` | Nueva página (no existía sección de perfil/config previa en `clients/`) con sección "Correos para notificaciones": agregar y eliminar (sin toggle, fuera del alcance pedido). Usa `user.client_id` del JWT decodificado (`useAuth`) para armar `/api/admin/clients/{client_id}/contact-emails` — mismo endpoint admin, reutilizado tal cual porque esos 4 endpoints no tienen `Depends(get_current_user)` en el backend (sin gate de rol admin). Ruta `/configuracion` registrada en `App.jsx`; ítem de nav "Configuración" (ícono `Settings`) agregado a `NAV_ITEMS`/`SECTION_LABELS` en `Layout.jsx`. Confirmación inline antes de eliminar, mismo patrón que admin web. |
+
+**Verificado:** `npx tsc --noEmit` en `admin-web` sin errores. `clients/` no se pudo compilar (`vite build`) para verificar visualmente: `node_modules` local está incompleto (`Cannot find module '...lines-and-columns/build/index.js'` al cargar `postcss.config.js`), problema preexistente del entorno no relacionado con este cambio — requiere `npm install` en `clients/` antes de correr `npm run dev`/`vite build`. Pendiente: correr `npm install` en `clients/`, probar ambas pantallas en navegador, y aplicar `alembic upgrade head` (010, Sprint A) si no se ha hecho.
+
