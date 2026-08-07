@@ -223,6 +223,9 @@ class Reports extends Table {
   TextColumn get signatureBlockId => text().nullable()();
   TextColumn get reportBlockStatus => text().nullable()();
 
+  /// Email adicional capturado en la pantalla de firma, enviado tras el sync del PDF
+  TextColumn get pendingEmail => text().nullable()();
+
   /// Si el técnico ignoró una asignación ajena para crear este reporte
   BoolColumn get assignmentOverride =>
       boolean().withDefault(const Constant(false))();
@@ -473,7 +476,7 @@ class AppDatabase extends _$AppDatabase {
   AppDatabase([QueryExecutor? executor]) : super(executor ?? _openConnection());
 
   @override
-  int get schemaVersion => 9;
+  int get schemaVersion => 10;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -525,6 +528,10 @@ class AppDatabase extends _$AppDatabase {
           if (from < 9) {
             // Visitas de póliza — entidad que conecta póliza con visita de campo
             await migrator.createTable(policyVisits);
+          }
+          if (from < 10) {
+            // Email adicional capturado en la pantalla de firma
+            await migrator.addColumn(reports, reports.pendingEmail);
           }
         },
         beforeOpen: (OpeningDetails details) async {

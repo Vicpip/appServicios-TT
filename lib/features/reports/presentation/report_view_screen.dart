@@ -66,6 +66,7 @@ class _ReportViewScreenState extends State<ReportViewScreen> {
   bool _isEditing = false;
   bool _isSaving = false;
   bool _isReprintingPdf = false;
+  bool _isSendingEmail = false;
 
   Report? _report;
   Printer? _printer;
@@ -366,6 +367,160 @@ class _ReportViewScreenState extends State<ReportViewScreen> {
     }
   }
 
+  // ── Enviar por correo ──────────────────────────────────────────────────────
+
+  Future<void> _openSendEmailDialog() async {
+    if (_report == null || _printer == null) return;
+
+    setState(() => _isSendingEmail = true);
+    List<String> contacts = <String>[];
+    try {
+      final AuthService auth = AuthService();
+      final String? token = await auth.getToken();
+      final http.Response resp = await http
+          .get(
+            Uri.parse(
+                '$kServerBaseUrlDevice/api/admin/clients/${_printer!.clientId}/contact-emails'),
+            headers: <String, String>{
+              if (token != null) 'Authorization': 'Bearer $token',
+            },
+          )
+          .timeout(const Duration(seconds: 15));
+      if (resp.statusCode != 200) {
+        throw Exception('HTTP ${resp.statusCode}');
+      }
+      final List<dynamic> data = jsonDecode(resp.body) as List<dynamic>;
+      contacts = data
+          .map((dynamic e) => (e as Map<String, dynamic>)['email'] as String)
+          .toList();
+    } catch (_) {
+      if (mounted) {
+        setState(() => _isSendingEmail = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            backgroundColor: Colors.orange,
+            content: Text('Se requiere conexión para enviar email'),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+      return;
+    }
+
+    if (!mounted) return;
+    setState(() => _isSendingEmail = false);
+
+    final TextEditingController extraController = TextEditingController();
+    final GlobalKey<FormState> dialogFormKey = GlobalKey<FormState>();
+
+    final bool? confirmed = await showDialog<bool>(
+      context: context,
+      builder: (BuildContext dialogContext) {
+        return AlertDialog(
+          title: const Text('Enviar por correo'),
+          content: Form(
+            key: dialogFormKey,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                if (contacts.isNotEmpty) ...<Widget>[
+                  const Text('Correos registrados:'),
+                  const SizedBox(height: 6),
+                  ...contacts.map((String e) => Text('• $e')),
+                  const SizedBox(height: 12),
+                ] else
+                  const Padding(
+                    padding: EdgeInsets.only(bottom: 12),
+                    child: Text('El cliente no tiene correos registrados.'),
+                  ),
+                TextFormField(
+                  controller: extraController,
+                  keyboardType: TextInputType.emailAddress,
+                  decoration: const InputDecoration(
+                      labelText: 'Correo adicional (opcional)'),
+                  validator: (String? v) {
+                    final String value = (v ?? '').trim();
+                    if (value.isEmpty) return null;
+                    final RegExp emailRegex =
+                        RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$');
+                    if (!emailRegex.hasMatch(value)) return 'Correo inválido';
+                    return null;
+                  },
+                ),
+              ],
+            ),
+          ),
+          actions: <Widget>[
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(false),
+              child: const Text('Cancelar'),
+            ),
+            FilledButton(
+              onPressed: () {
+                if (dialogFormKey.currentState?.validate() ?? false) {
+                  Navigator.of(dialogContext).pop(true);
+                }
+              },
+              child: const Text('Enviar'),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (confirmed != true) return;
+
+    final String extraEmail = extraController.text.trim();
+    await _sendEmail(extraEmail.isEmpty ? null : extraEmail);
+  }
+
+  Future<void> _sendEmail(String? extraEmail) async {
+    try {
+      final AuthService auth = AuthService();
+      final String? token = await auth.getToken();
+      final http.Response resp = await http
+          .post(
+            Uri.parse(
+                '$kServerBaseUrlDevice/api/reports/${widget.reportId}/send-email'),
+            headers: <String, String>{
+              'Content-Type': 'application/json',
+              if (token != null) 'Authorization': 'Bearer $token',
+            },
+            body: jsonEncode(<String, dynamic>{'extra_email': extraEmail}),
+          )
+          .timeout(const Duration(seconds: 20));
+
+      if (!mounted) return;
+      if (resp.statusCode == 200 || resp.statusCode == 201) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            backgroundColor: Color(0xFF33E98A),
+            content: Text('Email enviado'),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            backgroundColor: Colors.orange,
+            content: Text('Error al enviar'),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          backgroundColor: Colors.orange,
+          content: Text('Error al enviar'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
+  }
+
   // ── PDF (local) ────────────────────────────────────────────────────────────
 
   Future<void> _generateAndShowPdf() async {
@@ -537,6 +692,26 @@ class _ReportViewScreenState extends State<ReportViewScreen> {
                             label: const Text('Reimprimir'),
                             style: TextButton.styleFrom(
                                 foregroundColor: _warningText),
+                          ),
+                        ),
+                      ],
+                      if (_report!.status == 'Signed') ...<Widget>[
+                        const SizedBox(width: 6),
+                        SizedBox(
+                          height: 48,
+                          child: TextButton.icon(
+                            onPressed:
+                                _isSendingEmail ? null : _openSendEmailDialog,
+                            icon: _isSendingEmail
+                                ? const SizedBox(
+                                    width: 16,
+                                    height: 16,
+                                    child: CircularProgressIndicator(
+                                        strokeWidth: 2))
+                                : const Icon(Icons.email_outlined),
+                            label: const Text('Enviar'),
+                            style: TextButton.styleFrom(
+                                foregroundColor: _successText),
                           ),
                         ),
                       ],

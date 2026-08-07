@@ -39,6 +39,14 @@ class _SignatureScreenState extends ConsumerState<SignatureScreen> {
   bool _isCheckingVisit = true;
   bool _hasActiveVisit = false;
 
+  // Sección de email (Tarea 2): solo se muestra si el GET de contact-emails
+  // llegó a completarse (con o sin conectividad al cargar la pantalla).
+  bool _emailSectionLoaded = false;
+  List<String> _contactEmails = <String>[];
+  bool _showExtraEmailField = false;
+  final TextEditingController _extraEmailController = TextEditingController();
+  final GlobalKey<FormState> _extraEmailFormKey = GlobalKey<FormState>();
+
   @override
   void initState() {
     super.initState();
@@ -56,6 +64,7 @@ class _SignatureScreenState extends ConsumerState<SignatureScreen> {
     WidgetsBinding.instance.addPostFrameCallback(
       (_) => _checkAndHandleActiveVisit(),
     );
+    _loadContactEmails();
   }
 
   @override
@@ -63,7 +72,119 @@ class _SignatureScreenState extends ConsumerState<SignatureScreen> {
     _signerNameController.dispose();
     _signerRoleController.dispose();
     _signatureController.dispose();
+    _extraEmailController.dispose();
     super.dispose();
+  }
+
+  /// Carga los correos de contacto del cliente para mostrarlos en la
+  /// sección informativa antes del botón firmar. Si no hay conectividad
+  /// al cargar la pantalla, la sección se omite silenciosamente.
+  Future<void> _loadContactEmails() async {
+    try {
+      final String? printerId = ref.read(captureProvider).printerId;
+      if (printerId == null || printerId.isEmpty) return;
+      final Printer? printer = await (localDatabase.select(localDatabase.printers)
+            ..where((Printers t) => t.id.equals(printerId)))
+          .getSingleOrNull();
+      if (printer == null) return;
+
+      final String? authToken = await AuthService().getToken();
+      final http.Response response = await http
+          .get(
+            Uri.parse(
+                '$kServerBaseUrlDevice/api/admin/clients/${printer.clientId}/contact-emails'),
+            headers: <String, String>{
+              if (authToken != null) 'Authorization': 'Bearer $authToken',
+            },
+          )
+          .timeout(const Duration(seconds: 10));
+      if (response.statusCode != 200) return;
+
+      final List<dynamic> data = jsonDecode(response.body) as List<dynamic>;
+      final List<String> emails = data
+          .map((dynamic e) => (e as Map<String, dynamic>)['email'] as String)
+          .toList();
+
+      if (!mounted) return;
+      setState(() {
+        _contactEmails = emails;
+        _emailSectionLoaded = true;
+      });
+    } catch (_) {
+      // Sin conectividad u otro error: se omite la sección silenciosamente.
+    }
+  }
+
+  /// Email adicional válido capturado en la sección de correo, o null si
+  /// está vacío o no tiene formato de email.
+  String? get _pendingEmailValue {
+    final String value = _extraEmailController.text.trim();
+    if (value.isEmpty) return null;
+    final RegExp emailRegex = RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$');
+    return emailRegex.hasMatch(value) ? value : null;
+  }
+
+  Widget _buildEmailSection() {
+    final bool hasContacts = _contactEmails.isNotEmpty;
+    return _SignatureCard(
+      title: 'Envío por correo',
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[
+              Icon(
+                hasContacts ? Icons.check_circle : Icons.warning_amber_rounded,
+                color: hasContacts ? AppPalette.success : Colors.orange,
+                size: 20,
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  hasContacts
+                      ? 'Se enviará a: ${_contactEmails.join(', ')}'
+                      : 'Sin correos registrados',
+                  style: const TextStyle(color: Colors.white70, fontSize: 13),
+                ),
+              ),
+            ],
+          ),
+          if (hasContacts && !_showExtraEmailField) ...<Widget>[
+            const SizedBox(height: 8),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: TextButton(
+                onPressed: () => setState(() => _showExtraEmailField = true),
+                child: const Text('Agregar otro'),
+              ),
+            ),
+          ],
+          if (!hasContacts || _showExtraEmailField) ...<Widget>[
+            const SizedBox(height: 10),
+            Form(
+              key: _extraEmailFormKey,
+              child: TextFormField(
+                controller: _extraEmailController,
+                keyboardType: TextInputType.emailAddress,
+                decoration: const InputDecoration(
+                  labelText: 'Correo adicional',
+                  isDense: true,
+                ),
+                validator: (String? v) {
+                  final String value = (v ?? '').trim();
+                  if (value.isEmpty) return null;
+                  final RegExp emailRegex =
+                      RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$');
+                  if (!emailRegex.hasMatch(value)) return 'Correo inválido';
+                  return null;
+                },
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
   }
 
   /// CAMBIO 1: Si la impresora tiene una visita activa, guarda el reporte
@@ -377,6 +498,10 @@ class _SignatureScreenState extends ConsumerState<SignatureScreen> {
                       ],
                     ),
                   ),
+                  if (_emailSectionLoaded) ...<Widget>[
+                    const SizedBox(height: 14),
+                    _buildEmailSection(),
+                  ],
                 ],
               ),
             ),
@@ -584,6 +709,7 @@ class _SignatureScreenState extends ConsumerState<SignatureScreen> {
               assignmentOverride: Value(captureState.assignmentOverride),
               signatureBlockId: Value(blockId),
               reportBlockStatus: const Value('open'),
+              pendingEmail: Value(_pendingEmailValue),
             ),
           );
 
@@ -759,6 +885,7 @@ class _SignatureScreenState extends ConsumerState<SignatureScreen> {
               signatureImagePath: Value(signatureImagePath),
               code: Value(reportCode),
               assignmentOverride: Value(captureState.assignmentOverride),
+              pendingEmail: Value(_pendingEmailValue),
             ),
           );
 
@@ -904,10 +1031,6 @@ class _SignatureScreenState extends ConsumerState<SignatureScreen> {
       if (!mounted) return;
       setState(() => _isSaving = false);
 
-      // Enviar el reporte por email a los contactos del cliente (no bloqueante)
-      await _sendReportEmailAfterSignature(reportId, printerId);
-      if (!mounted) return;
-
       // CAMBIO 1: si es pending_delivery, navegar a pantalla de éxito de póliza
       if (reportStatus == 'pending_delivery') {
         context.go('/policy-delivery-success', extra: <String, dynamic>{'count': 1, 'isDelivery': false});
@@ -980,150 +1103,6 @@ class _SignatureScreenState extends ConsumerState<SignatureScreen> {
       return 'Campo obligatorio';
     }
     return null;
-  }
-
-  /// Envía el reporte firmado por email a los contactos del cliente.
-  /// No bloqueante: cualquier error solo muestra un SnackBar naranja.
-  Future<void> _sendReportEmailAfterSignature(
-    String reportId,
-    String printerId,
-  ) async {
-    try {
-      final Printer? printer = await (localDatabase.select(localDatabase.printers)
-            ..where((Printers t) => t.id.equals(printerId)))
-          .getSingleOrNull();
-      if (printer == null) return;
-
-      final String? authToken = await AuthService().getToken();
-      final http.Response contactsResponse = await http.get(
-        Uri.parse(
-            '$kServerBaseUrlDevice/api/admin/clients/${printer.clientId}/contact-emails'),
-        headers: <String, String>{
-          if (authToken != null) 'Authorization': 'Bearer $authToken',
-        },
-      );
-      if (contactsResponse.statusCode != 200) {
-        throw Exception('HTTP ${contactsResponse.statusCode}');
-      }
-
-      final List<dynamic> contacts =
-          jsonDecode(contactsResponse.body) as List<dynamic>;
-
-      if (contacts.isNotEmpty) {
-        await _postSendEmail(reportId, null, authToken);
-        if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            backgroundColor: AppPalette.success,
-            content: Text(
-              'Reporte enviado por email a ${contacts.length} contacto${contacts.length == 1 ? '' : 's'}',
-            ),
-            behavior: SnackBarBehavior.floating,
-          ),
-        );
-        return;
-      }
-
-      if (!mounted) return;
-      await _promptExtraEmailAndSend(reportId, authToken);
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          backgroundColor: Colors.orange,
-          content: Text('No se pudo enviar el email'),
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
-    }
-  }
-
-  Future<void> _postSendEmail(
-    String reportId,
-    String? extraEmail,
-    String? authToken,
-  ) async {
-    final http.Response response = await http.post(
-      Uri.parse('$kServerBaseUrlDevice/api/reports/$reportId/send-email'),
-      headers: <String, String>{
-        'Content-Type': 'application/json',
-        if (authToken != null) 'Authorization': 'Bearer $authToken',
-      },
-      body: jsonEncode(<String, dynamic>{'extra_email': extraEmail}),
-    );
-    if (response.statusCode != 200 && response.statusCode != 201) {
-      throw Exception('HTTP ${response.statusCode}: ${response.body}');
-    }
-  }
-
-  Future<void> _promptExtraEmailAndSend(
-    String reportId,
-    String? authToken,
-  ) async {
-    final TextEditingController emailController = TextEditingController();
-    final GlobalKey<FormState> dialogFormKey = GlobalKey<FormState>();
-
-    final bool? shouldSend = await showDialog<bool>(
-      context: context,
-      builder: (BuildContext dialogContext) {
-        return AlertDialog(
-          title: const Text('Sin correos registrados'),
-          content: Form(
-            key: dialogFormKey,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: <Widget>[
-                const Text(
-                  'El cliente no tiene correos de contacto. Ingresa un correo para enviar el reporte:',
-                ),
-                const SizedBox(height: 12),
-                TextFormField(
-                  controller: emailController,
-                  keyboardType: TextInputType.emailAddress,
-                  decoration:
-                      const InputDecoration(labelText: 'Correo electrónico'),
-                  validator: (String? value) {
-                    final String v = (value ?? '').trim();
-                    if (v.isEmpty) return 'Campo obligatorio';
-                    final RegExp emailRegex =
-                        RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$');
-                    if (!emailRegex.hasMatch(v)) return 'Correo inválido';
-                    return null;
-                  },
-                ),
-              ],
-            ),
-          ),
-          actions: <Widget>[
-            TextButton(
-              onPressed: () => Navigator.of(dialogContext).pop(false),
-              child: const Text('Omitir'),
-            ),
-            FilledButton(
-              onPressed: () {
-                if (dialogFormKey.currentState?.validate() ?? false) {
-                  Navigator.of(dialogContext).pop(true);
-                }
-              },
-              child: const Text('Enviar'),
-            ),
-          ],
-        );
-      },
-    );
-
-    if (shouldSend != true) return;
-
-    await _postSendEmail(reportId, emailController.text.trim(), authToken);
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        backgroundColor: AppPalette.success,
-        content: Text('Reporte enviado por email'),
-        behavior: SnackBarBehavior.floating,
-      ),
-    );
   }
 }
 

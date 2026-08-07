@@ -43,6 +43,14 @@ class _GroupSignatureScreenState extends ConsumerState<GroupSignatureScreen> {
   List<Report> _groupReports = <Report>[];
   bool _loading = true;
 
+  // Sección de email (Tarea 2): solo se muestra si el GET de contact-emails
+  // llegó a completarse (con o sin conectividad al cargar la pantalla).
+  bool _emailSectionLoaded = false;
+  List<String> _contactEmails = <String>[];
+  bool _showExtraEmailField = false;
+  final TextEditingController _extraEmailController = TextEditingController();
+  final GlobalKey<FormState> _extraEmailFormKey = GlobalKey<FormState>();
+
   @override
   void initState() {
     super.initState();
@@ -54,7 +62,7 @@ class _GroupSignatureScreenState extends ConsumerState<GroupSignatureScreen> {
     _signatureController.addListener(() {
       setState(() => _signatureEmpty = _signatureController.isEmpty);
     });
-    _loadGroupReports();
+    _loadGroupReports().then((_) => _loadContactEmails());
   }
 
   @override
@@ -62,7 +70,119 @@ class _GroupSignatureScreenState extends ConsumerState<GroupSignatureScreen> {
     _nameController.dispose();
     _roleController.dispose();
     _signatureController.dispose();
+    _extraEmailController.dispose();
     super.dispose();
+  }
+
+  /// Carga los correos de contacto del cliente (usando el clientId del
+  /// primer reporte del grupo) para mostrarlos en la sección informativa
+  /// antes del botón de firma. Si no hay conectividad, se omite en silencio.
+  Future<void> _loadContactEmails() async {
+    try {
+      if (_groupReports.isEmpty) return;
+      final String printerId = _groupReports.first.printerId;
+      final Printer? printer = await (localDatabase.select(localDatabase.printers)
+            ..where((Printers t) => t.id.equals(printerId)))
+          .getSingleOrNull();
+      if (printer == null) return;
+
+      final String? authToken = await AuthService().getToken();
+      final http.Response response = await http
+          .get(
+            Uri.parse(
+                '$kServerBaseUrlDevice/api/admin/clients/${printer.clientId}/contact-emails'),
+            headers: <String, String>{
+              if (authToken != null) 'Authorization': 'Bearer $authToken',
+            },
+          )
+          .timeout(const Duration(seconds: 10));
+      if (response.statusCode != 200) return;
+
+      final List<dynamic> data = jsonDecode(response.body) as List<dynamic>;
+      final List<String> emails = data
+          .map((dynamic e) => (e as Map<String, dynamic>)['email'] as String)
+          .toList();
+
+      if (!mounted) return;
+      setState(() {
+        _contactEmails = emails;
+        _emailSectionLoaded = true;
+      });
+    } catch (_) {
+      // Sin conectividad u otro error: se omite la sección silenciosamente.
+    }
+  }
+
+  /// Email adicional válido capturado en la sección de correo, o null si
+  /// está vacío o no tiene formato de email.
+  String? get _pendingEmailValue {
+    final String value = _extraEmailController.text.trim();
+    if (value.isEmpty) return null;
+    final RegExp emailRegex = RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$');
+    return emailRegex.hasMatch(value) ? value : null;
+  }
+
+  Widget _buildEmailSection() {
+    final bool hasContacts = _contactEmails.isNotEmpty;
+    return _SectionCard(
+      title: 'Envío por correo',
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[
+              Icon(
+                hasContacts ? Icons.check_circle : Icons.warning_amber_rounded,
+                color: hasContacts ? AppPalette.success : Colors.orange,
+                size: 20,
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  hasContacts
+                      ? 'Se enviará a: ${_contactEmails.join(', ')}'
+                      : 'Sin correos registrados',
+                  style: const TextStyle(color: Colors.white70, fontSize: 13),
+                ),
+              ),
+            ],
+          ),
+          if (hasContacts && !_showExtraEmailField) ...<Widget>[
+            const SizedBox(height: 8),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: TextButton(
+                onPressed: () => setState(() => _showExtraEmailField = true),
+                child: const Text('Agregar otro'),
+              ),
+            ),
+          ],
+          if (!hasContacts || _showExtraEmailField) ...<Widget>[
+            const SizedBox(height: 10),
+            Form(
+              key: _extraEmailFormKey,
+              child: TextFormField(
+                controller: _extraEmailController,
+                keyboardType: TextInputType.emailAddress,
+                decoration: const InputDecoration(
+                  labelText: 'Correo adicional',
+                  isDense: true,
+                ),
+                validator: (String? v) {
+                  final String value = (v ?? '').trim();
+                  if (value.isEmpty) return null;
+                  final RegExp emailRegex =
+                      RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$');
+                  if (!emailRegex.hasMatch(value)) return 'Correo inválido';
+                  return null;
+                },
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
   }
 
   Future<void> _loadGroupReports() async {
@@ -110,6 +230,7 @@ class _GroupSignatureScreenState extends ConsumerState<GroupSignatureScreen> {
       final String? sigPath = await _saveSignature();
       final String signerName = _nameController.text.trim();
       final String signerRole = _roleController.text.trim();
+      final String? pendingEmail = _pendingEmailValue;
 
       // 1. Update all group reports to Signed + closed
       for (final Report r in _groupReports) {
@@ -121,6 +242,7 @@ class _GroupSignatureScreenState extends ConsumerState<GroupSignatureScreen> {
           signatureName: Value<String?>(signerName),
           signatureRole: Value<String?>(signerRole),
           signatureImagePath: Value<String?>(sigPath),
+          pendingEmail: Value<String?>(pendingEmail),
         ));
       }
 
@@ -241,10 +363,6 @@ class _GroupSignatureScreenState extends ConsumerState<GroupSignatureScreen> {
       // Invalidate so banners update
       ref.invalidate(pendingGroupProvider);
 
-      // Enviar cada reporte del grupo por email a los contactos del cliente
-      // (no bloqueante)
-      await _sendGroupReportEmails();
-
       if (!mounted) return;
 
       context.go(
@@ -266,152 +384,6 @@ class _GroupSignatureScreenState extends ConsumerState<GroupSignatureScreen> {
     } finally {
       if (mounted) setState(() => _isSaving = false);
     }
-  }
-
-  /// Envía por email cada reporte del grupo a los contactos del cliente.
-  /// No bloqueante: cualquier error solo muestra un SnackBar naranja.
-  Future<void> _sendGroupReportEmails() async {
-    try {
-      if (_groupReports.isEmpty) return;
-
-      final Printer? printer = await (localDatabase.select(localDatabase.printers)
-            ..where((Printers t) =>
-                t.id.equals(_groupReports.first.printerId)))
-          .getSingleOrNull();
-      if (printer == null) return;
-
-      final String? authToken = await AuthService().getToken();
-      final http.Response contactsResponse = await http.get(
-        Uri.parse(
-            '$kServerBaseUrlDevice/api/admin/clients/${printer.clientId}/contact-emails'),
-        headers: <String, String>{
-          if (authToken != null) 'Authorization': 'Bearer $authToken',
-        },
-      );
-      if (contactsResponse.statusCode != 200) {
-        throw Exception('HTTP ${contactsResponse.statusCode}');
-      }
-
-      final List<dynamic> contacts =
-          jsonDecode(contactsResponse.body) as List<dynamic>;
-
-      if (contacts.isNotEmpty) {
-        for (final Report r in _groupReports) {
-          await _postSendEmail(r.id, null, authToken);
-        }
-        if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            backgroundColor: AppPalette.success,
-            content: Text(
-              'Reporte(s) enviado(s) por email a ${contacts.length} contacto${contacts.length == 1 ? '' : 's'}',
-            ),
-            behavior: SnackBarBehavior.floating,
-          ),
-        );
-        return;
-      }
-
-      if (!mounted) return;
-      await _promptExtraEmailAndSendGroup(authToken);
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          backgroundColor: Colors.orange,
-          content: Text('No se pudo enviar el email'),
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
-    }
-  }
-
-  Future<void> _postSendEmail(
-    String reportId,
-    String? extraEmail,
-    String? authToken,
-  ) async {
-    final http.Response response = await http.post(
-      Uri.parse('$kServerBaseUrlDevice/api/reports/$reportId/send-email'),
-      headers: <String, String>{
-        'Content-Type': 'application/json',
-        if (authToken != null) 'Authorization': 'Bearer $authToken',
-      },
-      body: jsonEncode(<String, dynamic>{'extra_email': extraEmail}),
-    );
-    if (response.statusCode != 200 && response.statusCode != 201) {
-      throw Exception('HTTP ${response.statusCode}: ${response.body}');
-    }
-  }
-
-  Future<void> _promptExtraEmailAndSendGroup(String? authToken) async {
-    final TextEditingController emailController = TextEditingController();
-    final GlobalKey<FormState> dialogFormKey = GlobalKey<FormState>();
-
-    final bool? shouldSend = await showDialog<bool>(
-      context: context,
-      builder: (BuildContext dialogContext) {
-        return AlertDialog(
-          title: const Text('Sin correos registrados'),
-          content: Form(
-            key: dialogFormKey,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: <Widget>[
-                const Text(
-                  'El cliente no tiene correos de contacto. Ingresa un correo para enviar el reporte:',
-                ),
-                const SizedBox(height: 12),
-                TextFormField(
-                  controller: emailController,
-                  keyboardType: TextInputType.emailAddress,
-                  decoration:
-                      const InputDecoration(labelText: 'Correo electrónico'),
-                  validator: (String? value) {
-                    final String v = (value ?? '').trim();
-                    if (v.isEmpty) return 'Campo obligatorio';
-                    final RegExp emailRegex =
-                        RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$');
-                    if (!emailRegex.hasMatch(v)) return 'Correo inválido';
-                    return null;
-                  },
-                ),
-              ],
-            ),
-          ),
-          actions: <Widget>[
-            TextButton(
-              onPressed: () => Navigator.of(dialogContext).pop(false),
-              child: const Text('Omitir'),
-            ),
-            FilledButton(
-              onPressed: () {
-                if (dialogFormKey.currentState?.validate() ?? false) {
-                  Navigator.of(dialogContext).pop(true);
-                }
-              },
-              child: const Text('Enviar'),
-            ),
-          ],
-        );
-      },
-    );
-
-    if (shouldSend != true) return;
-
-    final String extraEmail = emailController.text.trim();
-    for (final Report r in _groupReports) {
-      await _postSendEmail(r.id, extraEmail, authToken);
-    }
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        backgroundColor: AppPalette.success,
-        content: Text('Reporte(s) enviado(s) por email'),
-        behavior: SnackBarBehavior.floating,
-      ),
-    );
   }
 
   @override
@@ -530,6 +502,10 @@ class _GroupSignatureScreenState extends ConsumerState<GroupSignatureScreen> {
                             ],
                           ),
                         ),
+                        if (_emailSectionLoaded) ...<Widget>[
+                          const SizedBox(height: 16),
+                          _buildEmailSection(),
+                        ],
                       ],
                     ),
                   ),

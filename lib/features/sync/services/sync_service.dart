@@ -842,10 +842,85 @@ class SyncService {
       if (response.statusCode != 200 && response.statusCode != 201) {
         throw Exception('HTTP ${response.statusCode}: $body');
       }
+
+      // Tarea 3: tras subir el PDF de un reporte individual (no delivery_pdf),
+      // disparar el envío de email a los contactos del cliente. No fatal.
+      if (item.entityType == 'pdf') {
+        await _sendReportEmailAfterPdfSync(item.entityId, baseUrl, authToken);
+      }
     } catch (e) {
       // ignore: avoid_print
       print('[SyncService] Error: $e');
       rethrow;
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Email tras sync del PDF — GET contact-emails + POST send-email
+  //
+  // Lista final = contact_emails del cliente + pendingEmail del reporte
+  // (si existe). No fatal: cualquier error solo se loggea.
+  // ---------------------------------------------------------------------------
+
+  Future<void> _sendReportEmailAfterPdfSync(
+    String reportId,
+    String baseUrl,
+    String? authToken,
+  ) async {
+    try {
+      final Report? report = await (_db.select(_db.reports)
+            ..where((Reports r) => r.id.equals(reportId)))
+          .getSingleOrNull();
+      if (report == null) {
+        debugPrint('[SyncService] send-email: reporte $reportId no encontrado localmente');
+        return;
+      }
+
+      final Printer? printer = await (_db.select(_db.printers)
+            ..where((Printers p) => p.id.equals(report.printerId)))
+          .getSingleOrNull();
+      if (printer == null) {
+        debugPrint('[SyncService] send-email: impresora ${report.printerId} no encontrada localmente');
+        return;
+      }
+
+      final http.Response contactsResponse = await http.get(
+        Uri.parse(
+            '$baseUrl/api/admin/clients/${printer.clientId}/contact-emails'),
+        headers: <String, String>{
+          if (authToken != null) 'Authorization': 'Bearer $authToken',
+        },
+      );
+      if (contactsResponse.statusCode != 200) {
+        debugPrint(
+          '[SyncService] send-email: GET contact-emails HTTP ${contactsResponse.statusCode} — se omite envío',
+        );
+        return;
+      }
+
+      final List<dynamic> contacts =
+          jsonDecode(contactsResponse.body) as List<dynamic>;
+      final String? pendingEmail =
+          (report.pendingEmail ?? '').trim().isEmpty ? null : report.pendingEmail!.trim();
+
+      if (contacts.isEmpty && pendingEmail == null) {
+        debugPrint('[SyncService] send-email: sin correos para reporte $reportId — se omite');
+        return;
+      }
+
+      final http.Response sendResponse = await http.post(
+        Uri.parse('$baseUrl/api/reports/$reportId/send-email'),
+        headers: <String, String>{
+          'Content-Type': 'application/json',
+          if (authToken != null) 'Authorization': 'Bearer $authToken',
+        },
+        body: jsonEncode(<String, dynamic>{'extra_email': pendingEmail}),
+      );
+      debugPrint(
+        '[SyncService] send-email reporte $reportId → HTTP ${sendResponse.statusCode}',
+      );
+    } catch (e) {
+      debugPrint('[SyncService] send-email error (no fatal) reporte $reportId: $e');
     }
   }
 
