@@ -73,7 +73,7 @@ def _send(to_email: str, subject: str, html_body: str) -> None:
 
 
 def _base_email_template(title: str, body_html: str) -> str:
-    logo_url = f"{get_settings().portal_base_url}/static/logo_smp.png"
+    logo_url = f"{get_settings().api_base_url}/static/logo_smp.png"
     return f"""<!DOCTYPE html>
 <html lang="es">
 <head>
