@@ -22,7 +22,8 @@ class Settings(BaseSettings):
     smtp_password: str = ""
 
     # Base URL of the client portal front-end (used in email links)
-    portal_base_url: str = "https://portal.mainservicepc.com"
+    portal_base_url: str = "https://clientes.mainservicepc.com"
+    api_base_url: str = "https://api.mainservicepc.com"
 
 
 @lru_cache()
