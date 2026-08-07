@@ -188,7 +188,7 @@ def send_report_email(
     pdf_row = (
         db.query(File)
         .join(EntityFile, EntityFile.file_id == File.id)
-        .filter(EntityFile.entity_id == report_id, EntityFile.entity_type == "pdf")
+        .filter(EntityFile.entity_id == report_id, EntityFile.file_category == "pdf")
         .order_by(File.created_at.desc())
         .first()
     )
