@@ -1149,3 +1149,22 @@ for (final String path in photoPaths) {
 
 **Verificado:** `npx tsc --noEmit` en `admin-web` sin errores. `clients/` no se pudo compilar (`vite build`) para verificar visualmente: `node_modules` local está incompleto (`Cannot find module '...lines-and-columns/build/index.js'` al cargar `postcss.config.js`), problema preexistente del entorno no relacionado con este cambio — requiere `npm install` en `clients/` antes de correr `npm run dev`/`vite build`. Pendiente: correr `npm install` en `clients/`, probar ambas pantallas en navegador, y aplicar `alembic upgrade head` (010, Sprint A) si no se ha hecho.
 
+---
+
+## ✅ Sprint E — Email integrado en firma (reemplaza Sprint B) (07/08/2026)
+
+Reemplaza el envío de email post-firma del Sprint B (bloqueante, con `AlertDialog` tras guardar) por
+una sección informativa de correo dentro del formulario de firma que no bloquea el flujo, más un
+disparo no-fatal desde `sync_service` cuando el PDF del reporte ya se subió al servidor.
+
+| Cambio | Archivo | Descripción |
+|--------|---------|-------------|
+| Columna `pendingEmail` | `lib/data/local/app_database.dart` | `TextColumn get pendingEmail => text().nullable()()` en `Reports`. `schemaVersion` 9→10, migración `addColumn(reports, reports.pendingEmail)` para `from < 10`. |
+| Sección de email en firma individual | `lib/features/signature/presentation/signature_screen.dart` | `_loadContactEmails()` en `initState()`: `GET /api/admin/clients/{clientId}/contact-emails` (clientId vía `printerId` de `captureProvider`). Si falla (sin conectividad), `_emailSectionLoaded` queda `false` y la sección no se renderiza (omisión silenciosa). Si responde 200, se muestra `_buildEmailSection()` entre la card "Datos del Firmante" y el botón firmar: caso A (hay correos) → ícono check verde + "Se enviará a: ..." + botón "Agregar otro" que revela un `TextFormField`; caso B (sin correos) → ícono de advertencia naranja + `TextFormField` directo. El valor válido (regex email) se guarda en `pendingEmail` al insertar el reporte en Drift, tanto en `_onFinishPressed()` como en `_onGroupPressed()`. |
+| Sección de email en firma grupal | `lib/features/reports/presentation/group_signature_screen.dart` | Mismo patrón; `_loadContactEmails()` se encadena después de `_loadGroupReports()` (usa `_groupReports.first.printerId` para resolver el clientId, ya que `GroupSignatureArgs` no trae `printerId`). El email capturado se aplica a **todos** los reportes del grupo al firmarlos (`pendingEmail: Value(pendingEmail)` en el `update` dentro de `_onConfirm()`). |
+| Eliminado código Sprint B | ambos archivos arriba | Quitados `_sendReportEmailAfterSignature`/`_sendGroupReportEmails`, `_postSendEmail`, `_promptExtraEmailAndSend(Group)` y sus llamadas tras guardar — ya no se envía el email inmediatamente después de firmar, sino durante el sync del PDF. |
+| Trigger en sync | `lib/features/sync/services/sync_service.dart` | En `_syncFile()`, tras un 200/201 con `item.entityType == 'pdf'` (reporte individual, no `delivery_pdf`, que tiene su propio `entityType` y método `_syncDeliveryPdf`): nuevo `_sendReportEmailAfterPdfSync(reportId, baseUrl, authToken)`. Lee el reporte local, `GET contact-emails` del cliente de su impresora, arma lista final = `contact_emails` + `pendingEmail` (si no vacío), y si no está vacía hace `POST /api/reports/{id}/send-email` con `{"extra_email": pendingEmail}`. Todo envuelto en try/catch con `debugPrint`, no lanza excepción (no afecta el resultado del item en `syncQueue`). |
+| Botón "Enviar" en detalle de reporte | `lib/features/reports/presentation/report_view_screen.dart` | Nuevo botón (ícono `Icons.email_outlined`, texto "Enviar") en la barra inferior, visible solo si `report.status == 'Signed'`. `_openSendEmailDialog()`: `GET contact-emails` (si falla → SnackBar naranja "Se requiere conexión para enviar email"); si responde, `AlertDialog` con la lista de correos + `TextFormField` para correo adicional opcional + botón "Enviar" → `POST send-email`; `_sendEmail()` muestra SnackBar verde "Email enviado" o naranja "Error al enviar". |
+
+**Verificado:** `dart run build_runner build --delete-conflicting-outputs` sin errores (118 outputs). `flutter analyze` sin issues nuevos en los 5 archivos tocados (los 21 issues reportados son preexistentes en otros archivos). Pendiente: probar en dispositivo/emulador con datos reales (requiere backend con Sprint A desplegado, `alembic upgrade head` aplicado, y un servidor accesible desde el dispositivo para validar el disparo de email durante el sync).
+

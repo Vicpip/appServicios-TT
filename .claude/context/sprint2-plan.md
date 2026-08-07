@@ -426,3 +426,13 @@ ruta `/configuracion` + nav item. Ambos consumen los endpoints CRUD de Sprint A
 (`/api/admin/clients/{id}/contact-emails`). Detalle completo en `project-status.md` → sección "Sprint D".
 Pendiente: `npm install` en `clients/` (node_modules incompleto, build roto — no relacionado a este cambio),
 probar ambas UIs en navegador, y `alembic upgrade head` si sigue pendiente.
+
+## ✅ Sprint E — Email integrado en firma, reemplaza Sprint B (07/08/2026)
+
+Flutter: columna `pendingEmail` en `Reports` (Drift, schemaVersion 10). Sección informativa de correo
+(no bloqueante) en `signature_screen.dart` y `group_signature_screen.dart` antes del botón firmar —
+reemplaza el envío inmediato con `AlertDialog` del Sprint B. El envío real ahora ocurre en
+`sync_service.dart` (`_syncFile`) tras subir el PDF del reporte (`entityType == 'pdf'`), combinando
+`contact-emails` del cliente + `pendingEmail` capturado. Nuevo botón "Enviar" en
+`report_view_screen.dart` (solo si `status == 'Signed'`) para reenvío manual. Detalle completo en
+`project-status.md` → sección "Sprint E". Pendiente: probar en dispositivo/emulador con datos reales.
