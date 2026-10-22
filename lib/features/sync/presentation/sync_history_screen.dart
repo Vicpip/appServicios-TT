@@ -1,26 +1,45 @@
+import 'package:drift/drift.dart' show OrderingTerm;
 import 'package:flutter/material.dart';
 import 'package:industrial_service_reports/core/theme/app_palette.dart';
+import 'package:industrial_service_reports/core/utils/date_utils.dart'
+    show formatLocalCDMX;
 import 'package:industrial_service_reports/data/local/app_database.dart';
 
-enum _SyncStatus { success, partial, failed }
+/// Máximo de reportes subidos que muestra el historial.
+const int _kHistoryLimit = 50;
 
 @immutable
-class _SyncLogEntry {
-  const _SyncLogEntry({
-    required this.status,
-    required this.title,
-    required this.timestamp,
-    required this.actions,
-    this.errorMessage,
+class _UploadedEntry {
+  const _UploadedEntry({
+    required this.code,
+    required this.serial,
+    required this.client,
+    required this.syncedAt,
   });
 
-  final _SyncStatus status;
-  final String title;
-  final String timestamp;
-  final List<String> actions;
-  final String? errorMessage;
+  final String code;
+  final String serial;
+  final String client;
+  final DateTime syncedAt;
 }
 
+@immutable
+class _ErrorEntry {
+  const _ErrorEntry({
+    required this.title,
+    required this.detail,
+    required this.reason,
+    required this.attempts,
+  });
+
+  final String title;
+  final String detail;
+  final String reason;
+  final int attempts;
+}
+
+/// Historial de sincronización: reportes subidos recientemente (últimos 50) y
+/// elementos de la cola que están en error con su motivo.
 class SyncHistoryScreen extends StatefulWidget {
   const SyncHistoryScreen({super.key, required this.database});
 
@@ -31,211 +50,252 @@ class SyncHistoryScreen extends StatefulWidget {
 }
 
 class _SyncHistoryScreenState extends State<SyncHistoryScreen> {
-  // Nota: La tabla de sincronización no existe en la BD actual
-  // Se muestra un mensaje de "Sin registros" como fallback
-  List<_SyncLogEntry> _entries = <_SyncLogEntry>[];
+  bool _loading = true;
+  List<_UploadedEntry> _uploaded = const <_UploadedEntry>[];
+  List<_ErrorEntry> _errors = const <_ErrorEntry>[];
 
-  void _confirmClearHistory() {
-    showDialog<bool>(
-      context: context,
-      builder: (BuildContext context) {
-        return AlertDialog(
-          title: const Text('Limpiar Historial'),
-          content: const Text(
-            '¿Deseas eliminar toda la bitácora de sincronizaciones? Esta acción no afecta los datos.',
-          ),
-          actions: <Widget>[
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(false),
-              child: const Text('Cancelar'),
-            ),
-            FilledButton(
-              onPressed: () => Navigator.of(context).pop(true),
-              style: FilledButton.styleFrom(
-                backgroundColor: Theme.of(context).colorScheme.error,
-                foregroundColor: Theme.of(context).colorScheme.onError,
-              ),
-              child: const Text('Limpiar'),
-            ),
-          ],
-        );
-      },
-    ).then((bool? confirmed) {
-      if (confirmed == true && mounted) {
-        setState(() {
-          _entries = <_SyncLogEntry>[];
-        });
-      }
-    });
+  @override
+  void initState() {
+    super.initState();
+    _load();
   }
 
-  void _retrySync() {
-    ScaffoldMessenger.of(context).hideCurrentSnackBar();
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Iniciando reintento de sincronización...'),
-        behavior: SnackBarBehavior.floating,
-      ),
+  Future<({String code, String serial, String client})> _describeReport(
+      Report report) async {
+    final AppDatabase db = widget.database;
+    final Printer? printer = await (db.select(db.printers)
+          ..where((Printers p) => p.id.equals(report.printerId)))
+        .getSingleOrNull();
+    final Client? client = printer == null
+        ? null
+        : await (db.select(db.clients)
+              ..where((Clients c) => c.id.equals(printer.clientId)))
+            .getSingleOrNull();
+    return (
+      code: report.code ?? report.id.substring(0, 8),
+      serial: printer?.serialNumber ?? '—',
+      client: client?.name ?? '—',
     );
+  }
+
+  String _entityLabel(String entityType) {
+    switch (entityType) {
+      case 'report':
+        return 'Reporte';
+      case 'report_update':
+        return 'Corrección de reporte';
+      case 'file':
+        return 'Foto';
+      case 'signature':
+        return 'Firma';
+      case 'pdf':
+        return 'PDF del reporte';
+      case 'delivery_pdf':
+        return 'PDF de entrega';
+      case 'policy_delivery':
+        return 'Entrega de póliza';
+      default:
+        return entityType;
+    }
+  }
+
+  Future<void> _load() async {
+    final AppDatabase db = widget.database;
+
+    final List<Report> reports = await (db.select(db.reports)
+          ..where((Reports r) => r.syncedAt.isNotNull())
+          ..orderBy(<OrderingTerm Function(Reports)>[
+            (Reports r) => OrderingTerm.desc(r.syncedAt),
+          ])
+          ..limit(_kHistoryLimit))
+        .get();
+
+    final List<_UploadedEntry> uploaded = <_UploadedEntry>[];
+    for (final Report report in reports) {
+      final d = await _describeReport(report);
+      uploaded.add(_UploadedEntry(
+        code: d.code,
+        serial: d.serial,
+        client: d.client,
+        syncedAt: report.syncedAt!,
+      ));
+    }
+
+    final List<SyncQueueData> failedItems = await (db.select(db.syncQueue)
+          ..where((SyncQueue q) => q.estadoPeticion.equals('failed'))
+          ..orderBy(<OrderingTerm Function(SyncQueue)>[
+            (SyncQueue q) => OrderingTerm.desc(q.updatedAt),
+          ]))
+        .get();
+
+    final List<_ErrorEntry> errors = <_ErrorEntry>[];
+    for (final SyncQueueData item in failedItems) {
+      final Report? report = await (db.select(db.reports)
+            ..where((Reports r) => r.id.equals(item.entityId)))
+          .getSingleOrNull();
+      String detail = '';
+      String title = _entityLabel(item.entityType);
+      if (report != null) {
+        final d = await _describeReport(report);
+        title = '${_entityLabel(item.entityType)} ${d.code}';
+        detail = 'S/N ${d.serial} · ${d.client}';
+      }
+      errors.add(_ErrorEntry(
+        title: title,
+        detail: detail,
+        reason: (item.lastError ?? '').isEmpty
+            ? 'Error desconocido'
+            : item.lastError!,
+        attempts: item.intentosFallidos,
+      ));
+    }
+
+    if (!mounted) return;
+    setState(() {
+      _uploaded = uploaded;
+      _errors = errors;
+      _loading = false;
+    });
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Row(
-          children: const <Widget>[
+        title: const Row(
+          children: <Widget>[
             Icon(Icons.history_rounded, size: 22),
             SizedBox(width: 8),
             Text('Historial de Sincronización'),
           ],
         ),
-        actions: <Widget>[
-          IconButton(
-            tooltip: 'Filtrar',
-            icon: const Icon(Icons.filter_list_rounded),
-            onPressed: () {
-              ScaffoldMessenger.of(context).hideCurrentSnackBar();
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text('Filtros de bitácora (próximamente)'),
-                  behavior: SnackBarBehavior.floating,
-                ),
-              );
-            },
+      ),
+      body: SafeArea(
+        child: _loading
+            ? const Center(child: CircularProgressIndicator())
+            : (_uploaded.isEmpty && _errors.isEmpty)
+                ? const _EmptyHistory()
+                : RefreshIndicator(
+                    onRefresh: _load,
+                    child: ListView(
+                      padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
+                      children: <Widget>[
+                        if (_errors.isNotEmpty) ...<Widget>[
+                          _SectionTitle(
+                              text: 'En error (${_errors.length})',
+                              color: const Color(0xFFE57373)),
+                          for (final _ErrorEntry e in _errors) ...<Widget>[
+                            _ErrorCard(entry: e),
+                            const SizedBox(height: 10),
+                          ],
+                          const SizedBox(height: 8),
+                        ],
+                        _SectionTitle(
+                            text:
+                                'Subidos recientemente (últimos $_kHistoryLimit)',
+                            color: AppPalette.success),
+                        if (_uploaded.isEmpty)
+                          const Padding(
+                            padding: EdgeInsets.symmetric(vertical: 12),
+                            child: Text(
+                              'Aún no hay reportes subidos.',
+                              style: TextStyle(color: Colors.white60),
+                            ),
+                          ),
+                        for (final _UploadedEntry u in _uploaded) ...<Widget>[
+                          _UploadedCard(entry: u),
+                          const SizedBox(height: 10),
+                        ],
+                      ],
+                    ),
+                  ),
+      ),
+    );
+  }
+}
+
+class _EmptyHistory extends StatelessWidget {
+  const _EmptyHistory();
+
+  @override
+  Widget build(BuildContext context) {
+    return const Center(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: <Widget>[
+          Icon(Icons.history_rounded, size: 54, color: Colors.white24),
+          SizedBox(height: 12),
+          Text(
+            'Aún no hay reportes sincronizados',
+            style: TextStyle(
+              color: Colors.white60,
+              fontSize: 15,
+              fontWeight: FontWeight.w600,
+            ),
           ),
         ],
       ),
-      body: SafeArea(
-        child: Column(
-          children: <Widget>[
-            // ── Header fijo ───────────────────────────────────────────────
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.fromLTRB(16, 12, 12, 12),
-              decoration: const BoxDecoration(
-                color: AppPalette.surfaceDark,
-                border: Border(
-                  bottom: BorderSide(color: AppPalette.surfaceDarkHighlight),
-                ),
-              ),
-              child: Row(
-                children: <Widget>[
-                  const Expanded(
-                    child: Text(
-                      'Bitácora de las últimas conexiones con el servidor local.',
-                      style: TextStyle(
-                        color: Colors.white60,
-                        fontSize: 13,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ),
-                  TextButton(
-                    onPressed: _entries.isEmpty ? null : _confirmClearHistory,
-                    style: TextButton.styleFrom(
-                      foregroundColor: const Color(0xFFE57373),
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 10, vertical: 6),
-                    ),
-                    child: const Text(
-                      'Limpiar',
-                      style: TextStyle(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
+    );
+  }
+}
 
-            // ── Lista de bitácora ─────────────────────────────────────────
-            Expanded(
-              child: _entries.isEmpty
-                  ? const Center(
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: <Widget>[
-                          Icon(
-                            Icons.history_rounded,
-                            size: 54,
-                            color: Colors.white24,
-                          ),
-                          SizedBox(height: 12),
-                          Text(
-                            'No hay registros en la bitácora',
-                            style: TextStyle(
-                              color: Colors.white60,
-                              fontSize: 15,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                        ],
-                      ),
-                    )
-                  : ListView.separated(
-                      padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
-                      itemCount: _entries.length,
-                      separatorBuilder: (_, __) => const SizedBox(height: 10),
-                      itemBuilder: (BuildContext context, int index) {
-                        return _LogCard(
-                          entry: _entries[index],
-                          onRetry: _retrySync,
-                        );
-                      },
-                    ),
-            ),
-          ],
+class _SectionTitle extends StatelessWidget {
+  const _SectionTitle({required this.text, required this.color});
+
+  final String text;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Text(
+        text,
+        style: TextStyle(
+          color: color,
+          fontSize: 14,
+          fontWeight: FontWeight.w800,
         ),
       ),
     );
   }
 }
 
-// ─── Tarjeta de log ───────────────────────────────────────────────────────────
+class _UploadedCard extends StatelessWidget {
+  const _UploadedCard({required this.entry});
 
-class _LogCard extends StatelessWidget {
-  const _LogCard({
-    required this.entry,
-    required this.onRetry,
-  });
-
-  final _SyncLogEntry entry;
-  final VoidCallback onRetry;
+  final _UploadedEntry entry;
 
   @override
   Widget build(BuildContext context) {
-    final _StatusStyle style = _styleFor(entry.status);
-
     return Card(
       color: AppPalette.surfaceDark,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(14),
-        side: BorderSide(color: style.borderColor),
+        side: const BorderSide(color: AppPalette.successDark),
       ),
       child: Padding(
         padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: <Widget>[
-            // Fila 1: estado + título + timestamp
             Row(
               children: <Widget>[
-                Icon(style.icon, color: style.color, size: 22),
+                const Icon(Icons.check_circle_rounded,
+                    color: AppPalette.success, size: 22),
                 const SizedBox(width: 10),
                 Expanded(
                   child: Text(
-                    entry.title,
-                    style: TextStyle(
-                      color: style.color,
+                    entry.code,
+                    style: const TextStyle(
+                      color: AppPalette.success,
                       fontWeight: FontWeight.w800,
                       fontSize: 15,
                     ),
                   ),
                 ),
                 Text(
-                  entry.timestamp,
+                  formatLocalCDMX(entry.syncedAt, showTime: true),
                   style: const TextStyle(
                     color: Colors.white54,
                     fontSize: 12,
@@ -244,151 +304,106 @@ class _LogCard extends StatelessWidget {
                 ),
               ],
             ),
-
-            const SizedBox(height: 10),
-
-            // Fila 2: detalles / payload
-            if (entry.status == _SyncStatus.failed) ...<Widget>[
-              _ErrorDetail(message: entry.errorMessage ?? ''),
-            ] else if (entry.actions.isNotEmpty) ...<Widget>[
-              _ActionDetail(actions: entry.actions),
-            ],
-
-            // Fila 3: botón reintentar (solo en fallo)
-            if (entry.status == _SyncStatus.failed) ...<Widget>[
-              const SizedBox(height: 10),
-              Align(
-                alignment: Alignment.centerRight,
-                child: SizedBox(
-                  height: 34,
-                  child: FilledButton.icon(
-                    onPressed: onRetry,
-                    icon: const Icon(Icons.sync_rounded, size: 16),
-                    label: const Text(
-                      'Reintentar ahora',
-                      style: TextStyle(
-                        fontWeight: FontWeight.w800,
-                        fontSize: 13,
-                      ),
-                    ),
-                  ),
-                ),
+            const SizedBox(height: 8),
+            Text(
+              'S/N: ${entry.serial}',
+              style: const TextStyle(
+                color: AppPalette.accentBlue,
+                fontSize: 13,
+                fontWeight: FontWeight.w700,
               ),
-            ],
+            ),
+            const SizedBox(height: 2),
+            Text(
+              entry.client,
+              style: const TextStyle(
+                color: Colors.white70,
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
           ],
         ),
       ),
     );
   }
-
-  _StatusStyle _styleFor(_SyncStatus status) {
-    return switch (status) {
-      _SyncStatus.success => const _StatusStyle(
-          icon: Icons.check_circle_rounded,
-          color: AppPalette.success,
-          borderColor: AppPalette.successDark,
-        ),
-      _SyncStatus.partial => const _StatusStyle(
-          icon: Icons.warning_rounded,
-          color: AppPalette.warning,
-          borderColor: AppPalette.warningDark,
-        ),
-      _SyncStatus.failed => const _StatusStyle(
-          icon: Icons.error_rounded,
-          color: Color(0xFFE57373),
-          borderColor: Color(0xFF5A1A1A),
-        ),
-    };
-  }
 }
 
-class _ActionDetail extends StatelessWidget {
-  const _ActionDetail({required this.actions});
+class _ErrorCard extends StatelessWidget {
+  const _ErrorCard({required this.entry});
 
-  final List<String> actions;
+  final _ErrorEntry entry;
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
-      decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.05),
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: AppPalette.surfaceDarkHighlight),
+    return Card(
+      color: AppPalette.surfaceDark,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(14),
+        side: const BorderSide(color: Color(0xFF5A1A1A)),
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: actions
-            .map(
-              (String action) => Padding(
-                padding: const EdgeInsets.symmetric(vertical: 2),
-                child: Text(
-                  action,
-                  style: TextStyle(
-                    color: action.startsWith('⚠')
-                        ? AppPalette.warning
-                        : Colors.white70,
-                    fontSize: 13,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: <Widget>[
+            Row(
+              children: <Widget>[
+                const Icon(Icons.error_rounded,
+                    color: Color(0xFFE57373), size: 22),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    entry.title,
+                    style: const TextStyle(
+                      color: Color(0xFFE57373),
+                      fontWeight: FontWeight.w800,
+                      fontSize: 15,
+                    ),
+                  ),
+                ),
+                Text(
+                  '${entry.attempts} intento${entry.attempts != 1 ? 's' : ''}',
+                  style: const TextStyle(
+                    color: Colors.white54,
+                    fontSize: 12,
                     fontWeight: FontWeight.w600,
                   ),
                 ),
+              ],
+            ),
+            if (entry.detail.isNotEmpty) ...<Widget>[
+              const SizedBox(height: 6),
+              Text(
+                entry.detail,
+                style: const TextStyle(
+                  color: Colors.white70,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                ),
               ),
-            )
-            .toList(),
-      ),
-    );
-  }
-}
-
-class _ErrorDetail extends StatelessWidget {
-  const _ErrorDetail({required this.message});
-
-  final String message;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
-      decoration: BoxDecoration(
-        color: const Color(0xFF3B1010),
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: const Color(0xFF7A2222)),
-      ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: <Widget>[
-          const Icon(
-            Icons.info_outline_rounded,
-            size: 16,
-            color: Color(0xFFE57373),
-          ),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Text(
-              'Error: $message',
-              style: const TextStyle(
-                color: Color(0xFFFFB3B3),
-                fontSize: 13,
-                fontWeight: FontWeight.w600,
+            ],
+            const SizedBox(height: 8),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+              decoration: BoxDecoration(
+                color: const Color(0xFF3B1010),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: const Color(0xFF7A2222)),
+              ),
+              child: Text(
+                'Motivo: ${entry.reason}',
+                style: const TextStyle(
+                  color: Color(0xFFFFB3B3),
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                ),
               ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
-}
-
-class _StatusStyle {
-  const _StatusStyle({
-    required this.icon,
-    required this.color,
-    required this.borderColor,
-  });
-
-  final IconData icon;
-  final Color color;
-  final Color borderColor;
 }

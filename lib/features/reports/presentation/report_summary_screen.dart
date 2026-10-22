@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io' as io;
 
 import 'package:drift/drift.dart' show Expression, OrderingTerm, innerJoin;
+import 'package:industrial_service_reports/core/utils/number_utils.dart';
 import 'package:industrial_service_reports/core/utils/date_utils.dart' show formatLocalCDMX;
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
@@ -211,7 +212,7 @@ class ReportSummaryScreen extends ConsumerWidget {
                     model: saved.model,
                     serviceType: saved.report.serviceType,
                     counter: saved.report.linearInchesCounter.toString(),
-                    darkness: saved.report.darknessLevel?.toString() ?? '',
+                    darkness: formatDarkness(saved.report.darknessLevel),
                     labelType: '',
                   ),
                   const SizedBox(height: 12),
@@ -281,7 +282,7 @@ class ReportSummaryScreen extends ConsumerWidget {
                   model: model,
                   serviceType: capture.selectedServiceType,
                   counter: capture.counterValue,
-                  darkness: capture.darknessValue,
+                  darkness: formatDarkness(parseDarkness(capture.darknessValue)),
                   labelType: capture.selectedLabelType,
                 ),
                 const SizedBox(height: 12),

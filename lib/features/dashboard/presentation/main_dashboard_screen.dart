@@ -179,8 +179,8 @@ class MainDashboardScreen extends ConsumerWidget {
                       DashboardButton(
                         title: 'Alertas Riesgo',
                         icon: Icons.warning_amber_rounded,
-                        onTap: () =>
-                            _showNavigationSnackBar(context, 'Alertas Riesgo'),
+                        onTap: null,
+                        comingSoon: true,
                       ),
                       DashboardButton(
                         title: 'Clientes',
@@ -213,15 +213,6 @@ class MainDashboardScreen extends ConsumerWidget {
     );
   }
 
-  void _showNavigationSnackBar(BuildContext context, String destination) {
-    ScaffoldMessenger.of(context).hideCurrentSnackBar();
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('Ira a la pantalla de $destination'),
-        behavior: SnackBarBehavior.floating,
-      ),
-    );
-  }
 }
 
 class _PendingSyncBanner extends StatelessWidget {
@@ -329,25 +320,31 @@ class DashboardButton extends StatelessWidget {
     required this.icon,
     required this.onTap,
     this.isHighlighted = false,
+    this.comingSoon = false,
   });
 
   final String title;
   final IconData icon;
-  final VoidCallback onTap;
+  final VoidCallback? onTap;
   final bool isHighlighted;
+
+  /// Botón aún sin funcionalidad: se ve desactivado, con la etiqueta
+  /// "Próximamente", y no tiene acción ni aviso.
+  final bool comingSoon;
 
   @override
   Widget build(BuildContext context) {
     final Color backgroundColor =
         isHighlighted ? AppPalette.primary : AppPalette.surfaceDark;
-    final Color foregroundColor = AppPalette.backgroundLight;
+    final Color foregroundColor =
+        comingSoon ? Colors.white38 : AppPalette.backgroundLight;
 
     return Material(
       color: backgroundColor,
       borderRadius: BorderRadius.circular(18),
       clipBehavior: Clip.antiAlias,
       child: InkWell(
-        onTap: onTap,
+        onTap: comingSoon ? null : onTap,
         child: LayoutBuilder(
           builder: (BuildContext context, BoxConstraints constraints) {
             final double iconSize =
@@ -386,6 +383,15 @@ class DashboardButton extends StatelessWidget {
                       fontWeight: FontWeight.w700,
                     ),
                   ),
+                  if (comingSoon)
+                    const Text(
+                      'Próximamente',
+                      style: TextStyle(
+                        color: Colors.white38,
+                        fontSize: 10,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
                 ],
               ),
             );

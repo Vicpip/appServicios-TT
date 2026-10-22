@@ -4,6 +4,7 @@ import 'dart:io' as io;
 import 'dart:typed_data';
 
 import 'package:drift/drift.dart' show Value;
+import 'package:industrial_service_reports/core/utils/number_utils.dart';
 import 'package:industrial_service_reports/core/utils/date_utils.dart' show formatLocalCDMX;
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
@@ -152,7 +153,7 @@ class _ReportViewScreenState extends State<ReportViewScreen> {
     _editServiceType = r.serviceType;
     _notesController.text = r.notes ?? '';
     _counterController.text = r.linearInchesCounter.toString();
-    _darknessController.text = r.darknessLevel?.toString() ?? '';
+    _darknessController.text = formatDarkness(r.darknessLevel);
     setState(() => _isEditing = true);
   }
 
@@ -164,9 +165,7 @@ class _ReportViewScreenState extends State<ReportViewScreen> {
     setState(() => _isSaving = true);
 
     final int? counter = int.tryParse(_counterController.text.trim());
-    final int? darkness = _darknessController.text.trim().isEmpty
-        ? null
-        : int.tryParse(_darknessController.text.trim());
+    final double? darkness = parseDarkness(_darknessController.text);
 
     final Map<String, dynamic> payload = <String, dynamic>{
       'service_type': _editServiceType,
@@ -246,7 +245,8 @@ class _ReportViewScreenState extends State<ReportViewScreen> {
       linearInchesCounter:
           Value<int>(payload['linear_inches_counter'] as int),
       notes: Value<String?>(payload['notes'] as String?),
-      darknessLevel: Value<int?>(payload['darkness_level'] as int?),
+      darknessLevel: Value<double?>(
+          (payload['darkness_level'] as num?)?.toDouble()),
     ));
     await _loadReport();
   }
@@ -487,7 +487,11 @@ class _ReportViewScreenState extends State<ReportViewScreen> {
               'Content-Type': 'application/json',
               if (token != null) 'Authorization': 'Bearer $token',
             },
-            body: jsonEncode(<String, dynamic>{'extra_email': extraEmail}),
+            // manual: el usuario pidió el envío (el servidor manda la liga al PDF).
+            body: jsonEncode(<String, dynamic>{
+              'extra_email': extraEmail,
+              'manual': true,
+            }),
           )
           .timeout(const Duration(seconds: 20));
 
@@ -916,7 +920,9 @@ class _ReportViewScreenState extends State<ReportViewScreen> {
             const SizedBox(height: 6),
             _InfoRow(
               label: 'Oscuridad',
-              value: report.darknessLevel?.toString() ?? '—',
+              value: report.darknessLevel != null
+                  ? formatDarkness(report.darknessLevel)
+                  : '—',
             ),
           ] else ...<Widget>[
             TextFormField(
@@ -936,15 +942,16 @@ class _ReportViewScreenState extends State<ReportViewScreen> {
             const SizedBox(height: 12),
             TextFormField(
               controller: _darknessController,
-              keyboardType: TextInputType.number,
+              keyboardType:
+                  const TextInputType.numberWithOptions(decimal: true),
               style: const TextStyle(color: Colors.white),
               decoration:
                   _editDecoration('Nivel de oscuridad (vacío si no aplica)'),
               validator: (String? v) {
                 if (v != null &&
                     v.trim().isNotEmpty &&
-                    int.tryParse(v.trim()) == null) {
-                  return 'Debe ser un número entero';
+                    parseDarkness(v) == null) {
+                  return 'Ingrese un número válido';
                 }
                 return null;
               },

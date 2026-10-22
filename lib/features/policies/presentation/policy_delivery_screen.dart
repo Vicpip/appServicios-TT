@@ -75,7 +75,8 @@ class _PolicyDeliveryScreenState extends ConsumerState<PolicyDeliveryScreen> {
     final List<Report> signed = await (db.select(db.reports)
           ..where((Reports r) {
             Expression<bool> cond =
-                r.printerId.isIn(printerIds) & r.status.equals('signed');
+                r.printerId.isIn(printerIds) &
+                    r.status.isIn(<String>['signed', 'Signed']);
             if (activeVisit?.startedAt != null) {
               cond = cond &
                   r.serviceDate.isBiggerOrEqualValue(activeVisit!.startedAt!);
@@ -84,7 +85,10 @@ class _PolicyDeliveryScreenState extends ConsumerState<PolicyDeliveryScreen> {
           }))
         .get();
 
-    if (mounted) setState(() => _alreadyDeliveredCount = signed.length);
+    // Equipos distintos ya entregados en esta visita (no reportes).
+    final int deliveredPrinters =
+        signed.map((Report r) => r.printerId).toSet().length;
+    if (mounted) setState(() => _alreadyDeliveredCount = deliveredPrinters);
   }
 
   @override

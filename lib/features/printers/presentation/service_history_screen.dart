@@ -94,7 +94,15 @@ class _ServiceHistoryScreenState extends State<ServiceHistoryScreen> {
   String _formatDate(DateTime date) => formatLocalCDMX(date);
 
   _ServiceType _parseServiceType(String type) {
-    final String lower = type.toLowerCase();
+    // Se normalizan los acentos: "Diagnóstico" debe caer en diagnóstico y no
+    // en el valor por defecto (preventivo).
+    final String lower = type
+        .toLowerCase()
+        .replaceAll('á', 'a')
+        .replaceAll('é', 'e')
+        .replaceAll('í', 'i')
+        .replaceAll('ó', 'o')
+        .replaceAll('ú', 'u');
     if (lower.contains('preventivo')) return _ServiceType.preventivo;
     if (lower.contains('correctivo')) return _ServiceType.correctivo;
     if (lower.contains('diagnostico')) return _ServiceType.diagnostico;
@@ -570,8 +578,8 @@ class _FilterResult {
 enum _ServiceType {
   preventivo('Preventivo'),
   correctivo('Correctivo'),
-  diagnostico('Diagnostico'),
-  instalacion('Instalacion');
+  diagnostico('Diagnóstico'),
+  instalacion('Instalación');
 
   const _ServiceType(this.label);
   final String label;

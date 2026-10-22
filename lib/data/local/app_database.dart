@@ -194,7 +194,7 @@ class Reports extends Table {
 
   IntColumn get linearInchesCounter => integer()();
 
-  IntColumn get darknessLevel => integer().nullable()();
+  RealColumn get darknessLevel => real().nullable()();
 
   TextColumn get labelTypeId =>
       text().nullable().references(CatalogLabelTypes, #id)();
@@ -234,6 +234,9 @@ class Reports extends Table {
   TextColumn get code => text().nullable()();
 
   DateTimeColumn get syncDate => dateTime().nullable()();
+
+  /// Momento en que el servidor confirmó (200) la subida del reporte.
+  DateTimeColumn get syncedAt => dateTime().nullable()();
 
   DateTimeColumn get createdAt =>
       dateTime().withDefault(currentDateAndTime)();
@@ -320,6 +323,9 @@ class PolicyDeliveries extends Table {
 
   TextColumn get signatureImagePath => text().nullable()();
 
+  /// Correo adicional capturado al firmar la entrega (opcional, validado).
+  TextColumn get extraEmail => text().nullable()();
+
   @override
   Set<Column> get primaryKey => {id};
 }
@@ -356,6 +362,14 @@ class PolicyVisits extends Table {
   DateTimeColumn get startedAt => dateTime().nullable()();
 
   DateTimeColumn get completedAt => dateTime().nullable()();
+
+  /// Cierre manual desde la oficina (admin web): cuándo, quién y por qué.
+  /// Una visita cerrada así baja como status 'completed' con estos datos.
+  DateTimeColumn get closedAt => dateTime().nullable()();
+
+  TextColumn get closedReason => text().nullable()();
+
+  TextColumn get closedByName => text().nullable()();
 
   DateTimeColumn get createdAt =>
       dateTime().withDefault(currentDateAndTime)();
@@ -476,7 +490,7 @@ class AppDatabase extends _$AppDatabase {
   AppDatabase([QueryExecutor? executor]) : super(executor ?? _openConnection());
 
   @override
-  int get schemaVersion => 10;
+  int get schemaVersion => 11;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -532,6 +546,29 @@ class AppDatabase extends _$AppDatabase {
           if (from < 10) {
             // Email adicional capturado en la pantalla de firma
             await migrator.addColumn(reports, reports.pendingEmail);
+          }
+          if (from < 11) {
+            // Historial de sincronización: momento en que el servidor confirmó el reporte
+            await migrator.addColumn(reports, reports.syncedAt);
+            // Correo adicional de la entrega de póliza.
+            await migrator.addColumn(
+                policyDeliveries, policyDeliveries.extraEmail);
+            // Cierre manual de visita. Desde v<9 la tabla se acaba de crear
+            // arriba con estas columnas ya incluidas.
+            if (from >= 9) {
+              await migrator.addColumn(policyVisits, policyVisits.closedAt);
+              await migrator.addColumn(policyVisits, policyVisits.closedReason);
+              await migrator.addColumn(policyVisits, policyVisits.closedByName);
+            }
+            // Darkness con decimales (INTEGER → REAL). Los valores enteros
+            // existentes se conservan como 18.0.
+            // ignore: experimental_member_use
+            await migrator.alterTable(TableMigration(
+              reports,
+              columnTransformer: <GeneratedColumn, Expression>{
+                reports.darknessLevel: reports.darknessLevel.cast<double>(),
+              },
+            ));
           }
         },
         beforeOpen: (OpeningDetails details) async {

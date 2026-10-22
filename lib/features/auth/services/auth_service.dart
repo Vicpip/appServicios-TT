@@ -130,8 +130,19 @@ class AuthService {
     );
   }
 
-  /// Delete all stored credentials.
+  /// Delete all stored credentials (token + datos de sesión).
+  ///
+  /// NO toca la base de datos local: reportes, cola de sincronización, firma
+  /// y catálogos se conservan.
   Future<void> logout() => _storage.deleteAll();
+
+  /// Guarda un token renovado (POST /api/auth/refresh) y su nueva expiración.
+  Future<void> saveRefreshedToken(String token) async {
+    await Future.wait(<Future<void>>[
+      _storage.write(key: kAuthTokenKey, value: token),
+      _storage.write(key: _keyTokenExpiry, value: _expiryFromToken(token)),
+    ]);
+  }
 
   /// Return the stored JWT string, or null if never logged in.
   Future<String?> getToken() => _storage.read(key: kAuthTokenKey);
@@ -195,8 +206,8 @@ class AuthService {
 
   /// Decode the `exp` claim from the JWT and return an ISO-8601 UTC string.
   ///
-  /// Uses only `dart:convert` — no extra packages.  Falls back to 7 days
-  /// from now if decoding fails (matches the backend mobile token lifetime).
+  /// Uses only `dart:convert` — no extra packages.  Falls back to
+  /// [kMobileTokenFallbackDays] if decoding fails (backend mobile token lifetime).
   static String _expiryFromToken(String token) {
     try {
       final List<String> parts = token.split('.');
@@ -217,8 +228,10 @@ class AuthService {
       return DateTime.fromMillisecondsSinceEpoch(expUnix * 1000, isUtc: true)
           .toIso8601String();
     } catch (_) {
-      // Fallback: 7 days from now
-      return DateTime.now().toUtc().add(const Duration(days: 7)).toIso8601String();
+      return DateTime.now()
+          .toUtc()
+          .add(const Duration(days: kMobileTokenFallbackDays))
+          .toIso8601String();
     }
   }
 }

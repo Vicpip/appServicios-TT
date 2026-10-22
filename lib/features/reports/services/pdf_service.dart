@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io' as io;
 
 import 'package:flutter/services.dart';
+import 'package:industrial_service_reports/core/utils/number_utils.dart';
 import 'package:industrial_service_reports/data/local/app_database.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
@@ -384,7 +385,7 @@ class PdfService {
         : (printer.code ?? printer.id.substring(0, 8));
     final String counter = '${report.linearInchesCounter} pulg.';
     final String darkness =
-        report.darknessLevel != null ? '${report.darknessLevel}' : ' - ';
+        report.darknessLevel != null ? formatDarkness(report.darknessLevel) : ' - ';
     final String labelType = catalogLabelType?.name ?? ' - ';
 
     return pw.Column(

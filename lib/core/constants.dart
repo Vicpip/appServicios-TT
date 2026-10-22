@@ -9,3 +9,7 @@ const int kMaxSyncAttempts = 3;
 
 /// Secure-storage key for the JWT access token.
 const String kAuthTokenKey = 'auth_token';
+
+/// Duración asumida del token móvil si no se puede leer el `exp` del JWT.
+/// Debe coincidir con `mobile_token_expire_days` del servidor (Settings).
+const int kMobileTokenFallbackDays = 365;

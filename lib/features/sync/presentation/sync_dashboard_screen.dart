@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:industrial_service_reports/core/constants.dart';
 import 'package:industrial_service_reports/core/theme/app_palette.dart';
 import 'package:industrial_service_reports/data/local/app_database.dart';
+import 'package:industrial_service_reports/features/auth/providers/auth_provider.dart';
 import 'package:industrial_service_reports/features/auth/services/auth_service.dart';
 import 'package:industrial_service_reports/features/sync/presentation/sync_history_screen.dart';
 import 'package:industrial_service_reports/features/sync/providers/sync_queue_provider.dart';
@@ -89,10 +90,15 @@ class _SyncDashboardScreenState extends ConsumerState<SyncDashboardScreen> {
         _progressMessage = '';
       });
 
-      final String message;
+      String message;
       final Color bgColor;
       final IconData iconData;
-      if (result.processed == 0) {
+      if (result.offline) {
+        message =
+            'Sin conexión — los pendientes se conservan y se enviarán cuando haya internet';
+        bgColor = AppPalette.warningDark;
+        iconData = Icons.wifi_off_rounded;
+      } else if (result.processed == 0) {
         message = 'No hay elementos pendientes para sincronizar';
         bgColor = AppPalette.surfaceDarkHighlight;
         iconData = Icons.check_circle_rounded;
@@ -106,6 +112,12 @@ class _SyncDashboardScreenState extends ConsumerState<SyncDashboardScreen> {
             '${result.succeeded} OK · ${result.failed} fallido${result.failed != 1 ? 's' : ''} (reintento automático)';
         bgColor = AppPalette.warningDark;
         iconData = Icons.warning_rounded;
+      }
+
+      if (result.skippedOtherUser > 0) {
+        message += '\n${result.skippedOtherUser} pendiente'
+            '${result.skippedOtherUser != 1 ? 's' : ''} de otro técnico '
+            '(se enviarán cuando esa persona inicie sesión).';
       }
 
       messenger.hideCurrentSnackBar();
@@ -131,6 +143,14 @@ class _SyncDashboardScreenState extends ConsumerState<SyncDashboardScreen> {
           duration: const Duration(seconds: 4),
         ),
       );
+    } on SessionRevokedException {
+      // Sesión revocada / usuario desactivado: pedir login sin borrar datos.
+      if (!mounted) return;
+      setState(() {
+        _isSyncing = false;
+        _progressMessage = '';
+      });
+      ref.read(authProvider.notifier).logout();
     } on TokenExpiredException {
       if (!mounted) return;
 

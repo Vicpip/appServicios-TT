@@ -8,10 +8,8 @@ import 'package:industrial_service_reports/core/router/app_routes.dart';
 import 'package:industrial_service_reports/core/router/route_args.dart';
 import 'package:industrial_service_reports/core/theme/app_palette.dart';
 import 'package:industrial_service_reports/data/local/app_database.dart';
-import 'package:industrial_service_reports/data/local/local_database.dart';
 import 'package:industrial_service_reports/features/auth/providers/session_provider.dart';
 import 'package:industrial_service_reports/features/policies/providers/pending_delivery_provider.dart';
-import 'package:industrial_service_reports/features/policies/providers/policy_visit_provider.dart';
 import 'package:uuid/uuid.dart';
 
 enum _PolicyFilter {
@@ -350,21 +348,6 @@ class _PolicyDashboardScreenState extends ConsumerState<PolicyDashboardScreen> {
             ],
           ),
         ),
-      ),
-      floatingActionButton: FloatingActionButton.large(
-        backgroundColor: AppPalette.primary,
-        foregroundColor: AppPalette.backgroundLight,
-        onPressed: () async {
-          final bool? saved = await Navigator.of(context).push<bool>(
-            MaterialPageRoute<bool>(
-              builder: (_) => AddPolicyScreen(database: widget.database),
-            ),
-          );
-          if (saved == true && mounted) {
-            _loadPolicies();
-          }
-        },
-        child: const Icon(Icons.add_rounded, size: 34),
       ),
     );
   }
@@ -1530,7 +1513,7 @@ class _PolicyDetailScreenState extends ConsumerState<PolicyDetailScreen> {
   // Visitas
   List<PolicyVisit> _visits = const <PolicyVisit>[];
   PolicyVisit? _activeVisit;
-  int _pendingDeliveryCount = 0;
+  int _deliveredCount = 0;
   List<PolicyDelivery> _deliveries = const <PolicyDelivery>[];
   Map<String, int> _deliveryReportCounts = const <String, int>{};
 
@@ -1672,6 +1655,9 @@ class _PolicyDetailScreenState extends ConsumerState<PolicyDetailScreen> {
               }))
             .get();
         final bool isDone = doneReports.isNotEmpty;
+        // Entregado = reporte firmado/entregado dentro de la visita activa.
+        final bool isDelivered = doneReports.any((Report r) =>
+            r.status == 'signed' || r.status == 'Signed');
 
         parque.add(_PolicyAsset(
           printerId: printer.id,
@@ -1682,6 +1668,7 @@ class _PolicyDetailScreenState extends ConsumerState<PolicyDetailScreen> {
           isMine: isMine,
           assignedTo: assignedTo,
           isDone: isDone,
+          isDelivered: isDelivered,
         ));
       }
 
@@ -1697,12 +1684,7 @@ class _PolicyDetailScreenState extends ConsumerState<PolicyDetailScreen> {
         debugPrint('[PolicyDetail] primera visita: ${visits.first}');
       }
 
-      // pendingCount: reports still awaiting a delivery signature.
-      // reportsExist: reports created SINCE this visit was activated (serviceDate
-      //   >= visit.startedAt). Using the start timestamp as a cutoff prevents
-      //   signed reports from PREVIOUS visits (same printers) from triggering a
-      //   false auto-complete on a freshly-activated visit with zero new work.
-      int reportsExist = 0;
+      // pendingCount: reportes que aún esperan firma de entrega (banner/botón).
       for (final PolicyPrinter pp in policyPrinters) {
         final List<Report> pendingReports = await (db.select(db.reports)
               ..where((Reports r) =>
@@ -1710,28 +1692,15 @@ class _PolicyDetailScreenState extends ConsumerState<PolicyDetailScreen> {
                   r.status.equals('pending_delivery')))
             .get();
         pendingCount += pendingReports.length;
-
-        final DateTime? visitStart = activeVisit?.startedAt;
-        if (visitStart != null) {
-          final List<Report> thisVisitReports = await (db.select(db.reports)
-                ..where((Reports r) =>
-                    r.printerId.equals(pp.printerId) &
-                    r.serviceDate.isBiggerOrEqualValue(visitStart)))
-              .get();
-          reportsExist += thisVisitReports.length;
-        }
       }
 
-      // Auto-completar visita solo si:
-      //   1. Hay una visita activa (in_progress)
-      //   2. El técnico tiene al menos 1 tarea asignada
-      //   3. Existe al menos 1 reporte creado DURANTE esta visita (evita falso
-      //      auto-complete cuando se activa la visita pero aún no hay reportes)
-      //   4. Ningún reporte de esta visita está pendiente de entrega
-      final int myTaskCount = parque.where((_PolicyAsset a) => a.isMine).length;
-      // ignore: avoid_print
-      debugPrint('[PolicyDetail] auto-complete check: myTasks=$myTaskCount reportsExist=$reportsExist pending=$pendingCount activeVisit=${activeVisit?.id} visitsCount=${visits.length}');
-      if (activeVisit != null && myTaskCount > 0 && reportsExist > 0 && pendingCount == 0 && visits.isNotEmpty) {
+      // Auto-completar visita SOLO si todos los equipos de la póliza tienen su
+      // reporte entregado/firmado dentro de esta visita (serviceDate >= startedAt).
+      // Un reporte pendiente de entrega NO cuenta como entregado.
+      final int deliveredCount =
+          parque.where((_PolicyAsset a) => a.isDelivered).length;
+      debugPrint('[PolicyDetail] auto-complete check: delivered=$deliveredCount/${parque.length} pending=$pendingCount activeVisit=${activeVisit?.id}');
+      if (activeVisit != null && parque.isNotEmpty && deliveredCount == parque.length) {
         try {
           await (db.update(db.policyVisits)
                 ..where((PolicyVisits v) => v.id.equals(activeVisit!.id)))
@@ -1739,7 +1708,7 @@ class _PolicyDetailScreenState extends ConsumerState<PolicyDetailScreen> {
             status: const Value<String>('completed'),
             completedAt: Value<DateTime>(DateTime.now()),
           ));
-          debugPrint('[PolicyDetail] Visita auto-completada en load: ${activeVisit!.id}');
+          debugPrint('[PolicyDetail] Visita auto-completada en load: ${activeVisit.id}');
           // Refrescar activeVisit
           activeVisit = null;
           visits = await (db.select(db.policyVisits)
@@ -1783,7 +1752,9 @@ class _PolicyDetailScreenState extends ConsumerState<PolicyDetailScreen> {
               });
             _visits = visits;
             _activeVisit = activeVisit;
-            _pendingDeliveryCount = pendingCount;
+            _deliveredCount = parque
+                .where((_PolicyAsset a) => a.isDelivered)
+                .length;
             _deliveries = deliveries;
             _deliveryReportCounts = deliveryReportCounts;
           });
@@ -1833,42 +1804,6 @@ class _PolicyDetailScreenState extends ConsumerState<PolicyDetailScreen> {
     return '${start[0]} ${start[1]} - ${end[0]} ${end[1]} ${end[2]}';
   }
 
-  Future<void> _confirmDeletePolicy() async {
-    final bool? confirmed = await showDialog<bool>(
-      context: context,
-      builder: (BuildContext context) {
-        return AlertDialog(
-          title: const Text('Eliminar Póliza'),
-          content: const Text('¿Seguro que deseas eliminar esta póliza?'),
-          actions: <Widget>[
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(false),
-              child: const Text('Cancelar'),
-            ),
-            FilledButton(
-              onPressed: () => Navigator.of(context).pop(true),
-              style: FilledButton.styleFrom(
-                backgroundColor: Theme.of(context).colorScheme.error,
-                foregroundColor: Theme.of(context).colorScheme.onError,
-              ),
-              child: const Text('Eliminar'),
-            ),
-          ],
-        );
-      },
-    );
-
-    if (confirmed != true || !mounted) return;
-    ScaffoldMessenger.of(context).hideCurrentSnackBar();
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Póliza eliminada (mock)'),
-        behavior: SnackBarBehavior.floating,
-      ),
-    );
-    Navigator.of(context).pop(true);
-  }
-
   @override
   Widget build(BuildContext context) {
     final _PolicyStatusStyle style = _statusStyle(widget.policy.status);
@@ -1876,35 +1811,6 @@ class _PolicyDetailScreenState extends ConsumerState<PolicyDetailScreen> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Detalle de Póliza'),
-        actions: <Widget>[
-          PopupMenuButton<String>(
-            onSelected: (String value) {
-              if (value == 'edit') {
-                Navigator.of(context).push(
-                  MaterialPageRoute<void>(
-                    builder: (_) => AddPolicyScreen(database: widget.database, policy: widget.policy),
-                  ),
-                );
-              }
-              if (value == 'delete') {
-                _confirmDeletePolicy();
-              }
-            },
-            itemBuilder: (BuildContext context) => const <PopupMenuEntry<String>>[
-              PopupMenuItem<String>(
-                value: 'edit',
-                child: Text('Editar Póliza'),
-              ),
-              PopupMenuItem<String>(
-                value: 'delete',
-                child: Text(
-                  'Eliminar Póliza',
-                  style: TextStyle(color: Color(0xFFE57373)),
-                ),
-              ),
-            ],
-          ),
-        ],
       ),
       body: DefaultTabController(
         length: 3,
@@ -1978,14 +1884,6 @@ class _PolicyDetailScreenState extends ConsumerState<PolicyDetailScreen> {
                                       fontWeight: FontWeight.w800,
                                     ),
                                   ),
-                                  const SizedBox(height: 2),
-                                  const Text(
-                                    'Cobertura: Premium',
-                                    style: TextStyle(
-                                      color: Colors.white70,
-                                      fontWeight: FontWeight.w600,
-                                    ),
-                                  ),
                                 ],
                               ),
                             ),
@@ -2003,20 +1901,6 @@ class _PolicyDetailScreenState extends ConsumerState<PolicyDetailScreen> {
                             Text(
                               _compactDateRange(),
                               style: const TextStyle(
-                                color: Colors.white70,
-                                fontWeight: FontWeight.w700,
-                              ),
-                            ),
-                            const SizedBox(width: 14),
-                            const Icon(
-                              Icons.autorenew_rounded,
-                              size: 16,
-                              color: Colors.white70,
-                            ),
-                            const SizedBox(width: 6),
-                            const Text(
-                              'Trimestral',
-                              style: TextStyle(
                                 color: Colors.white70,
                                 fontWeight: FontWeight.w700,
                               ),
@@ -2063,7 +1947,7 @@ class _PolicyDetailScreenState extends ConsumerState<PolicyDetailScreen> {
                           visits: _visits,
                           activeVisit: _activeVisit,
                           totalPrinters: _parqueTotal.length,
-                          pendingDeliveryCount: _pendingDeliveryCount,
+                          deliveredCount: _deliveredCount,
                           deliveries: _deliveries,
                           deliveryReportCounts: _deliveryReportCounts,
                         ),
@@ -2610,6 +2494,7 @@ class _PolicyAsset {
     required this.isMine,
     required this.assignedTo,
     this.isDone = false,
+    this.isDelivered = false,
   });
 
   final String printerId;
@@ -2620,6 +2505,9 @@ class _PolicyAsset {
   final bool isMine;
   final String assignedTo;
   final bool isDone;
+
+  /// Reporte entregado/firmado en la visita activa (cuenta para cerrar la visita).
+  final bool isDelivered;
 }
 
 enum _VisitStatus {
@@ -2664,7 +2552,7 @@ class _VisitsTab extends StatelessWidget {
     required this.visits,
     required this.activeVisit,
     required this.totalPrinters,
-    required this.pendingDeliveryCount,
+    required this.deliveredCount,
     required this.deliveries,
     required this.deliveryReportCounts,
   });
@@ -2672,7 +2560,8 @@ class _VisitsTab extends StatelessWidget {
   final List<PolicyVisit> visits;
   final PolicyVisit? activeVisit;
   final int totalPrinters;
-  final int pendingDeliveryCount;
+  /// Equipos con reporte entregado/firmado en la visita activa.
+  final int deliveredCount;
   final List<PolicyDelivery> deliveries;
   final Map<String, int> deliveryReportCounts;
 
@@ -2735,7 +2624,7 @@ class _VisitsTab extends StatelessWidget {
                         borderRadius: BorderRadius.circular(6),
                         child: LinearProgressIndicator(
                           value: totalPrinters > 0
-                              ? pendingDeliveryCount / totalPrinters
+                              ? deliveredCount / totalPrinters
                               : 0,
                           minHeight: 8,
                           backgroundColor: AppPalette.surfaceDarkHighlight,
@@ -2747,7 +2636,7 @@ class _VisitsTab extends StatelessWidget {
                     ),
                     const SizedBox(width: 12),
                     Text(
-                      '$pendingDeliveryCount/$totalPrinters equipos',
+                      '$deliveredCount/$totalPrinters equipos entregados',
                       style: const TextStyle(
                         color: AppPalette.backgroundLight,
                         fontWeight: FontWeight.w700,
@@ -2869,6 +2758,23 @@ class _VisitRow extends StatelessWidget {
                       color: Colors.white60,
                       fontSize: 12,
                       fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                // Visita cerrada manualmente desde la oficina: se muestra quién
+                // y por qué (solo aparece cuando el servidor la cerró así).
+                if (visit.status == 'completed' &&
+                    (visit.closedReason ?? '').isNotEmpty)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 4),
+                    child: Text(
+                      'Cerrada por la oficina'
+                      '${(visit.closedByName ?? '').isNotEmpty ? ' (${visit.closedByName})' : ''}'
+                      ': ${visit.closedReason}',
+                      style: const TextStyle(
+                        color: Colors.white70,
+                        fontSize: 12,
+                        fontStyle: FontStyle.italic,
+                      ),
                     ),
                   ),
               ],

@@ -6,6 +6,7 @@ import 'package:industrial_service_reports/core/router/app_routes.dart';
 import 'package:industrial_service_reports/core/router/route_args.dart';
 import 'package:industrial_service_reports/core/theme/app_palette.dart';
 import 'package:industrial_service_reports/data/local/app_database.dart';
+import 'package:industrial_service_reports/features/clients/services/client_pending_sync.dart';
 import 'package:industrial_service_reports/features/policies/presentation/policy_dashboard_screen.dart'
     show PolicyDetailScreen, PolicySummary, PolicyStatus;
 import 'package:industrial_service_reports/core/utils/date_utils.dart' show formatLocalCDMX;
@@ -144,6 +145,22 @@ class _ClientDetailScreenState extends State<ClientDetailScreen> {
 
   Future<void> _confirmDeleteClient() async {
     if (_isDeleting) return;
+
+    final int pending =
+        await pendingSyncCountForClient(widget.database, widget.client.id);
+    if (!mounted) return;
+    if (pending > 0) {
+      ScaffoldMessenger.of(context).hideCurrentSnackBar();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          backgroundColor: AppPalette.warningDark,
+          content: Text(clientDeleteBlockedMessage(pending)),
+          behavior: SnackBarBehavior.floating,
+          duration: const Duration(seconds: 6),
+        ),
+      );
+      return;
+    }
 
     final bool? confirmed = await showDialog<bool>(
       context: context,

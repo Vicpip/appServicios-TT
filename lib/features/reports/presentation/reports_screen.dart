@@ -61,6 +61,7 @@ class _RecentReportItem {
     required this.dateText,
     required this.serviceType,
     required this.clientName,
+    required this.statusLabel,
   });
 
   final String reportId;
@@ -69,6 +70,29 @@ class _RecentReportItem {
   final String dateText;
   final String serviceType;
   final String clientName;
+
+  /// Etiqueta legible del estado (firmado, pendiente de entrega, etc.).
+  final String statusLabel;
+}
+
+/// Estado de BD -> etiqueta legible. 'Synced' sigue existiendo en datos
+/// descargados del servidor.
+String _statusLabel(Report r) {
+  switch (r.status) {
+    case 'Signed':
+    case 'signed':
+      return 'Firmado';
+    case 'pending_delivery':
+      return 'Pendiente de entrega';
+    case 'pending_group_signature':
+      return 'Pendiente de firma grupal';
+    case 'Synced':
+      return 'Sincronizado';
+    case 'Draft':
+      return 'Borrador';
+    default:
+      return r.status;
+  }
 }
 
 class _RecentReportsTab extends StatefulWidget {
@@ -93,9 +117,10 @@ class _RecentReportsTabState extends State<_RecentReportsTab> {
   Future<void> _load() async {
     final AppDatabase db = localDatabase;
 
+    // Todos los reportes del técnico (cualquier estado), del más nuevo al más
+    // viejo, hasta 20.
     final List<Report> reports = await (db.select(db.reports)
-          ..where((Reports r) =>
-              r.techId.equals(widget.techId) & r.status.equals('Signed'))
+          ..where((Reports r) => r.techId.equals(widget.techId))
           ..orderBy([(Reports r) => OrderingTerm.desc(r.serviceDate)])
           ..limit(20))
         .get();
@@ -127,6 +152,7 @@ class _RecentReportsTabState extends State<_RecentReportsTab> {
         dateText: formatLocalCDMX(report.serviceDate),
         serviceType: report.serviceType,
         clientName: client?.name ?? 'Cliente',
+        statusLabel: _statusLabel(report),
       ));
     }
 
@@ -254,6 +280,15 @@ class _RecentReportCard extends StatelessWidget {
                     ),
                   ),
                 ],
+              ),
+              const SizedBox(height: 6),
+              Text(
+                item.statusLabel,
+                style: const TextStyle(
+                  color: AppPalette.warning,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w800,
+                ),
               ),
             ],
           ),

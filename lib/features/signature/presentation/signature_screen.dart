@@ -6,17 +6,16 @@ import 'package:drift/drift.dart' show Expression, Value;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import 'package:http/http.dart' as http;
-import 'package:industrial_service_reports/core/constants.dart';
+import 'package:industrial_service_reports/core/utils/number_utils.dart';
 import 'package:industrial_service_reports/core/theme/app_palette.dart';
 import 'package:industrial_service_reports/data/local/app_database.dart';
 import 'package:industrial_service_reports/data/local/local_database.dart';
 import 'package:industrial_service_reports/features/auth/providers/session_provider.dart';
-import 'package:industrial_service_reports/features/auth/services/auth_service.dart';
 import 'package:industrial_service_reports/features/policies/providers/policy_visit_provider.dart';
 import 'package:industrial_service_reports/features/reports/providers/capture_provider.dart';
 import 'package:industrial_service_reports/features/reports/providers/group_signature_provider.dart';
 import 'package:industrial_service_reports/features/reports/services/pdf_service.dart';
+import 'package:industrial_service_reports/features/signature/widgets/email_delivery_section.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:signature/signature.dart';
 import 'package:uuid/uuid.dart';
@@ -39,13 +38,11 @@ class _SignatureScreenState extends ConsumerState<SignatureScreen> {
   bool _isCheckingVisit = true;
   bool _hasActiveVisit = false;
 
-  // Sección de email (Tarea 2): solo se muestra si el GET de contact-emails
+  // Tarjeta "Envío por correo": solo se muestra si el GET de contact-emails
   // llegó a completarse (con o sin conectividad al cargar la pantalla).
   bool _emailSectionLoaded = false;
   List<String> _contactEmails = <String>[];
-  bool _showExtraEmailField = false;
-  final TextEditingController _extraEmailController = TextEditingController();
-  final GlobalKey<FormState> _extraEmailFormKey = GlobalKey<FormState>();
+  final ExtraEmailController _extraEmail = ExtraEmailController();
 
   @override
   void initState() {
@@ -72,120 +69,42 @@ class _SignatureScreenState extends ConsumerState<SignatureScreen> {
     _signerNameController.dispose();
     _signerRoleController.dispose();
     _signatureController.dispose();
-    _extraEmailController.dispose();
+    _extraEmail.dispose();
     super.dispose();
   }
 
   /// Carga los correos de contacto del cliente para mostrarlos en la
-  /// sección informativa antes del botón firmar. Si no hay conectividad
-  /// al cargar la pantalla, la sección se omite silenciosamente.
+  /// tarjeta "Envío por correo". Si no hay conectividad al cargar la
+  /// pantalla, la tarjeta se omite silenciosamente.
   Future<void> _loadContactEmails() async {
-    try {
-      final String? printerId = ref.read(captureProvider).printerId;
-      if (printerId == null || printerId.isEmpty) return;
-      final Printer? printer = await (localDatabase.select(localDatabase.printers)
-            ..where((Printers t) => t.id.equals(printerId)))
-          .getSingleOrNull();
-      if (printer == null) return;
+    final String? printerId = ref.read(captureProvider).printerId;
+    if (printerId == null || printerId.isEmpty) return;
+    final Printer? printer = await (localDatabase.select(localDatabase.printers)
+          ..where((Printers t) => t.id.equals(printerId)))
+        .getSingleOrNull();
+    if (printer == null) return;
 
-      final String? authToken = await AuthService().getToken();
-      final http.Response response = await http
-          .get(
-            Uri.parse(
-                '$kServerBaseUrlDevice/api/admin/clients/${printer.clientId}/contact-emails'),
-            headers: <String, String>{
-              if (authToken != null) 'Authorization': 'Bearer $authToken',
-            },
-          )
-          .timeout(const Duration(seconds: 10));
-      if (response.statusCode != 200) return;
-
-      final List<dynamic> data = jsonDecode(response.body) as List<dynamic>;
-      final List<String> emails = data
-          .map((dynamic e) => (e as Map<String, dynamic>)['email'] as String)
-          .toList();
-
-      if (!mounted) return;
-      setState(() {
-        _contactEmails = emails;
-        _emailSectionLoaded = true;
-      });
-    } catch (_) {
-      // Sin conectividad u otro error: se omite la sección silenciosamente.
-    }
+    final List<String>? emails = await contactEmailsFetcher(printer.clientId);
+    if (emails == null || !mounted) return;
+    setState(() {
+      _contactEmails = emails;
+      _emailSectionLoaded = true;
+    });
   }
 
-  /// Email adicional válido capturado en la sección de correo, o null si
-  /// está vacío o no tiene formato de email.
-  String? get _pendingEmailValue {
-    final String value = _extraEmailController.text.trim();
-    if (value.isEmpty) return null;
-    final RegExp emailRegex = RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$');
-    return emailRegex.hasMatch(value) ? value : null;
-  }
+  /// Correo adicional válido capturado, o null si está vacío o inválido.
+  String? get _pendingEmailValue => _extraEmail.value;
 
-  Widget _buildEmailSection() {
-    final bool hasContacts = _contactEmails.isNotEmpty;
-    return _SignatureCard(
-      title: 'Envío por correo',
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: <Widget>[
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: <Widget>[
-              Icon(
-                hasContacts ? Icons.check_circle : Icons.warning_amber_rounded,
-                color: hasContacts ? AppPalette.success : Colors.orange,
-                size: 20,
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Text(
-                  hasContacts
-                      ? 'Se enviará a: ${_contactEmails.join(', ')}'
-                      : 'Sin correos registrados',
-                  style: const TextStyle(color: Colors.white70, fontSize: 13),
-                ),
-              ),
-            ],
-          ),
-          if (hasContacts && !_showExtraEmailField) ...<Widget>[
-            const SizedBox(height: 8),
-            Align(
-              alignment: Alignment.centerLeft,
-              child: TextButton(
-                onPressed: () => setState(() => _showExtraEmailField = true),
-                child: const Text('Agregar otro'),
-              ),
-            ),
-          ],
-          if (!hasContacts || _showExtraEmailField) ...<Widget>[
-            const SizedBox(height: 10),
-            Form(
-              key: _extraEmailFormKey,
-              child: TextFormField(
-                controller: _extraEmailController,
-                keyboardType: TextInputType.emailAddress,
-                decoration: const InputDecoration(
-                  labelText: 'Correo adicional',
-                  isDense: true,
-                ),
-                validator: (String? v) {
-                  final String value = (v ?? '').trim();
-                  if (value.isEmpty) return null;
-                  final RegExp emailRegex =
-                      RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$');
-                  if (!emailRegex.hasMatch(value)) return 'Correo inválido';
-                  return null;
-                },
-              ),
-            ),
-          ],
-        ],
-      ),
-    );
-  }
+  /// Valida el "Correo adicional" antes de guardar ("Correo inválido").
+  bool _validateExtraEmail() => _extraEmail.validate(context);
+
+  Widget _buildEmailSection() => _SignatureCard(
+        title: 'Envío por correo',
+        child: EmailDeliveryBody(
+          contactEmails: _contactEmails,
+          controller: _extraEmail,
+        ),
+      );
 
   /// CAMBIO 1: Si la impresora tiene una visita activa, guarda el reporte
   /// como pending_delivery sin pedir firma individual y navega al éxito.
@@ -269,9 +188,7 @@ class _SignatureScreenState extends ConsumerState<SignatureScreen> {
 
       final int counterValue =
           int.tryParse(captureState.counterValue.replaceAll(',', '')) ?? 0;
-      final int? darknessValue = captureState.darknessValue.isNotEmpty
-          ? int.tryParse(captureState.darknessValue)
-          : null;
+      final double? darknessValue = parseDarkness(captureState.darknessValue);
 
       final String photoPathsJson = jsonEncode(captureState.photoPaths);
 
@@ -575,6 +492,7 @@ class _SignatureScreenState extends ConsumerState<SignatureScreen> {
   /// Guarda el reporte como pending_group_signature y lo incorpora al grupo
   /// abierto del cliente (o crea uno nuevo si no existe).
   Future<void> _onGroupPressed() async {
+    if (!_validateExtraEmail()) return;
     setState(() => _isSaving = true);
     try {
       final CaptureState captureState = ref.read(captureProvider);
@@ -649,9 +567,7 @@ class _SignatureScreenState extends ConsumerState<SignatureScreen> {
 
       final int counterValue =
           int.tryParse(captureState.counterValue.replaceAll(',', '')) ?? 0;
-      final int? darknessValue = captureState.darknessValue.isNotEmpty
-          ? int.tryParse(captureState.darknessValue)
-          : null;
+      final double? darknessValue = parseDarkness(captureState.darknessValue);
 
       final int reportCount =
           await (localDatabase.select(localDatabase.reports))
@@ -736,6 +652,7 @@ class _SignatureScreenState extends ConsumerState<SignatureScreen> {
   }
 
   Future<void> _onFinishPressed() async {
+    if (!_validateExtraEmail()) return;
     final bool formValid = _formKey.currentState?.validate() ?? false;
     if (!formValid) {
       final ThemeData theme = Theme.of(context);
@@ -817,9 +734,7 @@ class _SignatureScreenState extends ConsumerState<SignatureScreen> {
       // Parsear valores numéricos
       final int counterValue =
           int.tryParse(captureState.counterValue.replaceAll(',', '')) ?? 0;
-      final int? darknessValue = captureState.darknessValue.isNotEmpty
-          ? int.tryParse(captureState.darknessValue)
-          : null;
+      final double? darknessValue = parseDarkness(captureState.darknessValue);
 
       // Serializar rutas de fotos como JSON
       final String photoPathsJson = jsonEncode(captureState.photoPaths);

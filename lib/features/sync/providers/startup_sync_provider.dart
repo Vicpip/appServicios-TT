@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:industrial_service_reports/data/local/local_database.dart';
+import 'package:industrial_service_reports/features/auth/providers/auth_provider.dart';
 import 'package:industrial_service_reports/features/auth/services/auth_service.dart';
 import 'package:industrial_service_reports/features/sync/services/sync_service.dart';
 
@@ -52,11 +53,20 @@ class StartupSyncNotifier extends Notifier<StartupSyncState> {
     );
 
     try {
+      // Sin conectividad no se intenta la sincronización automática.
+      if (!await hasConnectivity()) {
+        state = const StartupSyncState(
+          phase: StartupSyncPhase.failed,
+          message: 'Sin conexión — usando datos locales',
+        );
+        return;
+      }
+
       final bool hasToken = await AuthService().hasValidTokenForSync();
 
       if (hasToken) {
         // runSync() (sync_service.dart:59) hace: downloadData() + sube pendientes.
-        await SyncService(localDatabase)
+        final SyncResult result = await SyncService(localDatabase)
             .runSync(
               onProgress: (String msg) {
                 if (state.isRunning) {
@@ -68,6 +78,13 @@ class StartupSyncNotifier extends Notifier<StartupSyncState> {
               },
             )
             .timeout(const Duration(minutes: 2));
+        if (result.offline) {
+          state = const StartupSyncState(
+            phase: StartupSyncPhase.failed,
+            message: 'Sin conexión — usando datos locales',
+          );
+          return;
+        }
       } else {
         // Sin token: intenta solo descargar catálogos (10 s).
         await SyncService(localDatabase).downloadData().timeout(_timeout);
@@ -83,6 +100,14 @@ class StartupSyncNotifier extends Notifier<StartupSyncState> {
         phase: StartupSyncPhase.failed,
         message: 'Tiempo de espera agotado',
       );
+    } on SessionRevokedException {
+      // Usuario desactivado o sesión revocada desde el admin: se pide login
+      // de nuevo. Los datos locales y la cola pendiente se conservan.
+      state = const StartupSyncState(
+        phase: StartupSyncPhase.failed,
+        message: 'Sesión revocada — inicia sesión de nuevo',
+      );
+      ref.read(authProvider.notifier).logout();
     } on TokenExpiredException {
       state = const StartupSyncState(
         phase: StartupSyncPhase.failed,

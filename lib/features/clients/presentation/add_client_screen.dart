@@ -2,6 +2,7 @@ import 'package:drift/drift.dart' show Value;
 import 'package:flutter/material.dart';
 import 'package:industrial_service_reports/core/theme/app_palette.dart';
 import 'package:industrial_service_reports/data/local/app_database.dart';
+import 'package:industrial_service_reports/features/clients/services/client_pending_sync.dart';
 import 'package:uuid/uuid.dart';
 
 class AddClientScreen extends StatefulWidget {
@@ -436,6 +437,14 @@ class _AddClientScreenState extends State<AddClientScreen> {
   }
 
   Future<void> _confirmDeleteClient() async {
+    final int pending =
+        await pendingSyncCountForClient(widget.database, widget.client!.id);
+    if (!mounted) return;
+    if (pending > 0) {
+      _showErrorSnackBar(clientDeleteBlockedMessage(pending));
+      return;
+    }
+
     final bool? confirmed = await showDialog<bool>(
       context: context,
       builder: (BuildContext context) {

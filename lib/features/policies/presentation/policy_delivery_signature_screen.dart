@@ -1,10 +1,9 @@
 import 'dart:convert';
 import 'dart:io' as io;
-import 'dart:typed_data';
 
 import 'package:industrial_service_reports/features/reports/services/pdf_service.dart';
 
-import 'package:drift/drift.dart' show Expression, Value;
+import 'package:drift/drift.dart' hide Column;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -15,6 +14,7 @@ import 'package:industrial_service_reports/data/local/app_database.dart';
 import 'package:industrial_service_reports/data/local/local_database.dart';
 import 'package:industrial_service_reports/features/policies/providers/pending_delivery_provider.dart';
 import 'package:industrial_service_reports/features/policies/providers/policy_visit_provider.dart';
+import 'package:industrial_service_reports/features/signature/widgets/email_delivery_section.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:signature/signature.dart';
 import 'package:uuid/uuid.dart';
@@ -38,6 +38,12 @@ class _PolicyDeliverySignatureScreenState
   bool _isSaving = false;
   bool _signatureEmpty = true;
 
+  // Tarjeta "Envío por correo": solo se muestra si el GET de contact-emails
+  // llegó a completarse (sin conexión no se pueden consultar los correos).
+  bool _emailSectionLoaded = false;
+  List<String> _contactEmails = <String>[];
+  final ExtraEmailController _extraEmail = ExtraEmailController();
+
   @override
   void initState() {
     super.initState();
@@ -51,6 +57,7 @@ class _PolicyDeliverySignatureScreenState
         _signatureEmpty = _signatureController.isEmpty;
       });
     });
+    _loadContactEmails();
   }
 
   @override
@@ -58,7 +65,23 @@ class _PolicyDeliverySignatureScreenState
     _nameController.dispose();
     _roleController.dispose();
     _signatureController.dispose();
+    _extraEmail.dispose();
     super.dispose();
+  }
+
+  /// Carga los correos de contacto del cliente de la póliza para la tarjeta
+  /// "Envío por correo". Si no hay conectividad, la tarjeta se omite.
+  Future<void> _loadContactEmails() async {
+    final Policy? policy = await (localDatabase.select(localDatabase.policies)
+          ..where((Policies p) => p.id.equals(widget.args.policyId)))
+        .getSingleOrNull();
+    if (policy == null) return;
+    final List<String>? emails = await contactEmailsFetcher(policy.clientId);
+    if (emails == null || !mounted) return;
+    setState(() {
+      _contactEmails = emails;
+      _emailSectionLoaded = true;
+    });
   }
 
   Future<String?> _saveSignature() async {
@@ -74,6 +97,7 @@ class _PolicyDeliverySignatureScreenState
   }
 
   Future<void> _onConfirm() async {
+    if (!_extraEmail.validate(context)) return;
     if (!(_formKey.currentState?.validate() ?? false)) return;
     if (_signatureController.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -87,6 +111,7 @@ class _PolicyDeliverySignatureScreenState
 
     setState(() => _isSaving = true);
 
+    final String? extraEmail = _extraEmail.value;
     String? activeVisitId;
 
     try {
@@ -104,6 +129,7 @@ class _PolicyDeliverySignatureScreenState
               signatureRole: _roleController.text.trim(),
               techId: widget.args.techId,
               signatureImagePath: Value(sigPath),
+              extraEmail: Value(extraEmail),
             ),
           );
 
@@ -121,47 +147,56 @@ class _PolicyDeliverySignatureScreenState
             .write(const ReportsCompanion(status: Value('signed')));
       }
 
-      // Auto-completar visita si ya no quedan reportes pending_delivery en la póliza
+      // Auto-completar visita SOLO si todos los equipos de la póliza ya tienen
+      // su reporte entregado ('signed') dentro de esta visita.
       try {
         final List<PolicyPrinter> allPolicyPrinters =
             await (localDatabase.select(localDatabase.policyPrinters)
                   ..where((PolicyPrinters pp) =>
                       pp.policyId.equals(widget.args.policyId)))
                 .get();
-        bool anyPending = false;
-        for (final PolicyPrinter pp in allPolicyPrinters) {
-          final int count = await (localDatabase.select(localDatabase.reports)
-                ..where((Reports r) => Expression.and(<Expression<bool>>[
-                      r.printerId.equals(pp.printerId),
-                      r.status.equals('pending_delivery'),
-                    ])))
-              .get()
-              .then((List<Report> l) => l.length);
-          if (count > 0) {
-            anyPending = true;
-            break;
+        final List<PolicyVisit> activeVisits =
+            await (localDatabase.select(localDatabase.policyVisits)
+                  ..where((PolicyVisits v) => Expression.and(<Expression<bool>>[
+                        v.policyId.equals(widget.args.policyId),
+                        v.status.equals('in_progress'),
+                      ]))
+                  ..limit(1))
+                .get();
+        if (activeVisits.isNotEmpty && allPolicyPrinters.isNotEmpty) {
+          final PolicyVisit visit = activeVisits.first;
+          // Siempre ligar la entrega a la visita activa (aunque sea parcial).
+          activeVisitId = visit.id;
+          bool allDelivered = true;
+          for (final PolicyPrinter pp in allPolicyPrinters) {
+            final List<Report> delivered =
+                await (localDatabase.select(localDatabase.reports)
+                      ..where((Reports r) {
+                        Expression<bool> cond = r.printerId.equals(pp.printerId) &
+                            r.status.isIn(<String>['signed', 'Signed']);
+                        if (visit.startedAt != null) {
+                          cond = cond &
+                              r.serviceDate
+                                  .isBiggerOrEqualValue(visit.startedAt!);
+                        }
+                        return cond;
+                      })
+                      ..limit(1))
+                    .get();
+            if (delivered.isEmpty) {
+              allDelivered = false;
+              break;
+            }
           }
-        }
-        if (!anyPending && allPolicyPrinters.isNotEmpty && widget.args.reportIds.isNotEmpty) {
-          final List<PolicyVisit> activeVisits =
-              await (localDatabase.select(localDatabase.policyVisits)
-                    ..where((PolicyVisits v) => Expression.and(<Expression<bool>>[
-                          v.policyId.equals(widget.args.policyId),
-                          v.status.equals('in_progress'),
-                        ]))
-                    ..limit(1))
-                  .get();
-          if (activeVisits.isNotEmpty) {
-            activeVisitId = activeVisits.first.id;
+          if (allDelivered) {
             await (localDatabase.update(localDatabase.policyVisits)
-                  ..where((PolicyVisits v) =>
-                      v.id.equals(activeVisits.first.id)))
+                  ..where((PolicyVisits v) => v.id.equals(visit.id)))
                 .write(PolicyVisitsCompanion(
               status: const Value<String>('completed'),
               completedAt: Value<DateTime>(DateTime.now()),
             ));
             debugPrint(
-                '[PolicyDeliverySignature] Visita auto-completada: ${activeVisits.first.id}');
+                '[PolicyDeliverySignature] Visita auto-completada: ${visit.id}');
           }
         }
       } catch (e) {
@@ -209,6 +244,7 @@ class _PolicyDeliverySignatureScreenState
                 'report_ids': widget.args.reportIds,
                 'signature_image_path': sigPath,
                 'visit_id': activeVisitId,
+                'extra_email': extraEmail,
               }),
               entityType: 'policy_delivery',
               entityId: deliveryId,
@@ -359,6 +395,16 @@ class _PolicyDeliverySignatureScreenState
                       ],
                     ),
                   ),
+                  if (_emailSectionLoaded) ...<Widget>[
+                    const SizedBox(height: 16),
+                    _SectionCard(
+                      title: 'Envío por correo',
+                      child: EmailDeliveryBody(
+                        contactEmails: _contactEmails,
+                        controller: _extraEmail,
+                      ),
+                    ),
+                  ],
                 ],
               ),
             ),

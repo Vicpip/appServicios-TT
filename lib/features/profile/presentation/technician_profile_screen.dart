@@ -10,6 +10,7 @@ import 'package:industrial_service_reports/data/local/app_database.dart';
 import 'package:industrial_service_reports/data/local/local_database.dart';
 import 'package:industrial_service_reports/features/auth/providers/auth_provider.dart';
 import 'package:industrial_service_reports/features/auth/providers/session_provider.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:signature/signature.dart';
 
@@ -31,11 +32,61 @@ class _TechnicianProfileScreenState
     extends ConsumerState<TechnicianProfileScreen> {
   String? _signaturePath;
   DateTime? _lastSyncAt;
+  String _appVersion = '—';
 
   @override
   void initState() {
     super.initState();
     _loadUserData();
+    _loadAppVersion();
+  }
+
+  Future<void> _loadAppVersion() async {
+    try {
+      final PackageInfo info = await PackageInfo.fromPlatform();
+      if (mounted) {
+        setState(() => _appVersion = '${info.version} (Build ${info.buildNumber})');
+      }
+    } catch (_) {}
+  }
+
+  /// Cerrar sesión conserva todos los datos locales (reportes, cola, firma,
+  /// catálogos); solo se borran las credenciales y la captura en curso.
+  Future<void> _onLogoutPressed() async {
+    final int pending = await (localDatabase.select(localDatabase.syncQueue)
+          ..where((SyncQueue q) =>
+              q.estadoPeticion.isIn(<String>['pending', 'failed'])))
+        .get()
+        .then((List<SyncQueueData> l) => l.length);
+    if (!mounted) return;
+
+    if (pending > 0) {
+      final bool? confirm = await showDialog<bool>(
+        context: context,
+        builder: (BuildContext ctx) => AlertDialog(
+          title: const Text('¿Cerrar sesión?'),
+          content: Text(
+            'Tienes $pending elemento${pending != 1 ? 's' : ''} pendiente${pending != 1 ? 's' : ''} '
+            'de sincronizar. Se conservan en este teléfono y se enviarán cuando '
+            'inicies sesión de nuevo y haya internet.',
+          ),
+          actions: <Widget>[
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(false),
+              child: const Text('Cancelar'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(ctx).pop(true),
+              child: const Text('Cerrar sesión'),
+            ),
+          ],
+        ),
+      );
+      if (confirm != true || !mounted) return;
+    }
+
+    ref.read(authProvider.notifier).logout();
+    context.go('/login');
   }
 
   Future<void> _loadUserData() async {
@@ -202,7 +253,7 @@ class _TechnicianProfileScreenState
                       children: <Widget>[
                         _SystemRow(
                           label: 'Versión de la App',
-                          value: '1.0.0 (Build 12)',
+                          value: _appVersion,
                         ),
                         const SizedBox(height: 12),
                         _SystemRow(
@@ -217,10 +268,7 @@ class _TechnicianProfileScreenState
                     width: double.infinity,
                     height: 52,
                     child: FilledButton(
-                      onPressed: () {
-                        ref.read(authProvider.notifier).logout();
-                        context.go('/login');
-                      },
+                      onPressed: _onLogoutPressed,
                       style: FilledButton.styleFrom(
                         backgroundColor: const Color(0xFF4B1F1F),
                         foregroundColor: Colors.white,
@@ -236,7 +284,7 @@ class _TechnicianProfileScreenState
                   ),
                   const SizedBox(height: 8),
                   const Text(
-                    'Cerrar sesión borrará los datos locales no sincronizados.',
+                    'Al cerrar sesión se conservan tus reportes y los pendientes de sincronizar en este teléfono.',
                     textAlign: TextAlign.center,
                     style: TextStyle(
                       color: TechnicianProfileScreen._mutedText,

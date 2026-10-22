@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io' as io;
 
@@ -20,6 +21,8 @@ class SyncResult {
     required this.processed,
     required this.succeeded,
     required this.failed,
+    this.skippedOtherUser = 0,
+    this.offline = false,
   });
 
   /// Total items that were attempted.
@@ -30,6 +33,54 @@ class SyncResult {
 
   /// Items that failed (will be retried on the next run unless max attempts reached).
   final int failed;
+
+  /// Pendientes que pertenecen a otro técnico y no se subieron con esta sesión.
+  final int skippedOtherUser;
+
+  /// True si la sincronización se interrumpió por falta de conectividad.
+  /// Esos elementos siguen 'pending' y NO suman intentos fallidos.
+  final bool offline;
+}
+
+/// Respuesta HTTP no exitosa del servidor (4xx/5xx).
+class HttpStatusException implements Exception {
+  const HttpStatusException(this.statusCode, this.body, {this.prefix = ''});
+
+  final int statusCode;
+  final String body;
+  final String prefix;
+
+  @override
+  String toString() => '${prefix}HTTP $statusCode: $body';
+}
+
+/// El servidor rechazó el token (401/403): sesión revocada o usuario desactivado.
+/// La app debe pedir inicio de sesión SIN borrar datos locales ni la cola.
+class SessionRevokedException implements Exception {
+  const SessionRevokedException();
+
+  @override
+  String toString() => 'SessionRevokedException';
+}
+
+/// Fallo de conectividad (sin red, timeout, DNS, TLS): no es culpa del servidor.
+bool isConnectivityError(Object e) =>
+    e is io.SocketException ||
+    e is TimeoutException ||
+    e is io.HandshakeException ||
+    e is http.ClientException;
+
+/// Comprobación rápida de conectividad (resolución DNS del servidor).
+/// Evita intentar sincronizar —y gastar intentos— cuando no hay red.
+Future<bool> hasConnectivity({String baseUrl = kServerBaseUrlDevice}) async {
+  try {
+    final String host = Uri.parse(baseUrl).host;
+    final List<io.InternetAddress> res = await io.InternetAddress.lookup(host)
+        .timeout(const Duration(seconds: 4));
+    return res.isNotEmpty && res.first.rawAddress.isNotEmpty;
+  } catch (_) {
+    return false;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -83,10 +134,23 @@ class SyncService {
       throw const TokenExpiredException();
     }
 
+    // Sin conectividad: no se intenta nada (no se suman intentos).
+    if (!await hasConnectivity(baseUrl: baseUrl)) {
+      onProgress?.call('Sin conexión — usando datos locales');
+      return const SyncResult(
+          processed: 0, succeeded: 0, failed: 0, offline: true);
+    }
+
     // Step 0: Download server data (non-fatal if offline)
     try {
       onProgress?.call('Descargando datos del servidor...');
       await downloadData(baseUrl: baseUrl);
+    } on HttpStatusException catch (e) {
+      if (e.statusCode == 401 || e.statusCode == 403) {
+        throw const SessionRevokedException();
+      }
+      debugPrint('[Sync] downloadData error: $e');
+      onProgress?.call('Error del servidor — usando datos locales');
     } catch (e) {
       // ignore: avoid_print
       debugPrint('[Sync] downloadData error: $e');
@@ -119,47 +183,22 @@ class SyncService {
 
     // Read JWT once for all requests in this sync run.
     final String? authToken = await authService.getToken();
+    final String? currentUserId =
+        (await authService.getStoredSession())?.userId;
 
-    int succeeded = 0;
-    int failed = 0;
+    final SyncResult result = await uploadPending(
+      pending: pending,
+      currentUserId: currentUserId,
+      processItem: (SyncQueueData item) =>
+          _processItem(item, baseUrl, authToken),
+      onProgress: onProgress,
+    );
+    final int succeeded = result.succeeded;
+    final bool offline = result.offline;
 
-    for (int i = 0; i < pending.length; i++) {
-      final SyncQueueData item = pending[i];
-      onProgress?.call(
-        '${i + 1}/${pending.length} — ${_entityLabel(item.entityType)}',
-      );
-
-      try {
-        await _processItem(item, baseUrl, authToken);
-
-        // Mark as synced
-        await (_db.update(_db.syncQueue)
-              ..where((SyncQueue q) => q.id.equals(item.id)))
-            .write(SyncQueueCompanion(
-          estadoPeticion: const Value<String>('synced'),
-          updatedAt: Value<DateTime>(DateTime.now()),
-        ));
-        succeeded++;
-      } catch (e) {
-        final int newAttempts = item.intentosFallidos + 1;
-        final String newStatus =
-            newAttempts >= kMaxSyncAttempts ? 'failed' : 'pending';
-
-        // Truncate error to 300 chars so the UI stays readable.
-        final String errorMsg = e.toString().length > 300
-            ? '${e.toString().substring(0, 297)}...'
-            : e.toString();
-
-        await (_db.update(_db.syncQueue)
-              ..where((SyncQueue q) => q.id.equals(item.id)))
-            .write(SyncQueueCompanion(
-          estadoPeticion: Value<String>(newStatus),
-          intentosFallidos: Value<int>(newAttempts),
-          lastError: Value<String>(errorMsg),
-          updatedAt: Value<DateTime>(DateTime.now()),
-        ));
-        failed++;
-      }
+    // Renovación deslizante: una sincronización exitosa pide un token nuevo.
+    if (succeeded > 0 || (pending.isEmpty && !offline)) {
+      await _refreshToken(baseUrl, authToken);
     }
 
     // Stamp lastSyncAt on all user records when at least one item succeeded
@@ -173,11 +212,137 @@ class SyncService {
       } catch (_) {}
     }
 
+    return result;
+  }
+
+  /// Sube los elementos [pending] (ya ordenados por prioridad) uno por uno con
+  /// [processItem]. Reglas:
+  ///  * Los de OTRO técnico (según la entidad origen) se omiten.
+  ///  * Un error de conectividad detiene la corrida y NO suma intento.
+  ///  * Un 401/403 lanza [SessionRevokedException] y no suma intento.
+  ///  * Un error real (4xx/5xx u otro) suma un intento; al llegar a
+  ///    [kMaxSyncAttempts] el elemento pasa a 'failed'.
+  @visibleForTesting
+  Future<SyncResult> uploadPending({
+    required List<SyncQueueData> pending,
+    required String? currentUserId,
+    required Future<void> Function(SyncQueueData item) processItem,
+    void Function(String message)? onProgress,
+  }) async {
+    int succeeded = 0;
+    int failed = 0;
+    int skippedOtherUser = 0;
+    bool offline = false;
+
+    for (int i = 0; i < pending.length; i++) {
+      final SyncQueueData item = pending[i];
+      onProgress?.call(
+        '${i + 1}/${pending.length} — ${_entityLabel(item.entityType)}',
+      );
+
+      // Los pendientes de otro técnico NO se suben con la sesión actual.
+      final String? owner = await _ownerOf(item);
+      if (owner != null && currentUserId != null && owner != currentUserId) {
+        skippedOtherUser++;
+        continue;
+      }
+
+      try {
+        await processItem(item);
+
+        // Mark as synced
+        await (_db.update(_db.syncQueue)
+              ..where((SyncQueue q) => q.id.equals(item.id)))
+            .write(SyncQueueCompanion(
+          estadoPeticion: const Value<String>('synced'),
+          updatedAt: Value<DateTime>(DateTime.now()),
+        ));
+        succeeded++;
+      } on HttpStatusException catch (e) {
+        if (e.statusCode == 401 || e.statusCode == 403) {
+          // Token rechazado: el elemento queda pendiente, sin sumar intentos.
+          throw const SessionRevokedException();
+        }
+        failed++;
+        await _recordFailure(item, e);
+      } catch (e) {
+        if (isConnectivityError(e)) {
+          // Sin red / timeout / DNS: no cuenta como intento ni pasa a "Error".
+          offline = true;
+          onProgress?.call('Sin conexión — se reintentará después');
+          break;
+        }
+        failed++;
+        await _recordFailure(item, e);
+      }
+    }
+
     return SyncResult(
       processed: pending.length,
       succeeded: succeeded,
       failed: failed,
+      skippedOtherUser: skippedOtherUser,
+      offline: offline,
     );
+  }
+
+  /// Suma un intento fallido REAL (error del servidor o local); a partir de
+  /// [kMaxSyncAttempts] el elemento pasa a 'failed'.
+  Future<void> _recordFailure(SyncQueueData item, Object e) async {
+    final int newAttempts = item.intentosFallidos + 1;
+    final String newStatus =
+        newAttempts >= kMaxSyncAttempts ? 'failed' : 'pending';
+
+    // Truncate error to 300 chars so the UI stays readable.
+    final String errorMsg = e.toString().length > 300
+        ? '${e.toString().substring(0, 297)}...'
+        : e.toString();
+
+    await (_db.update(_db.syncQueue)
+          ..where((SyncQueue q) => q.id.equals(item.id)))
+        .write(SyncQueueCompanion(
+      estadoPeticion: Value<String>(newStatus),
+      intentosFallidos: Value<int>(newAttempts),
+      lastError: Value<String>(errorMsg),
+      updatedAt: Value<DateTime>(DateTime.now()),
+    ));
+  }
+
+  /// Dueño (id de usuario) de un elemento de la cola. La cola no guarda al
+  /// técnico: se deduce de la entidad origen (reporte -> techId, entrega de
+  /// póliza -> techId). Devuelve null si no se puede determinar.
+  Future<String?> _ownerOf(SyncQueueData item) async {
+    final Report? report = await (_db.select(_db.reports)
+          ..where((Reports r) => r.id.equals(item.entityId)))
+        .getSingleOrNull();
+    if (report != null) return report.techId;
+    final PolicyDelivery? delivery = await (_db.select(_db.policyDeliveries)
+          ..where((PolicyDeliveries d) => d.id.equals(item.entityId)))
+        .getSingleOrNull();
+    return delivery?.techId;
+  }
+
+  /// POST /api/auth/refresh -> guarda el token nuevo (otros 365 días).
+  /// Un fallo de red aquí es silencioso; 401/403 indica sesión revocada.
+  Future<void> _refreshToken(String baseUrl, String? authToken) async {
+    if (authToken == null) return;
+    try {
+      final http.Response response = await http.post(
+        Uri.parse('$baseUrl/api/auth/refresh'),
+        headers: <String, String>{'Authorization': 'Bearer $authToken'},
+      ).timeout(const Duration(seconds: 15));
+      if (response.statusCode == 200) {
+        final Map<String, dynamic> data =
+            jsonDecode(response.body) as Map<String, dynamic>;
+        await AuthService().saveRefreshedToken(data['access_token'] as String);
+      } else if (response.statusCode == 401 || response.statusCode == 403) {
+        throw const SessionRevokedException();
+      }
+    } on SessionRevokedException {
+      rethrow;
+    } catch (e) {
+      debugPrint('[Sync] refresh token (no fatal): $e');
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -228,7 +393,7 @@ class SyncService {
     );
 
     if (response.statusCode != 200) {
-      throw Exception('HTTP ${response.statusCode}: ${response.body}');
+      throw HttpStatusException(response.statusCode, response.body);
     }
 
     final Map<String, dynamic> data =
@@ -384,7 +549,7 @@ class SyncService {
               ? DateTime.parse(d['serviceDate'] as String)
               : DateTime.now(),
           linearInchesCounter: (d['linearInchesCounter'] as int?) ?? 0,
-          darknessLevel: Value<int?>(d['darknessLevel'] as int?),
+          darknessLevel: Value<double?>((d['darknessLevel'] as num?)?.toDouble()),
           technicalCheckboxes: checkboxMap,
           notes: Value<String?>(d['notes'] as String?),
           signatureName: Value<String?>(d['signatureName'] as String?),
@@ -560,6 +725,13 @@ class SyncService {
                         ? DateTime.parse(d['completedAt'] as String)
                         : null,
                   ),
+                  closedAt: Value<DateTime?>(
+                    d['closedAt'] != null
+                        ? DateTime.parse(d['closedAt'] as String)
+                        : null,
+                  ),
+                  closedReason: Value<String?>(d['closedReason'] as String?),
+                  closedByName: Value<String?>(d['closedByName'] as String?),
                   createdAt: Value<DateTime>(
                     d['createdAt'] != null
                         ? DateTime.parse(d['createdAt'] as String)
@@ -736,8 +908,8 @@ class SyncService {
     // ignore: avoid_print
     print('[SyncService] entities response ${response.statusCode}: ${response.body}');
     if (response.statusCode != 200 && response.statusCode != 201) {
-      throw Exception(
-          'entities HTTP ${response.statusCode}: ${response.body}');
+      throw HttpStatusException(response.statusCode, response.body,
+          prefix: 'entities ');
     }
   }
 
@@ -767,8 +939,12 @@ class SyncService {
       // ignore: avoid_print
       print('[SyncService] Response ${response.statusCode}: ${response.body}');
       if (response.statusCode != 200 && response.statusCode != 201) {
-        throw Exception('HTTP ${response.statusCode}: ${response.body}');
+        throw HttpStatusException(response.statusCode, response.body);
       }
+      // Servidor confirmó el reporte: se registra cuándo (el estado no cambia).
+      await (_db.update(_db.reports)
+            ..where((Reports r) => r.id.equals(item.entityId)))
+          .write(ReportsCompanion(syncedAt: Value<DateTime>(DateTime.now())));
     } catch (e) {
       // ignore: avoid_print
       print('[SyncService] Error: $e');
@@ -840,7 +1016,7 @@ class SyncService {
       // ignore: avoid_print
       print('[SyncService] Response ${response.statusCode}: $body');
       if (response.statusCode != 200 && response.statusCode != 201) {
-        throw Exception('HTTP ${response.statusCode}: $body');
+        throw HttpStatusException(response.statusCode, body);
       }
 
       // Tarea 3: tras subir el PDF de un reporte individual (no delivery_pdf),
@@ -873,6 +1049,20 @@ class SyncService {
           .getSingleOrNull();
       if (report == null) {
         debugPrint('[SyncService] send-email: reporte $reportId no encontrado localmente');
+        return;
+      }
+
+      // Reportes de una entrega de póliza: el servidor manda UN correo por
+      // entrega (con ligas) cuando ya están todos los PDFs. Aquí no se envía
+      // el correo individual.
+      final PolicyDeliveryReport? inDelivery =
+          await (_db.select(_db.policyDeliveryReports)
+                ..where((PolicyDeliveryReports r) => r.reportId.equals(reportId))
+                ..limit(1))
+              .getSingleOrNull();
+      if (inDelivery != null) {
+        debugPrint(
+            '[SyncService] send-email: reporte $reportId pertenece a una entrega — correo único en el servidor');
         return;
       }
 
@@ -946,7 +1136,7 @@ class SyncService {
       body: jsonEncode(payload),
     );
     if (response.statusCode != 200 && response.statusCode != 201) {
-      throw Exception('HTTP ${response.statusCode}: ${response.body}');
+      throw HttpStatusException(response.statusCode, response.body);
     }
   }
 
@@ -976,7 +1166,7 @@ class SyncService {
     // ignore: avoid_print
     print('[SyncService] PATCH response ${response.statusCode}: ${response.body}');
     if (response.statusCode != 200 && response.statusCode != 201) {
-      throw Exception('HTTP ${response.statusCode}: ${response.body}');
+      throw HttpStatusException(response.statusCode, response.body);
     }
 
     // Apply server response to local Drift DB
@@ -1004,7 +1194,7 @@ class SyncService {
       linearInchesCounter: data['linear_inches_counter'] != null
           ? Value<int>(data['linear_inches_counter'] as int)
           : const Value<int>.absent(),
-      darknessLevel: Value<int?>(data['darkness_level'] as int?),
+      darknessLevel: Value<double?>((data['darkness_level'] as num?)?.toDouble()),
     ));
   }
 
@@ -1087,7 +1277,7 @@ class SyncService {
       // ignore: avoid_print
       print('[SyncService] delivery_pdf response ${response.statusCode}: $body');
       if (response.statusCode != 200 && response.statusCode != 201) {
-        throw Exception('HTTP ${response.statusCode}: $body');
+        throw HttpStatusException(response.statusCode, body);
       }
     } catch (e) {
       // ignore: avoid_print
