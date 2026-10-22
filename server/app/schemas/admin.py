@@ -1,6 +1,8 @@
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, field_validator
+
+from app.schemas.common import normalize_optional_email
 
 
 class ReportListItem(BaseModel):
@@ -28,7 +30,7 @@ class ReportDetail(BaseModel):
     status: str
     service_date: datetime
     linear_inches_counter: int
-    darkness_level: int | None
+    darkness_level: float | None
     label_type_id: str | None
     technical_checkboxes: str  # raw JSON string
     notes: str | None
@@ -306,6 +308,13 @@ class PolicyDeliveryCreate(BaseModel):
     report_ids: list[str]
     signature_image_path: str | None = None
     visit_id: str | None = None
+    # Correo adicional capturado al firmar la entrega (opcional, validado).
+    extra_email: str | None = None
+
+    @field_validator("extra_email")
+    @classmethod
+    def _check_extra_email(cls, v: str | None) -> str | None:
+        return normalize_optional_email(v)
 
 
 class PolicyDeliveryItem(BaseModel):
@@ -320,6 +329,14 @@ class PolicyDeliveryItem(BaseModel):
     pdf_path: str | None = None
     total_printers: int = 0
     visit_id: str | None = None
+    extra_email: str | None = None
+    email_sent_at: datetime | None = None
+
+
+class DeliverySendEmailRequest(BaseModel):
+    """Body de POST /policy-deliveries/{id}/send-email (todo opcional)."""
+
+    regenerate_links: bool = False
 
 
 class CatalogModelCreate(BaseModel):
@@ -341,6 +358,10 @@ class PolicyVisitItem(BaseModel):
     started_at: datetime | None
     completed_at: datetime | None
     created_at: datetime
+    # Cierre manual desde el admin web
+    closed_at: datetime | None = None
+    closed_by_name: str | None = None
+    closed_reason: str | None = None
     # Computed
     attended_count: int = 0   # reports pending_delivery for this policy
     total_printers: int = 0   # printers in policy
@@ -349,6 +370,22 @@ class PolicyVisitItem(BaseModel):
 class PolicyVisitUpdate(BaseModel):
     status: str  # scheduled | in_progress | completed
     scheduled_date: str | None = None
+
+
+class VisitCloseRequest(BaseModel):
+    """Body de POST /policies/{id}/visits/{visit_id}/close."""
+
+    reason: str
+
+    @field_validator("reason")
+    @classmethod
+    def _reason_required(cls, v: str) -> str:
+        v = (v or "").strip()
+        if not v:
+            raise ValueError("El motivo es obligatorio")
+        if len(v) > 1000:
+            raise ValueError("El motivo es demasiado largo (máx. 1000 caracteres)")
+        return v
 
 
 class GenerateVisitsRequest(BaseModel):

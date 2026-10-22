@@ -12,6 +12,7 @@ from fpdf import FPDF
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
+from app.services.formatting import fmt_darkness
 from app.models.file import EntityFile, File
 from app.models.policy import PolicyDelivery, PolicyDeliveryReport
 from app.models.policy import Policy, PolicyVisit
@@ -998,7 +999,7 @@ def generate_delivery_pdf(delivery_id: str, db: Session) -> str | None:
                     ("Serie", f"S/N: {serial}"),
                     ("Modelo", model_str),
                     ("Contador", f"{rd.report.linear_inches_counter} pulg." if rd.report.linear_inches_counter is not None else "-"),
-                    ("Temperatura", str(rd.report.darkness_level) if rd.report.darkness_level is not None else "-"),
+                    ("Temperatura", fmt_darkness(rd.report.darkness_level)),
                 ],
             )
 

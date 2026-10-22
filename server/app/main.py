@@ -14,6 +14,7 @@ from app.api.routers.sync import router as sync_router
 from app.api.routers.reports import router as reports_router
 from app.api.routers.admin import router as admin_router
 from app.api.routers.portal import router as portal_router
+from app.api.routers.public import router as public_router
 
 settings = get_settings()
 
@@ -59,6 +60,7 @@ app.include_router(sync_router)
 app.include_router(reports_router)
 app.include_router(admin_router)
 app.include_router(portal_router)
+app.include_router(public_router)
 
 # Static files — serve uploaded photos/signatures/PDFs
 _upload_path = Path(settings.upload_dir)

@@ -23,6 +23,7 @@ from app.models.policy import (  # noqa: F401
     PolicyDeliveryReport,
 )
 from app.models.file import File, EntityFile  # noqa: F401
+from app.models.share_link import FileShareLink  # noqa: F401
 from app.models.sync import SyncQueue, SyncLog  # noqa: F401
 from app.models.portal import (  # noqa: F401
     PortalUser,

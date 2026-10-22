@@ -9,9 +9,10 @@ from pathlib import Path
 log = logging.getLogger(__name__)
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, Form
+from starlette.concurrency import run_in_threadpool
 from sqlalchemy.orm import Session
 
-from app.auth import get_current_user
+from app.auth import get_current_active_user
 from app.config import get_settings
 from app.services.delivery_pdf_service import generate_delivery_pdf
 from app.database import get_db
@@ -26,6 +27,8 @@ from app.models.report import Report
 from app.models.sync import SyncLog
 from app.models.user import User
 from app.schemas.admin import PolicyDeliveryCreate
+from app.services import delivery_email_service
+from app.services.visit_service import auto_complete_if_all_delivered
 from app.schemas.report import ReportCreate
 from app.schemas.sync import (
     BulkSyncRequest,
@@ -140,11 +143,18 @@ def _upsert_report(db: Session, data: ReportCreate) -> Report:
 # ---------------------------------------------------------------------------
 
 
+def _user_name(db: Session, user_id: str | None) -> str | None:
+    if not user_id:
+        return None
+    user = db.get(User, user_id)
+    return user.name if user else None
+
+
 @router.post("/reports", response_model=SyncResponse, status_code=200)
 def sync_report(
     body: ReportCreate,
     db: Session = Depends(get_db),
-    _current_user: dict = Depends(get_current_user),
+    _current_user: dict = Depends(get_current_active_user),
 ) -> SyncResponse:
     """Upsert a single report received from the mobile app."""
     try:
@@ -187,7 +197,7 @@ def sync_report(
 def sync_reports_bulk(
     body: BulkSyncRequest,
     db: Session = Depends(get_db),
-    _current_user: dict = Depends(get_current_user),
+    _current_user: dict = Depends(get_current_active_user),
 ) -> BulkSyncResponse:
     """Upsert multiple reports in a single request."""
     results: list[SyncResponse] = []
@@ -262,7 +272,7 @@ async def sync_file(
     file_category: str = Form(...),
     file: UploadFile = ...,
     db: Session = Depends(get_db),
-    _current_user: dict = Depends(get_current_user),
+    _current_user: dict = Depends(get_current_active_user),
 ) -> SyncResponse:
     """Receive a file (photo or signature) from the mobile app and persist it."""
     try:
@@ -362,11 +372,28 @@ async def sync_file(
                             synchronize_session=False,
                         )
                         db.commit()
+
+                    # Solo si el PDF se regeneró CON la firma: ¿están ya todos los demás?
+                    if pdf_relative:
+                        await run_in_threadpool(
+                            delivery_email_service.trigger_for_delivery, db, entity_id
+                        )
             except Exception:
                 log.exception(
                     "sync_file: PDF regeneration failed for signature entity_id=%s (non-fatal)",
                     entity_id,
                 )
+
+        # Llegó el PDF de un reporte: si pertenece a una entrega, reintenta el
+        # correo único (no envía nada si aún falta otro archivo).
+        if entity_type == "report" and file_category == "pdf":
+            try:
+                await run_in_threadpool(
+                    delivery_email_service.trigger_for_report_pdf, db, entity_id
+                )
+            except Exception:
+                db.rollback()
+                log.exception("sync_file: delivery email trigger failed (non-fatal)")
 
         return SyncResponse(
             success=True,
@@ -383,7 +410,7 @@ async def sync_file(
 def upsert_entities(
     body: EntitiesUpsertRequest,
     db: Session = Depends(get_db),
-    _current_user: dict = Depends(get_current_user),
+    _current_user: dict = Depends(get_current_active_user),
 ) -> EntitiesUpsertResponse:
     """Upsert a batch of mobile entities (users, clients, plants, areas, printers, catalog_models)
     in topological order so FK constraints are satisfied."""
@@ -528,7 +555,7 @@ def upsert_entities(
 @router.get("/sync/download")
 def download_data(
     db: Session = Depends(get_db),
-    _current_user: dict = Depends(get_current_user),
+    _current_user: dict = Depends(get_current_active_user),
 ) -> dict:
     """Return all active catalog data for the mobile app to seed its local DB."""
     from datetime import timedelta
@@ -645,6 +672,9 @@ def download_data(
             "status": v.status,
             "startedAt": v.started_at.isoformat() if v.started_at else None,
             "completedAt": v.completed_at.isoformat() if v.completed_at else None,
+            "closedAt": v.closed_at.isoformat() if v.closed_at else None,
+            "closedByName": _user_name(db, v.closed_by),
+            "closedReason": v.closed_reason,
             "createdAt": v.created_at.isoformat() if v.created_at else None,
         }
         for v in db.query(PolicyVisit).all()
@@ -669,7 +699,7 @@ def check_assignment(
     policy_id: str,
     printer_id: str,
     db: Session = Depends(get_db),
-    current_user: dict = Depends(get_current_user),
+    current_user: dict = Depends(get_current_active_user),
 ) -> dict:
     """Check if a printer in a policy is assigned to a specific technician."""
     assignment = (
@@ -698,7 +728,7 @@ def check_assignment(
 def create_policy_delivery(
     body: PolicyDeliveryCreate,
     db: Session = Depends(get_db),
-    _current_user: dict = Depends(get_current_user),
+    _current_user: dict = Depends(get_current_active_user),
 ) -> dict:
     """Create a policy delivery from the mobile app. Marks all reports as 'signed'."""
     policy = db.get(Policy, body.policy_id)
@@ -714,6 +744,7 @@ def create_policy_delivery(
         tech_id=body.tech_id,
         signature_image_path=body.signature_image_path,
         visit_id=body.visit_id,
+        extra_email=body.extra_email,
     )
     db.add(delivery)
     db.flush()
@@ -749,29 +780,14 @@ def create_policy_delivery(
     if body.visit_id:
         visit = db.get(PolicyVisit, body.visit_id)
         if visit:
-            # Only close the visit if no pending_delivery reports remain for
-            # this policy's printers (same date cutoff Flutter uses: >= started_at).
-            printer_ids = [
-                pp.printer_id
-                for pp in db.query(PolicyPrinter)
-                .filter(PolicyPrinter.policy_id == visit.policy_id)
-                .all()
-            ]
-            has_remaining = False
-            if printer_ids:
-                remaining_q = db.query(Report).filter(
-                    Report.printer_id.in_(printer_ids),
-                    Report.status == "pending_delivery",
-                )
-                if visit.started_at:
-                    remaining_q = remaining_q.filter(
-                        Report.service_date >= visit.started_at
-                    )
-                has_remaining = remaining_q.first() is not None
-            if not has_remaining:
-                visit.status = "completed"
-                visit.completed_at = datetime.now(timezone.utc)
-            # else: keep visit in_progress — more reports still pending delivery
+            # La visita solo se completa cuando TODOS los equipos de la póliza
+            # tienen su reporte entregado/firmado dentro de esta visita. Si falta
+            # alguno, sigue in_progress. Una visita ya completada (o cerrada
+            # manualmente) no se vuelve a tocar.
+            # SessionLocal usa autoflush=False: sin este flush la consulta no ve
+            # los reportes que esta misma entrega acaba de marcar como signed.
+            db.flush()
+            auto_complete_if_all_delivered(db, visit)
 
     _record_sync_log(
         db,
@@ -793,6 +809,10 @@ def create_policy_delivery(
     except Exception:
         pass  # PDF generation never blocks the delivery response
 
+    # Normalmente queda diferido (aún no llegan la firma ni los PDFs de los
+    # reportes); solo sale si ya estaban todos en el servidor.
+    delivery_email_service.trigger_for_delivery(db, delivery.id)
+
     return {
         "id": delivery.id,
         "policy_id": delivery.policy_id,
@@ -803,6 +823,7 @@ def create_policy_delivery(
         "signature_image_path": delivery.signature_image_path,
         "report_count": len(body.report_ids),
         "pdf_path": delivery.pdf_path,
+        "extra_email": delivery.extra_email,
     }
 
 
@@ -851,7 +872,7 @@ def get_policies_for_app(
 @router.get("/sync/status")
 def sync_status(
     db: Session = Depends(get_db),
-    _current_user: dict = Depends(get_current_user),
+    _current_user: dict = Depends(get_current_active_user),
 ) -> dict:
     """Returns sync queue counts useful for the mobile dashboard."""
     from sqlalchemy import func as sa_func

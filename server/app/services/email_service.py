@@ -8,13 +8,18 @@ Public API:
   send_password_reset_email(to_email, token)
   send_welcome_email(to_email, name, client_name)
   send_service_report_email(to_emails, client_name, tech_name, printer_serial,
-                             printer_model, service_date, folio, pdf_path)
+                             printer_model, service_date, folio, pdf_url)
+  send_delivery_email(to_emails, client_name, policy_folio, delivery_date,
+                      signer_name, signer_role, equipment, summary_url)
+
+Los correos de reportes/entregas NO adjuntan PDFs: llevan ligas públicas con
+vigencia (ver share_link_service). Todo el envío SMTP pasa por
+_smtp_deliver(), que las pruebas reemplazan por un backend falso.
 """
 
+import html
 import logging
-import os
 import smtplib
-from email.mime.application import MIMEApplication
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 
@@ -39,24 +44,30 @@ def _build_message(to_email: str, subject: str, html_body: str) -> MIMEMultipart
     return msg
 
 
-def _send(to_email: str, subject: str, html_body: str) -> None:
-    """Send an email via SMTP.  Logs and swallows errors so a mail failure
-    never crashes an API endpoint — callers can check logs.
+def _smtp_deliver(recipients: list[str], message: str) -> None:
+    """Entrega un mensaje ya armado por SMTP. Lanza si falla.
 
     Port 1025 is Mailpit's plain-SMTP listener (no TLS).  Any other port
     (e.g. 587) uses STARTTLS as required by real SMTP relays.
     """
     settings = get_settings()
+    with smtplib.SMTP(settings.smtp_host, settings.smtp_port, timeout=10) as smtp:
+        smtp.ehlo()
+        if settings.smtp_port != 1025:
+            smtp.starttls()
+            smtp.ehlo()
+        if settings.smtp_user and settings.smtp_password:
+            smtp.login(settings.smtp_user, settings.smtp_password)
+        smtp.sendmail(_SENDER, recipients, message)
+
+
+def _send(to_email: str, subject: str, html_body: str) -> None:
+    """Send an email via SMTP.  Logs and swallows errors so a mail failure
+    never crashes an API endpoint — callers can check logs.
+    """
     msg = _build_message(to_email, subject, html_body)
     try:
-        with smtplib.SMTP(settings.smtp_host, settings.smtp_port, timeout=10) as smtp:
-            smtp.ehlo()
-            if settings.smtp_port != 1025:
-                smtp.starttls()
-                smtp.ehlo()
-            if settings.smtp_user and settings.smtp_password:
-                smtp.login(settings.smtp_user, settings.smtp_password)
-            smtp.sendmail(_SENDER, [to_email], msg.as_string())
+        _smtp_deliver([to_email], msg.as_string())
         logger.info("Email sent to %s | subject: %s", to_email, subject)
     except Exception as exc:  # noqa: BLE001
         logger.error(
@@ -65,6 +76,27 @@ def _send(to_email: str, subject: str, html_body: str) -> None:
             subject,
             exc,
         )
+
+
+def _send_many(to_emails: list[str], subject: str, html_body: str) -> bool:
+    """Un solo mensaje para varios destinatarios. True si se entregó al SMTP."""
+    msg = MIMEMultipart("alternative")
+    msg["Subject"] = subject
+    msg["From"] = f"{_COMPANY} <{_SENDER}>"
+    msg["To"] = ", ".join(to_emails)
+    msg.attach(MIMEText(html_body, "html", "utf-8"))
+    try:
+        _smtp_deliver(to_emails, msg.as_string())
+        logger.info("Email sent to %s | subject: %s", to_emails, subject)
+        return True
+    except Exception as exc:  # noqa: BLE001
+        logger.error(
+            "Failed to send email to %s | subject: %s | error: %s",
+            to_emails,
+            subject,
+            exc,
+        )
+        return False
 
 
 # ---------------------------------------------------------------------------
@@ -258,6 +290,42 @@ def send_welcome_email(to_email: str, name: str, client_name: str = "") -> None:
     )
 
 
+def _e(value: object) -> str:
+    return html.escape("" if value is None else str(value))
+
+
+def _link_button(url: str, label: str) -> str:
+    return f"""
+      <a href="{_e(url)}"
+         style="display:inline-block;background:#1A4FD6;color:#ffffff;
+                padding:14px 32px;border-radius:8px;font-size:15px;
+                font-weight:600;text-decoration:none;">
+        {_e(label)}
+      </a>"""
+
+
+def _link_footer(url: str, expire_days: int) -> str:
+    return f"""
+      <p style="margin:16px 0 0;font-size:13px;color:#4A5568;">
+        Las ligas son personales y v&aacute;lidas por
+        <strong>{int(expire_days)} d&iacute;as</strong>. No las comparta con
+        terceros.
+      </p>
+      <p style="margin:12px 0 0;font-size:12px;color:#8899CC;">
+        Si el bot&oacute;n no funciona, copie y pegue este enlace en su navegador:<br/>
+        <a href="{_e(url)}" style="color:#1A4FD6;word-break:break-all;">{_e(url)}</a>
+      </p>"""
+
+
+def _info_row(label: str, value_html: str, last: bool = False) -> str:
+    border = "" if last else "border-bottom:1px solid #E2E8F0;"
+    return f"""
+        <tr>
+          <td style="padding:10px 14px;font-size:13px;color:#8899CC;{border}">{label}</td>
+          <td style="padding:10px 14px;font-size:14px;color:#1A1A2E;font-weight:600;{border}">{value_html}</td>
+        </tr>"""
+
+
 def send_service_report_email(
     to_emails: list[str],
     client_name: str,
@@ -266,21 +334,24 @@ def send_service_report_email(
     printer_model: str,
     service_date: str,
     folio: str,
-    pdf_path: str,
-) -> None:
-    """Send a service report PDF to one or more client contact emails.
+    pdf_url: str,
+    expire_days: int | None = None,
+) -> bool:
+    """Send a service report link to one or more client contact emails.
 
+    El PDF ya no se adjunta: el correo lleva una liga pública con vigencia.
     Non-fatal: exceptions are caught and logged, same behavior as the other
     functions in this module — a mail failure never crashes the caller.
+    Devuelve True si el mensaje se entregó al servidor SMTP.
     """
-    settings = get_settings()
+    expire_days = expire_days or get_settings().public_link_expire_days
     subject = f"Reporte de servicio {folio} — {client_name}"
     body = f"""
       <h2 style="margin:0 0 16px;font-size:20px;font-weight:700;color:#1A3557;">
         Reporte de servicio t&eacute;cnico
       </h2>
       <p style="margin:0 0 20px;font-size:15px;color:#4A5568;">
-        Se adjunta el reporte de servicio realizado a su equipo por
+        Ya est&aacute; disponible el reporte del servicio realizado a su equipo por
         <strong style="color:#1A3557;">{_COMPANY}</strong>.
       </p>
       <table width="100%" cellpadding="0" cellspacing="0" border="0"
@@ -291,60 +362,96 @@ def send_service_report_email(
             DETALLE DEL SERVICIO
           </td>
         </tr>
-        <tr>
-          <td style="padding:10px 14px;font-size:13px;color:#8899CC;border-bottom:1px solid #E2E8F0;">Folio</td>
-          <td style="padding:10px 14px;font-size:14px;color:#1A1A2E;font-weight:600;border-bottom:1px solid #E2E8F0;">{folio}</td>
-        </tr>
-        <tr>
-          <td style="padding:10px 14px;font-size:13px;color:#8899CC;border-bottom:1px solid #E2E8F0;">Equipo</td>
-          <td style="padding:10px 14px;font-size:14px;color:#1A1A2E;font-weight:600;border-bottom:1px solid #E2E8F0;">{printer_serial} &mdash; {printer_model}</td>
-        </tr>
-        <tr>
-          <td style="padding:10px 14px;font-size:13px;color:#8899CC;border-bottom:1px solid #E2E8F0;">T&eacute;cnico</td>
-          <td style="padding:10px 14px;font-size:14px;color:#1A1A2E;font-weight:600;border-bottom:1px solid #E2E8F0;">{tech_name}</td>
-        </tr>
-        <tr>
-          <td style="padding:10px 14px;font-size:13px;color:#8899CC;">Fecha de servicio</td>
-          <td style="padding:10px 14px;font-size:14px;color:#1A1A2E;font-weight:600;">{service_date}</td>
-        </tr>
+        {_info_row("Folio", _e(folio))}
+        {_info_row("Equipo", f"{_e(printer_serial)} &mdash; {_e(printer_model)}")}
+        {_info_row("T&eacute;cnico", _e(tech_name))}
+        {_info_row("Fecha de servicio", _e(service_date), last=True)}
       </table>
-      <p style="margin:0;font-size:13px;color:#8899CC;">
-        El reporte completo se encuentra adjunto a este correo en formato PDF.
-      </p>
+      {_link_button(pdf_url, "Ver reporte (PDF)")}
+      {_link_footer(pdf_url, expire_days)}
     """
-    html_body = _base_email_template("Reporte de servicio", body)
+    return _send_many(
+        to_emails, subject, _base_email_template("Reporte de servicio", body)
+    )
 
-    msg = MIMEMultipart("mixed")
-    msg["Subject"] = subject
-    msg["From"] = f"{_COMPANY} <{_SENDER}>"
-    msg["To"] = ", ".join(to_emails)
-    msg.attach(MIMEText(html_body, "html", "utf-8"))
 
-    try:
-        with open(pdf_path, "rb") as pdf_file:
-            attachment = MIMEApplication(pdf_file.read(), _subtype="pdf")
-        attachment.add_header(
-            "Content-Disposition", "attachment", filename=os.path.basename(pdf_path)
+def send_delivery_email(
+    to_emails: list[str],
+    client_name: str,
+    policy_folio: str,
+    delivery_date: str,
+    signer_name: str,
+    signer_role: str,
+    equipment: list[dict],
+    summary_url: str,
+    expire_days: int | None = None,
+) -> bool:
+    """Un solo correo por entrega de póliza, con ligas (sin PDFs adjuntos).
+
+    ``equipment``: [{"model", "serial", "service_type", "url" (str | None)}].
+    Devuelve True si el mensaje se entregó al servidor SMTP.
+    """
+    expire_days = expire_days or get_settings().public_link_expire_days
+    subject = f"Entrega de póliza {policy_folio} — {client_name}"
+
+    rows = ""
+    for item in equipment:
+        url = item.get("url")
+        cell = (
+            f'<a href="{_e(url)}" style="color:#1A4FD6;font-weight:600;">Ver PDF</a>'
+            if url
+            else '<span style="color:#8899CC;">No disponible</span>'
         )
-        msg.attach(attachment)
-    except OSError as exc:
-        logger.error("Failed to attach PDF %s to service report email: %s", pdf_path, exc)
-        return
+        rows += f"""
+        <tr>
+          <td style="padding:10px 14px;font-size:13px;color:#1A1A2E;border-bottom:1px solid #E2E8F0;">{_e(item.get("model"))}</td>
+          <td style="padding:10px 14px;font-size:13px;color:#1A1A2E;font-weight:600;border-bottom:1px solid #E2E8F0;">{_e(item.get("serial"))}</td>
+          <td style="padding:10px 14px;font-size:13px;color:#1A1A2E;border-bottom:1px solid #E2E8F0;">{_e(item.get("service_type"))}</td>
+          <td style="padding:10px 14px;font-size:13px;border-bottom:1px solid #E2E8F0;">{cell}</td>
+        </tr>"""
 
-    try:
-        with smtplib.SMTP(settings.smtp_host, settings.smtp_port, timeout=10) as smtp:
-            smtp.ehlo()
-            if settings.smtp_port != 1025:
-                smtp.starttls()
-                smtp.ehlo()
-            if settings.smtp_user and settings.smtp_password:
-                smtp.login(settings.smtp_user, settings.smtp_password)
-            smtp.sendmail(_SENDER, to_emails, msg.as_string())
-        logger.info("Service report email sent to %s | folio: %s", to_emails, folio)
-    except Exception as exc:  # noqa: BLE001
-        logger.error(
-            "Failed to send service report email to %s | folio: %s | error: %s",
-            to_emails,
-            folio,
-            exc,
-        )
+    body = f"""
+      <h2 style="margin:0 0 16px;font-size:20px;font-weight:700;color:#1A3557;">
+        Entrega de servicio de p&oacute;liza
+      </h2>
+      <p style="margin:0 0 20px;font-size:15px;color:#4A5568;">
+        <strong style="color:#1A3557;">{_COMPANY}</strong> concluy&oacute; la entrega
+        de los servicios de su p&oacute;liza. A continuaci&oacute;n el resumen y las
+        ligas a los reportes de cada equipo.
+      </p>
+      <table width="100%" cellpadding="0" cellspacing="0" border="0"
+             style="border-collapse:collapse;margin:0 0 24px;">
+        <tr>
+          <td colspan="2" style="background:#1A3557;color:#ffffff;padding:10px 14px;
+                                  font-size:13px;font-weight:700;letter-spacing:0.5px;">
+            DETALLE DE LA ENTREGA
+          </td>
+        </tr>
+        {_info_row("Folio de p&oacute;liza", _e(policy_folio))}
+        {_info_row("Cliente", _e(client_name))}
+        {_info_row("Fecha", _e(delivery_date))}
+        {_info_row("Firm&oacute;", f"{_e(signer_name)} ({_e(signer_role)})")}
+        {_info_row("Equipos entregados", str(len(equipment)), last=True)}
+      </table>
+      <table width="100%" cellpadding="0" cellspacing="0" border="0"
+             style="border-collapse:collapse;margin:0 0 24px;">
+        <tr>
+          <td colspan="4" style="background:#1A3557;color:#ffffff;padding:10px 14px;
+                                  font-size:13px;font-weight:700;letter-spacing:0.5px;">
+            EQUIPOS
+          </td>
+        </tr>
+        <tr style="background:#F8FAFF;">
+          <td style="padding:8px 14px;font-size:12px;color:#8899CC;">Modelo</td>
+          <td style="padding:8px 14px;font-size:12px;color:#8899CC;">Serie</td>
+          <td style="padding:8px 14px;font-size:12px;color:#8899CC;">Servicio</td>
+          <td style="padding:8px 14px;font-size:12px;color:#8899CC;">Reporte</td>
+        </tr>
+        {rows}
+      </table>
+      {_link_button(summary_url, "Ver resumen de la entrega (PDF)")}
+      {_link_footer(summary_url, expire_days)}
+    """
+    return _send_many(
+        to_emails, subject, _base_email_template("Entrega de póliza", body)
+    )

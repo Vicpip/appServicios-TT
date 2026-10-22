@@ -1,4 +1,4 @@
-from sqlalchemy import DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy import DateTime, Float, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
 
@@ -17,7 +17,7 @@ class Report(Base):
     status: Mapped[str] = mapped_column(String, nullable=False)
     service_date: Mapped[DateTime] = mapped_column(DateTime, nullable=False)
     linear_inches_counter: Mapped[int] = mapped_column(Integer, nullable=False)
-    darkness_level: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    darkness_level: Mapped[float | None] = mapped_column(Float, nullable=True)
     label_type_id: Mapped[str | None] = mapped_column(String, nullable=True)
     technical_checkboxes: Mapped[str] = mapped_column(
         Text, nullable=False, default="{}"

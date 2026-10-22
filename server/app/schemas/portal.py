@@ -177,7 +177,7 @@ class PortalReportDetail(BaseModel):
     status: str
     service_date: datetime
     linear_inches_counter: int
-    darkness_level: Optional[int]
+    darkness_level: Optional[float]
     technical_checkboxes: str
     notes: Optional[str]
     signature_name: Optional[str]

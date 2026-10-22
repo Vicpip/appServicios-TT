@@ -10,7 +10,7 @@ from pathlib import Path
 
 from fastapi import APIRouter, Depends, File as FastAPIFile, HTTPException, Query, UploadFile
 from fastapi.responses import StreamingResponse
-from app.auth import get_current_user
+from app.auth import get_current_active_user, get_current_user
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
@@ -30,7 +30,8 @@ from app.models.printer import Printer
 from app.models.report import Report
 from app.models.sync import SyncLog
 from app.models.user import User
-from app.services.email_service import send_service_report_email
+from app.models.share_link import TARGET_DELIVERY_PDF, TARGET_REPORT_PDF
+from app.services import delivery_email_service, share_link_service, visit_service
 
 settings = get_settings()
 from app.schemas.admin import (
@@ -52,6 +53,7 @@ from app.schemas.admin import (
     PlantUpdate,
     PolicyCreate,
     PolicyDeliveryCreate,
+    DeliverySendEmailRequest,
     PolicyDeliveryItem,
     PolicyDetail,
     PolicyListItem,
@@ -60,6 +62,7 @@ from app.schemas.admin import (
     PolicyUpdate,
     PolicyVisitItem,
     PolicyVisitUpdate,
+    VisitCloseRequest,
     PrinterCreate,
     PrinterListItem,
     PrinterUpdate,
@@ -1678,6 +1681,7 @@ def _create_policy_delivery(policy_id: str, body: PolicyDeliveryCreate, db: Sess
         signature_role=body.signature_role,
         tech_id=body.tech_id,
         signature_image_path=body.signature_image_path,
+        extra_email=body.extra_email,
     )
     db.add(delivery)
     db.flush()
@@ -1745,6 +1749,8 @@ def list_deliveries(policy_id: str, db: Session = Depends(get_db)) -> dict:
             pdf_path=d.pdf_path,
             total_printers=total_printers,
             visit_id=d.visit_id,
+            extra_email=d.extra_email,
+            email_sent_at=d.email_sent_at,
         ).model_dump())
     return {"total": len(items), "items": items}
 
@@ -1828,91 +1834,70 @@ def regenerate_delivery_pdf_endpoint(
     return {"success": True, "pdf_url": pdf_path}
 
 
-def _resolve_delivery_pdf_path(raw_path: str) -> Path:
-    """Build an absolute path from a stored (possibly relative) storage path."""
-    p = Path(raw_path)
-    if p.is_absolute():
-        return p
-    upload_dir = Path(settings.upload_dir)
-    parts = p.parts
-    if parts and parts[0] == upload_dir.name:
-        p = Path(*parts[1:])
-    return upload_dir / p
-
-
 @router.post("/policy-deliveries/{delivery_id}/send-email", response_model=dict)
 def send_delivery_email(
     delivery_id: str,
+    body: DeliverySendEmailRequest | None = None,
     db: Session = Depends(get_db),
-    _current_user: User = Depends(get_current_user),
+    _current_user: dict = Depends(get_current_active_user),
 ) -> dict:
-    """Email the policy delivery's PDF to the client's registered contact emails."""
+    """Reenvía el correo único de la entrega (con ligas, sin adjuntos).
+
+    Destinatarios: correos activos del cliente + correo adicional de la entrega,
+    sin duplicados. ``regenerate_links`` revoca las ligas anteriores (resumen y
+    reportes) y crea nuevas antes de enviar.
+    """
+    body = body or DeliverySendEmailRequest()
     delivery = db.get(PolicyDelivery, delivery_id)
     if not delivery:
         raise HTTPException(status_code=404, detail="Delivery not found")
     if not delivery.pdf_path:
         raise HTTPException(status_code=422, detail="La entrega aún no tiene un PDF generado")
 
-    policy = db.get(Policy, delivery.policy_id)
-    if not policy:
-        raise HTTPException(status_code=404, detail="Policy not found")
-    client = db.get(Client, policy.client_id)
-    if not client:
-        raise HTTPException(status_code=404, detail="Client not found")
-
-    contact_rows = (
-        db.query(ClientContactEmail)
-        .filter(ClientContactEmail.client_id == client.id, ClientContactEmail.is_active.is_(True))
-        .all()
+    result = delivery_email_service.send_delivery_email_for(
+        db, delivery_id, force=True, regenerate_links=body.regenerate_links
     )
-    to_emails = [row.email for row in contact_rows]
-    if not to_emails:
+    if result.status == delivery_email_service.NO_RECIPIENTS:
         raise HTTPException(
             status_code=422,
             detail="El cliente no tiene correos de contacto registrados",
         )
+    if result.status == delivery_email_service.DEFERRED:
+        raise HTTPException(
+            status_code=404,
+            detail="El archivo PDF de la entrega no existe en el servidor",
+        )
+    if result.status == delivery_email_service.FAILED:
+        raise HTTPException(status_code=502, detail="No se pudo enviar el correo")
+    return {"sent_to": result.sent_to}
 
-    delivery_reports = (
-        db.query(PolicyDeliveryReport)
-        .filter(PolicyDeliveryReport.delivery_id == delivery_id)
-        .all()
-    )
-    reports = [r for r in (db.get(Report, dr.report_id) for dr in delivery_reports) if r]
 
-    tech_name = "Técnico SMPC"
-    if reports and reports[0].tech_id:
-        tech = db.get(User, reports[0].tech_id)
-        if tech:
-            tech_name = tech.name
+@router.post("/policy-deliveries/{delivery_id}/regenerate-links", response_model=dict)
+def regenerate_delivery_links(
+    delivery_id: str,
+    db: Session = Depends(get_db),
+    _current_user: dict = Depends(get_current_active_user),
+) -> dict:
+    """Revoca las ligas públicas de la entrega (resumen + reportes) y crea nuevas.
 
-    printer_ids = {r.printer_id for r in reports if r.printer_id}
-    if len(printer_ids) == 1:
-        printer = db.get(Printer, next(iter(printer_ids)))
-        model = db.get(CatalogModel, printer.model_id) if printer and printer.model_id else None
-        printer_serial = printer.serial_number if printer else "-"
-        printer_model = f"{model.brand} {model.model_name}" if model else "-"
-    else:
-        printer_serial = "-"
-        printer_model = f"Varios equipos ({len(printer_ids)})"
-
-    folio = getattr(delivery, "folio", None) or f"ENT-{delivery.id[:8]}"
-
-    pdf_path = _resolve_delivery_pdf_path(delivery.pdf_path)
-    if not pdf_path.exists():
-        raise HTTPException(status_code=404, detail="El archivo PDF de la entrega no existe en el servidor")
-
-    send_service_report_email(
-        to_emails=to_emails,
-        client_name=client.name,
-        tech_name=tech_name,
-        printer_serial=printer_serial,
-        printer_model=printer_model,
-        service_date=delivery.delivery_date.strftime("%d/%m/%Y") if delivery.delivery_date else "",
-        folio=folio,
-        pdf_path=str(pdf_path),
-    )
-
-    return {"sent_to": to_emails}
+    No envía correo; devuelve las ligas nuevas para copiarlas.
+    """
+    delivery = db.get(PolicyDelivery, delivery_id)
+    if not delivery:
+        raise HTTPException(status_code=404, detail="Delivery not found")
+    summary = share_link_service.regenerate_link(db, TARGET_DELIVERY_PDF, delivery.id)
+    reports = []
+    for dr in db.query(PolicyDeliveryReport).filter(
+        PolicyDeliveryReport.delivery_id == delivery_id
+    ):
+        link = share_link_service.regenerate_link(db, TARGET_REPORT_PDF, dr.report_id)
+        reports.append({"report_id": dr.report_id, "url": share_link_service.link_url(link)})
+    db.commit()
+    return {
+        "summary_url": share_link_service.link_url(summary),
+        "expires_at": summary.expires_at.isoformat(),
+        "reports": reports,
+    }
 
 
 # ===========================================================================
@@ -1971,6 +1956,7 @@ def update_technician(
     if body.password is not None:
         _validate_password(body.password, tech.name)
         tech.password_hash = _hash_password(body.password)
+        tech.token_version = (tech.token_version or 0) + 1  # cierra sesiones vigentes
 
     db.commit()
     db.refresh(tech)
@@ -1999,8 +1985,24 @@ def delete_technician(tech_id: str, db: Session = Depends(get_db)) -> dict:
         raise HTTPException(status_code=409, detail="Technician is already inactive")
 
     tech.is_active = False
+    tech.token_version = (tech.token_version or 0) + 1
     db.commit()
     return {"success": True, "id": tech_id}
+
+
+@router.post("/technicians/{tech_id}/revoke-tokens", status_code=200)
+def revoke_technician_tokens(tech_id: str, db: Session = Depends(get_db)) -> dict:
+    """Invalidate every mobile token of a technician (forces re-login).
+
+    Does not deactivate the user nor delete anything on their phone: the app
+    keeps local data and the pending queue and just asks for login again.
+    """
+    tech = db.get(User, tech_id)
+    if not tech:
+        raise HTTPException(status_code=404, detail="Technician not found")
+    tech.token_version = (tech.token_version or 0) + 1
+    db.commit()
+    return {"success": True, "id": tech_id, "token_version": tech.token_version}
 
 
 # ===========================================================================
@@ -2446,6 +2448,8 @@ def _build_visit_item(visit: "PolicyVisit", db: Session) -> PolicyVisitItem:
             .scalar()
             or 0
         )
+    closer = db.get(User, visit.closed_by) if visit.closed_by else None
+    closed_by_name = closer.name if closer else None
     return PolicyVisitItem(
         id=visit.id,
         policy_id=visit.policy_id,
@@ -2455,6 +2459,9 @@ def _build_visit_item(visit: "PolicyVisit", db: Session) -> PolicyVisitItem:
         started_at=visit.started_at,
         completed_at=visit.completed_at,
         created_at=visit.created_at,
+        closed_at=visit.closed_at,
+        closed_by_name=closed_by_name,
+        closed_reason=visit.closed_reason,
         attended_count=attended_count,
         total_printers=total_printers,
     )
@@ -2555,6 +2562,17 @@ def update_policy_visit(
     if not visit or visit.policy_id != policy_id:
         raise HTTPException(status_code=404, detail="Visit not found")
 
+    if body.status == "completed" and visit.status != "completed":
+        raise HTTPException(
+            status_code=409,
+            detail="Para cerrar una visita use el botón Cerrar visita (requiere un motivo).",
+        )
+    if visit.closed_at is not None and body.status != "completed":
+        raise HTTPException(
+            status_code=409,
+            detail="Una visita cerrada manualmente no se puede reabrir.",
+        )
+
     if body.status == "in_progress" and visit.status != "in_progress":
         # Check for existing in_progress visit on the same policy
         conflict = (
@@ -2573,14 +2591,81 @@ def update_policy_visit(
             )
         visit.started_at = _now_utc()
 
-    if body.status == "completed" and visit.status != "completed":
-        visit.completed_at = _now_utc()
-
     visit.status = body.status
     if body.scheduled_date is not None:
         from datetime import date as date_type
         visit.scheduled_date = date_type.fromisoformat(body.scheduled_date)
 
+    db.commit()
+    db.refresh(visit)
+    return _build_visit_item(visit, db).model_dump()
+
+
+def _get_visit_or_404(db: Session, policy_id: str, visit_id: str) -> PolicyVisit:
+    visit = db.get(PolicyVisit, visit_id)
+    if not visit or visit.policy_id != policy_id:
+        raise HTTPException(status_code=404, detail="Visit not found")
+    return visit
+
+
+@router.get("/policies/{policy_id}/visits/{visit_id}/close-summary", response_model=dict)
+def visit_close_summary(
+    policy_id: str,
+    visit_id: str,
+    db: Session = Depends(get_db),
+    _current_user: dict = Depends(get_current_active_user),
+) -> dict:
+    """Resumen previo al cierre: equipos con reporte entregado y los que no."""
+    visit = _get_visit_or_404(db, policy_id, visit_id)
+    return visit_service.visit_close_summary(db, visit)
+
+
+@router.post("/policies/{policy_id}/visits/{visit_id}/close", response_model=dict)
+def close_policy_visit(
+    policy_id: str,
+    visit_id: str,
+    body: VisitCloseRequest,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_active_user),
+) -> dict:
+    """Cierra manualmente la visita en curso: completed + closed_at/by/reason.
+
+    Se bloquea si la póliza tiene reportes pending_delivery (primero deben
+    entregarse con firma). Una visita cerrada así no la reabre la regla
+    automática ni el PATCH.
+    """
+    if current_user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Solo un administrador puede cerrar visitas")
+    visit = _get_visit_or_404(db, policy_id, visit_id)
+    if visit.status != "in_progress":
+        raise HTTPException(
+            status_code=409, detail="Solo se puede cerrar la visita que está en curso."
+        )
+    pending = visit_service.pending_delivery_reports(db, policy_id)
+    if pending:
+        codes = ", ".join(sorted({r.code or r.id[:8] for r in pending}))
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"No se puede cerrar la visita: hay {len(pending)} reporte(s) pendiente(s) "
+                f"de entrega ({codes}). Primero deben entregarse con la firma del cliente."
+            ),
+        )
+    now = _now_utc()
+    visit.status = "completed"
+    visit.completed_at = now
+    visit.closed_at = now
+    visit.closed_by = current_user["sub"]
+    visit.closed_reason = body.reason
+    db.add(SyncLog(
+        id=str(uuid.uuid4()),
+        entity_type="policy_visit",
+        entity_id=visit.id,
+        action="close",
+        status="synced",
+        server_response=json.dumps({"closed_by": current_user["sub"], "reason": body.reason}),
+        synced_at=now,
+    ))
     db.commit()
     db.refresh(visit)
     return _build_visit_item(visit, db).model_dump()

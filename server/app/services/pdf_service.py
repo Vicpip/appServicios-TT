@@ -7,6 +7,8 @@ from typing import Any
 
 from fpdf import FPDF
 
+from app.services.formatting import fmt_darkness
+
 _MONTHS: tuple[str, ...] = (
     "Ene", "Feb", "Mar", "Abr", "May", "Jun",
     "Jul", "Ago", "Sep", "Oct", "Nov", "Dic",
@@ -123,7 +125,7 @@ def generate_report_pdf(
         ),
         (
             "Oscuridad",
-            str(report.darkness_level)
+            fmt_darkness(report.darkness_level, empty=None)
             if report.darkness_level is not None
             else None,
         ),

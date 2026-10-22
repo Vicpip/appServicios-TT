@@ -7,17 +7,20 @@ from pathlib import Path
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
-from app.auth import get_current_user
+from app.auth import get_current_active_user
 from app.config import get_settings
 from app.database import get_db
 from app.models.catalog import CatalogModel
 from app.models.client import Client
 from app.models.client_contact_email import ClientContactEmail
 from app.models.file import EntityFile, File
+from app.models.share_link import TARGET_REPORT_PDF
 from app.models.printer import Printer
 from app.models.report import Report
 from app.models.user import User
 from app.schemas.report import ReportSendEmailRequest, ReportUpdate
+from app.services import share_link_service
+from app.services.delivery_email_service import dedupe_emails, report_in_policy_delivery
 from app.services.email_service import send_service_report_email
 
 router = APIRouter(prefix="/api/reports", tags=["reports"])
@@ -115,7 +118,7 @@ def update_report(
     report_id: str,
     body: ReportUpdate,
     db: Session = Depends(get_db),
-    _current_user: dict = Depends(get_current_user),
+    _current_user: dict = Depends(get_current_active_user),
 ) -> dict:
     """Partially update editable fields and regenerate PDF if the report is signed."""
     report: Report | None = db.get(Report, report_id)
@@ -137,29 +140,25 @@ def update_report(
 # POST /api/reports/{report_id}/send-email
 # ---------------------------------------------------------------------------
 
-def _resolve_upload_path(raw_path: str) -> Path:
-    """Build an absolute path from a stored (possibly relative) storage path."""
-    p = Path(raw_path)
-    if p.is_absolute():
-        return p
-    upload_dir = Path(settings.upload_dir)
-    parts = p.parts
-    if parts and parts[0] == upload_dir.name:
-        p = Path(*parts[1:])
-    return upload_dir / p
-
-
 @router.post("/{report_id}/send-email", response_model=dict)
 def send_report_email(
     report_id: str,
     body: ReportSendEmailRequest,
     db: Session = Depends(get_db),
-    _current_user: dict = Depends(get_current_user),
+    _current_user: dict = Depends(get_current_active_user),
 ) -> dict:
-    """Email the report's PDF to the client's registered contact emails."""
+    """Envía por correo la LIGA al PDF del reporte (ya no se adjunta el PDF).
+
+    Los reportes de una entrega de póliza no se envían individualmente en el
+    disparo automático de la sincronización (van en el correo único de la
+    entrega); con ``manual=true`` (botón "Enviar") sí se envían.
+    """
     report: Report | None = db.get(Report, report_id)
     if not report:
         raise HTTPException(status_code=404, detail="Report not found")
+
+    if not body.manual and report_in_policy_delivery(db, report_id):
+        return {"sent_to": [], "skipped": "policy_delivery"}
 
     printer = db.get(Printer, report.printer_id) if report.printer_id else None
     if not printer:
@@ -173,11 +172,10 @@ def send_report_email(
     contact_rows = (
         db.query(ClientContactEmail)
         .filter(ClientContactEmail.client_id == client.id, ClientContactEmail.is_active.is_(True))
+        .order_by(ClientContactEmail.created_at)
         .all()
     )
-    to_emails = [row.email for row in contact_rows]
-    if body.extra_email:
-        to_emails.append(body.extra_email)
+    to_emails = dedupe_emails([row.email for row in contact_rows], [body.extra_email])
 
     if not to_emails:
         raise HTTPException(
@@ -185,21 +183,18 @@ def send_report_email(
             detail="No hay correos de contacto registrados para este cliente y no se proporcionó uno adicional.",
         )
 
-    pdf_row = (
-        db.query(File)
-        .join(EntityFile, EntityFile.file_id == File.id)
-        .filter(EntityFile.entity_id == report_id, EntityFile.file_category == "pdf")
-        .order_by(File.created_at.desc())
-        .first()
-    )
-    if not pdf_row:
+    if share_link_service.report_pdf_path(db, report_id) is None:
         raise HTTPException(status_code=404, detail="No se encontró el PDF de este reporte")
 
-    pdf_path = _resolve_upload_path(pdf_row.storage_path)
-    if not pdf_path.exists():
-        raise HTTPException(status_code=404, detail="El archivo PDF del reporte no existe en el servidor")
+    get_link = (
+        share_link_service.regenerate_link
+        if body.regenerate_link
+        else share_link_service.get_or_create_active_link
+    )
+    link = get_link(db, TARGET_REPORT_PDF, report_id)
+    db.commit()
 
-    send_service_report_email(
+    sent = send_service_report_email(
         to_emails=to_emails,
         client_name=client.name,
         tech_name=tech.name if tech else "",
@@ -207,7 +202,10 @@ def send_report_email(
         printer_model=f"{model.brand} {model.model_name}" if model else "",
         service_date=report.service_date.strftime("%d/%m/%Y") if report.service_date else "",
         folio=report.code or report.id,
-        pdf_path=str(pdf_path),
+        pdf_url=share_link_service.link_url(link),
+        expire_days=share_link_service.link_expire_days(),
     )
+    if not sent:
+        raise HTTPException(status_code=502, detail="No se pudo enviar el correo")
 
     return {"sent_to": to_emails}

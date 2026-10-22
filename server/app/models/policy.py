@@ -72,6 +72,10 @@ class PolicyDelivery(Base):
     visit_id: Mapped[str | None] = mapped_column(
         String, ForeignKey("policy_visits.id", ondelete="SET NULL"), nullable=True
     )
+    # Correo adicional capturado al firmar la entrega (opcional).
+    extra_email: Mapped[str | None] = mapped_column(String, nullable=True)
+    # Momento en que se envió el correo único de la entrega (idempotencia).
+    email_sent_at: Mapped[DateTime | None] = mapped_column(DateTime, nullable=True)
 
     # Relationships
     policy: Mapped["Policy"] = relationship("Policy", back_populates="deliveries")
@@ -118,6 +122,12 @@ class PolicyVisit(Base):
     )
     started_at: Mapped[DateTime | None] = mapped_column(DateTime, nullable=True)
     completed_at: Mapped[DateTime | None] = mapped_column(DateTime, nullable=True)
+    # Cierre manual desde el admin web (Cerrar visita): cuándo, quién y por qué.
+    closed_at: Mapped[DateTime | None] = mapped_column(DateTime, nullable=True)
+    closed_by: Mapped[str | None] = mapped_column(
+        String, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    closed_reason: Mapped[str | None] = mapped_column(String, nullable=True)
     created_at: Mapped[DateTime] = mapped_column(
         DateTime, server_default=func.now(), nullable=False
     )
