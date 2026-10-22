@@ -1168,3 +1168,32 @@ disparo no-fatal desde `sync_service` cuando el PDF del reporte ya se subió al 
 
 **Verificado:** `dart run build_runner build --delete-conflicting-outputs` sin errores (118 outputs). `flutter analyze` sin issues nuevos en los 5 archivos tocados (los 21 issues reportados son preexistentes en otros archivos). Pendiente: probar en dispositivo/emulador con datos reales (requiere backend con Sprint A desplegado, `alembic upgrade head` aplicado, y un servidor accesible desde el dispositivo para validar el disparo de email durante el sync).
 
+
+---
+
+## ✅ Ajustes post-manual: visitas, sesión, darkness, sync (21/10/2026) — SIN commit / SIN deploy
+
+| Tema | Cambio |
+|------|--------|
+| Cierre de visita | Visita `completed` SOLO si todos los `policy_printers` tienen reporte `signed` con `service_date >= started_at` (servidor `create_policy_delivery` y app: `policy_delivery_signature_screen`, `policy_dashboard_screen`). Contador "N/M equipos entregados" y botón de firma parcial/completa coherentes. La entrega siempre envía `visit_id`. |
+| Sesión | Logout conserva datos locales (solo borra credenciales + captura). Diálogo con pendientes. Token móvil 365 días (`mobile_token_expire_days` en Settings), renovación deslizante `POST /api/auth/refresh` tras sync exitoso. `users.token_version` + `get_current_active_user` (401 revocado / 403 desactivado). Admin: `POST /api/admin/technicians/{id}/revoke-tokens`; desactivar o cambiar contraseña también incrementa la versión. App: 401/403 → logout sin borrar BD. |
+| Cola por técnico | `SyncQueue` no guarda técnico; se deduce de `Reports.techId` / `PolicyDeliveries.techId` vía `entityId`. Pendientes de otro técnico no se suben. |
+| Darkness | `Reports.darknessLevel` real (Drift v11, `alterTable`), `reports.darkness_level` Float (Alembic 012), schemas float, helper `fmt_darkness` / `formatDarkness`. |
+| Sync offline | `hasConnectivity()` (DNS) antes de sync; errores de red/timeout no suman `intentosFallidos`; solo 4xx/5xx (`HttpStatusException`). |
+| Otros | Validación de correo adicional (firma individual, agrupar y firma grupal), filtro de historial sin acentos, Recientes (todos los estados), Historial de Sincronización nuevo (`Reports.syncedAt`, Drift v11), botones a medias retirados, versión desde `package_info_plus`, permiso INTERNET en manifest main, bloqueo de "Eliminar Cliente" con pendientes. |
+| Migraciones | Alembic `011_add_user_token_version.py`, `012_darkness_level_float.py` (SIN aplicar). Drift schema 10 → 11. |
+| Docs | `docs/manual-tecnico.md` actualizado; ver sección "Pendientes de confirmar". |
+
+---
+
+## ✅ Cerrar visita, correo único por entrega con ligas, correo adicional en firma de entrega (22/10/2026) — SIN commit / SIN deploy
+
+| Tema | Cambio |
+|------|--------|
+| Cerrar visita | Admin web (PolicyDetailPage) botón "Cerrar visita" en la visita en curso: modal con resumen (equipos entregados / pendientes / sin reporte, `GET .../visits/{id}/close-summary`) y motivo obligatorio. `POST /api/admin/policies/{pid}/visits/{vid}/close` (solo role admin): `status=completed` + `closed_at/closed_by/closed_reason`; **409 si hay reportes `pending_delivery` de la póliza** (primero se entregan) o si la visita no está en curso. PATCH ya no acepta `completed` ni reabrir una visita cerrada. Regla automática movida a `services/visit_service.py` y solo actúa sobre `in_progress`. **Bug corregido**: `create_policy_delivery` no hacía `db.flush()` (SessionLocal `autoflush=False`) y la visita no se cerraba con la entrega que cubría todos los equipos. `/api/sync/download` trae `closedAt/closedByName/closedReason`; Flutter los guarda (Drift v11) y los muestra en "Historial de visitas". |
+| Ligas en vez de adjuntos | Tabla `file_share_links` (token `secrets.token_urlsafe(32)`, target_type `report_pdf`/`delivery_pdf` + target_id, expires_at, revoked_at, last_access_at, access_count). `GET /api/public/files/{token}` sin login (inline, `X-Robots-Tag: noindex`, `Cache-Control: private`, 404 genérico, 429 por IP en memoria). Settings: `PUBLIC_LINK_EXPIRE_DAYS=30`, `PUBLIC_LINK_RATE_LIMIT=60`, `PUBLIC_LINK_RATE_WINDOW_SECONDS=60`; usa `API_BASE_URL`. Ningún correo de reportes/entregas lleva PDF adjunto. |
+| Correo único por entrega | `services/delivery_email_service.py`: se evalúa al llegar la firma de la entrega o el PDF de uno de sus reportes (y al crear la entrega); sale cuando existen firma + PDF de resumen + PDF de cada reporte; idempotente con `policy_deliveries.email_sent_at` (UPDATE atómico; si falla el SMTP se libera). Destinatarios: correos activos del cliente + `delivery.extra_email`, sin duplicados. `POST /api/reports/{id}/send-email` omite (200 `skipped`) reportes de una entrega salvo `manual=true`; Flutter ya no dispara ese correo para reportes de entrega. Admin: `POST /api/admin/policy-deliveries/{id}/send-email {regenerate_links}` (reenvío manual), `.../regenerate-links`; botones "Enviar al cliente" y "Regenerar liga y reenviar" (entregas y detalle de reporte). |
+| Correo adicional en firma de entrega | Widget compartido `lib/features/signature/widgets/email_delivery_section.dart` (`EmailDeliveryBody`, `ExtraEmailController`, `fetchClientContactEmails`) usado por las 3 firmas. `PolicyDeliveries.extraEmail` (Drift v11) → payload `extra_email` → `policy_deliveries.extra_email`. Sin conexión la tarjeta no aparece (igual que 4.8/4.9). |
+| Migraciones | Alembic `013_policy_visit_close_fields`, `014_file_share_links`, `015_policy_delivery_email_fields` (015 marca las entregas existentes como ya enviadas). Drift sigue en v11 (columnas añadidas a v11; `closed*` solo `addColumn` si `from >= 9`). |
+| Pruebas | `server/tests` (pytest + TestClient, SQLite, correo falso): `cd server && venv313\Scripts\python -m pytest tests` (52). Flutter: `flutter test` (33): migración Drift v10→v11 (`test/drift_migration_test.dart`, esquemas en `test/drift_schemas`), cola por técnico / offline (`SyncService.uploadPending`), tarjeta de correo y pantalla "Firma de entrega". `localDatabase` ya no es `final` (las pruebas la sustituyen). |
+| Docs | `docs/manual-tecnico.md`: 4.12, 4.21, 4.23 (+captura 59, repetir 50), 5.2, 6.4, 7.1, 7.4; [VERIFICAR] resueltos retirados. |

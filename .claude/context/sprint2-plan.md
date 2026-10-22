@@ -436,3 +436,13 @@ reemplaza el envío inmediato con `AlertDialog` del Sprint B. El envío real aho
 `contact-emails` del cliente + `pendingEmail` capturado. Nuevo botón "Enviar" en
 `report_view_screen.dart` (solo si `status == 'Signed'`) para reenvío manual. Detalle completo en
 `project-status.md` → sección "Sprint E". Pendiente: probar en dispositivo/emulador con datos reales.
+
+---
+
+## Pendiente de deploy (21/10/2026)
+- Aplicar `alembic upgrade head` (011 token_version, 012 darkness float) y reiniciar el backend (nuevo `/api/auth/refresh`, `get_current_active_user`, regla de cierre de visita).
+- Generar APK nuevo (Drift v11, permiso INTERNET, `package_info_plus`).
+- Decisiones abiertas: R-xxx duplicables entre técnicos; cerrar visita con equipos inatendibles (el admin web solo tiene "Activar").
+
+## ✅ Cerrar visita + correo único por entrega con ligas (22/10/2026, sin commit/deploy)
+Detalle en `project-status.md` → "Cerrar visita, correo único por entrega con ligas…". Pendiente de deploy: `alembic upgrade head` (013, 014, 015), reiniciar backend, `.env` (`API_BASE_URL` público; opcionales `PUBLIC_LINK_*`), APK nuevo (Drift v11 con columnas nuevas), `npm run build` del admin web. Ya no están abiertas las decisiones "R-xxx duplicables" (documentado como inocuo) ni "cerrar visita con equipos inatendibles" (botón Cerrar visita).
