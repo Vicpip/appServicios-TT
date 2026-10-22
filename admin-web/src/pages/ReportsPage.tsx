@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useMutation, useQuery } from '@tanstack/react-query'
 import {
   ChevronLeft,
   ChevronRight,
@@ -13,6 +13,8 @@ import {
   RotateCcw,
   Camera,
   ExternalLink,
+  Mail,
+  Link2,
 } from 'lucide-react'
 import apiClient from '@/api/client'
 import { API } from '@/api/endpoints'
@@ -159,6 +161,22 @@ interface DetailModalProps {
 
 export function DetailModal({ reportId, onClose }: DetailModalProps) {
   const [lightboxIdx, setLightboxIdx] = useState<number | null>(null)
+  const [mailNotif, setMailNotif] = useState<{ ok: boolean; msg: string } | null>(null)
+
+  const sendMail = useMutation({
+    mutationFn: async (regenerate: boolean) => {
+      const res = await apiClient.post<{ sent_to: string[]; skipped?: string }>(
+        API.reports.sendEmail(reportId),
+        { manual: true, regenerate_link: regenerate },
+      )
+      return res.data
+    },
+    onSuccess: (d) => setMailNotif({ ok: true, msg: `Correo con liga enviado a ${d.sent_to.length} destinatario${d.sent_to.length !== 1 ? 's' : ''}` }),
+    onError: (err: unknown) => {
+      const detail = (err as { response?: { data?: { detail?: unknown } } })?.response?.data?.detail
+      setMailNotif({ ok: false, msg: typeof detail === 'string' ? detail : 'Error al enviar' })
+    },
+  })
 
   const { data: report, isLoading } = useQuery({
     queryKey: ['report', reportId],
@@ -200,6 +218,28 @@ export function DetailModal({ reportId, onClose }: DetailModalProps) {
             </div>
             <div className="flex items-center gap-2">
               {files?.pdf && (
+                <>
+                  <button
+                    onClick={() => { setMailNotif(null); sendMail.mutate(false) }}
+                    disabled={sendMail.isPending}
+                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold font-sans text-primary border border-primary/30 rounded-lg hover:bg-primary/5 transition-colors disabled:opacity-50"
+                    title="Enviar al cliente la liga al PDF"
+                  >
+                    <Mail size={12} />
+                    Enviar al cliente
+                  </button>
+                  <button
+                    onClick={() => { setMailNotif(null); sendMail.mutate(true) }}
+                    disabled={sendMail.isPending}
+                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold font-sans text-primary border border-primary/30 rounded-lg hover:bg-primary/5 transition-colors disabled:opacity-50"
+                    title="Revoca la liga anterior, crea una nueva y reenvía el correo"
+                  >
+                    <Link2 size={12} />
+                    Regenerar liga y reenviar
+                  </button>
+                </>
+              )}
+              {files?.pdf && (
                 <a
                   href={fileUrl(files.pdf)}
                   target="_blank"
@@ -218,6 +258,12 @@ export function DetailModal({ reportId, onClose }: DetailModalProps) {
               </button>
             </div>
           </div>
+
+          {mailNotif && (
+            <div className={`px-6 py-2 text-sm font-sans ${mailNotif.ok ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-600'}`}>
+              {mailNotif.msg}
+            </div>
+          )}
 
           {/* Body */}
           <div className="flex-1 overflow-y-auto px-6 py-5">

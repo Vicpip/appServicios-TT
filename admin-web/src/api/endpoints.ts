@@ -3,6 +3,7 @@ export const API = {
     list: '/api/admin/reports',
     detail: (id: string) => `/api/admin/reports/${id}`,
     review: (id: string) => `/api/admin/reports/${id}/review`,
+    sendEmail: (id: string) => `/api/reports/${id}/send-email`,
     files: (id: string) => `/api/admin/reports/${id}/files`,
   },
   clients: {
@@ -64,6 +65,10 @@ export const API = {
     deliveryDetail: (deliveryId: string) => `/api/admin/policy-deliveries/${deliveryId}/detail`,
     regeneratePdf: (deliveryId: string) => `/api/admin/policy-deliveries/${deliveryId}/regenerate-pdf`,
     sendEmail: (deliveryId: string) => `/api/admin/policy-deliveries/${deliveryId}/send-email`,
+    visitCloseSummary: (policyId: string, visitId: string) =>
+      `/api/admin/policies/${policyId}/visits/${visitId}/close-summary`,
+    closeVisit: (policyId: string, visitId: string) =>
+      `/api/admin/policies/${policyId}/visits/${visitId}/close`,
     visits: (id: string) => `/api/admin/policies/${id}/visits`,
     generateVisits: (id: string) => `/api/admin/policies/${id}/visits/generate`,
     updateVisit: (policyId: string, visitId: string) =>

@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   ArrowLeft, ShieldCheck, Pencil, Users, CalendarCheck, Info, ClipboardList,
-  Play, X, ChevronDown, ChevronRight, FileText, FileDown, AlertTriangle, RefreshCw, Mail,
+  Play, X, ChevronDown, ChevronRight, FileText, FileDown, AlertTriangle, RefreshCw, Mail, Link2, Lock,
 } from 'lucide-react'
 import apiClient from '@/api/client'
 import { API } from '@/api/endpoints'
@@ -37,6 +37,8 @@ interface PolicyDeliveryItem {
   pdf_path: string | null
   total_printers: number
   visit_id: string | null
+  extra_email: string | null
+  email_sent_at: string | null
 }
 
 interface PolicyDeliveryDetailReport {
@@ -70,8 +72,30 @@ interface PolicyVisitItem {
   started_at: string | null
   completed_at: string | null
   created_at: string
+  closed_at: string | null
+  closed_by_name: string | null
+  closed_reason: string | null
   attended_count: number
   total_printers: number
+}
+
+interface VisitCloseEquipment {
+  printer_id: string
+  serial_number: string | null
+  model_name: string | null
+  state: 'delivered' | 'pending_delivery' | 'without_report'
+  report_code: string | null
+}
+
+interface VisitCloseSummary {
+  visit_id: string
+  visit_number: number
+  total_printers: number
+  delivered_count: number
+  pending_delivery_count: number
+  without_report_count: number
+  can_close: boolean
+  equipment: VisitCloseEquipment[]
 }
 
 interface TechnicianOption {
@@ -159,6 +183,147 @@ const TABS = [
 // Page
 // ---------------------------------------------------------------------------
 
+function errDetail(err: unknown, fallback: string): string {
+  const detail = (err as { response?: { data?: { detail?: unknown } } })?.response?.data?.detail
+  return typeof detail === 'string' ? detail : fallback
+}
+
+const EQUIPMENT_STATE: Record<VisitCloseEquipment['state'], { label: string; cls: string }> = {
+  delivered:        { label: 'Entregado',          cls: 'text-green-700 bg-green-50 border-green-200' },
+  pending_delivery: { label: 'Pendiente de entrega', cls: 'text-amber-700 bg-amber-50 border-amber-200' },
+  without_report:   { label: 'Sin reporte',        cls: 'text-gray-600 bg-gray-50 border-gray-200' },
+}
+
+function CloseVisitModal({
+  policyId, visit, onClose, onClosed,
+}: {
+  policyId: string
+  visit: PolicyVisitItem
+  onClose: () => void
+  onClosed: () => void
+}) {
+  const [reason, setReason] = useState('')
+  const [error, setError] = useState<string | null>(null)
+
+  const { data: summary, isLoading } = useQuery<VisitCloseSummary>({
+    queryKey: ['visit-close-summary', visit.id],
+    queryFn: async () => {
+      const res = await apiClient.get<VisitCloseSummary>(API.policies.visitCloseSummary(policyId, visit.id))
+      return res.data
+    },
+  })
+
+  const closeMutation = useMutation({
+    mutationFn: async () => {
+      await apiClient.post(API.policies.closeVisit(policyId, visit.id), { reason: reason.trim() })
+    },
+    onSuccess: onClosed,
+    onError: (err: unknown) => setError(errDetail(err, 'No se pudo cerrar la visita')),
+  })
+
+  const blocked = !!summary && summary.pending_delivery_count > 0
+  const canSubmit = !!summary && !blocked && reason.trim().length > 0 && !closeMutation.isPending
+
+  return (
+    <>
+      <div className="fixed inset-0 bg-black/50 z-40" onClick={onClose} />
+      <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+        <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg max-h-[90vh] flex flex-col">
+          <div className="flex items-center justify-between px-6 py-4 border-b border-border shrink-0">
+            <div className="flex items-center gap-2">
+              <Lock size={15} className="text-primary" />
+              <h3 className="font-semibold text-[#1A1A2E] font-heading">
+                Cerrar visita {visit.visit_number}
+              </h3>
+            </div>
+            <button onClick={onClose} className="p-1.5 rounded-lg text-gray-400 hover:text-gray-700 hover:bg-gray-100">
+              <X size={18} />
+            </button>
+          </div>
+
+          <div className="flex-1 overflow-y-auto px-6 py-5 space-y-4">
+            {isLoading || !summary ? (
+              <div className="h-24 bg-gray-50 rounded-lg animate-pulse" />
+            ) : (
+              <>
+                <p className="text-sm text-gray-600 font-sans">
+                  <span className="font-semibold text-green-700">{summary.delivered_count}</span> de{' '}
+                  <span className="font-semibold">{summary.total_printers}</span> equipos de la póliza tienen
+                  reporte entregado en esta visita.
+                </p>
+                <div className="border border-border rounded-lg divide-y divide-gray-100">
+                  {summary.equipment.map((e) => {
+                    const st = EQUIPMENT_STATE[e.state]
+                    return (
+                      <div key={e.printer_id} className="flex items-center gap-3 px-3 py-2">
+                        <div className="min-w-0 flex-1">
+                          <p className="text-sm font-sans font-semibold text-gray-700 truncate">{e.serial_number ?? e.printer_id.slice(0, 8)}</p>
+                          <p className="text-xs text-gray-400 font-sans truncate">
+                            {e.model_name ?? '—'}{e.report_code ? ` · ${e.report_code}` : ''}
+                          </p>
+                        </div>
+                        <span className={`shrink-0 px-2 py-0.5 rounded-full border text-xs font-medium font-sans ${st.cls}`}>
+                          {st.label}
+                        </span>
+                      </div>
+                    )
+                  })}
+                </div>
+
+                {blocked ? (
+                  <div className="flex gap-2 p-3 rounded-lg bg-amber-50 border border-amber-200 text-sm text-amber-800 font-sans">
+                    <AlertTriangle size={16} className="shrink-0 mt-0.5" />
+                    <span>
+                      No se puede cerrar: hay {summary.pending_delivery_count} reporte
+                      {summary.pending_delivery_count !== 1 ? 's' : ''} pendiente
+                      {summary.pending_delivery_count !== 1 ? 's' : ''} de entrega. Primero deben
+                      entregarse con la firma del cliente (desde la app o con una entrega registrada).
+                    </span>
+                  </div>
+                ) : summary.without_report_count > 0 ? (
+                  <p className="text-xs text-gray-500 font-sans">
+                    {summary.without_report_count} equipo{summary.without_report_count !== 1 ? 's' : ''} no tendrá
+                    {summary.without_report_count !== 1 ? 'n' : ''} reporte en esta visita. Indica el motivo del cierre.
+                  </p>
+                ) : null}
+
+                <div>
+                  <label className="block text-xs font-semibold text-gray-500 font-sans mb-1">
+                    Motivo del cierre <span className="text-red-500">*</span>
+                  </label>
+                  <textarea
+                    value={reason}
+                    onChange={(e) => setReason(e.target.value)}
+                    rows={3}
+                    maxLength={1000}
+                    disabled={blocked}
+                    placeholder="Ej. El cliente no permitió el acceso a los equipos restantes"
+                    className="w-full text-sm font-sans border border-border rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary disabled:bg-gray-50"
+                  />
+                </div>
+                {error && <p className="text-sm text-red-600 font-sans">{error}</p>}
+              </>
+            )}
+          </div>
+
+          <div className="flex justify-end gap-2 px-6 py-4 border-t border-border shrink-0">
+            <button onClick={onClose} className="px-4 py-2 text-sm font-semibold font-sans text-gray-600 rounded-lg hover:bg-gray-100">
+              Cancelar
+            </button>
+            <button
+              onClick={() => { setError(null); closeMutation.mutate() }}
+              disabled={!canSubmit}
+              className="px-4 py-2 text-sm font-semibold font-sans rounded-lg bg-primary text-white hover:bg-primary-dark disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              {closeMutation.isPending ? 'Cerrando…' : 'Cerrar visita'}
+            </button>
+          </div>
+        </div>
+      </div>
+    </>
+  )
+}
+
 export default function PolicyDetailPage() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
@@ -170,6 +335,7 @@ export default function PolicyDetailPage() {
   const [hasAutoExpanded, setHasAutoExpanded] = useState(false)
   const [regeneratingId, setRegeneratingId] = useState<string | null>(null)
   const [sendingEmailId, setSendingEmailId] = useState<string | null>(null)
+  const [closingVisit, setClosingVisit] = useState<PolicyVisitItem | null>(null)
   const [deliveryNotif, setDeliveryNotif] = useState<{ type: 'success' | 'error' | 'warning'; msg: string } | null>(null)
 
   // Policy detail
@@ -275,19 +441,21 @@ export default function PolicyDetailPage() {
   })
 
   const sendEmailMutation = useMutation({
-    mutationFn: async (deliveryId: string) => {
+    mutationFn: async ({ deliveryId, regenerate }: { deliveryId: string; regenerate: boolean }) => {
       const res = await apiClient.post<{ sent_to: string[] }>(
         API.policies.sendEmail(deliveryId),
+        { regenerate_links: regenerate },
       )
       return res.data
     },
-    onMutate: (deliveryId) => {
+    onMutate: ({ deliveryId }) => {
       setSendingEmailId(deliveryId)
       setDeliveryNotif(null)
     },
     onSuccess: (data) => {
       setSendingEmailId(null)
-      setDeliveryNotif({ type: 'success', msg: `Email enviado a ${data.sent_to.length} contacto${data.sent_to.length !== 1 ? 's' : ''}` })
+      setDeliveryNotif({ type: 'success', msg: `Email con ligas enviado a ${data.sent_to.length} destinatario${data.sent_to.length !== 1 ? 's' : ''}` })
+      qc.invalidateQueries({ queryKey: ['deliveries', id] })
       setTimeout(() => setDeliveryNotif(null), 4000)
     },
     onError: (err: unknown) => {
@@ -509,6 +677,10 @@ export default function PolicyDetailPage() {
                                 Técnico: {techName}
                               </p>
                             )}
+                            <p className="text-xs text-gray-400 font-sans mt-0.5">
+                              {d.email_sent_at ? `Correo enviado el ${fmtDate(d.email_sent_at)}` : 'Correo aún no enviado'}
+                              {d.extra_email ? ` · Correo adicional: ${d.extra_email}` : ''}
+                            </p>
                           </div>
                           <div className="flex items-center gap-2.5 shrink-0">
                             {d.total_printers > 0 && d.report_count < d.total_printers && (
@@ -549,15 +721,26 @@ export default function PolicyDetailPage() {
                         </button>
                         {d.pdf_path && (
                           <button
-                            onClick={() => sendEmailMutation.mutate(d.id)}
+                            onClick={() => sendEmailMutation.mutate({ deliveryId: d.id, regenerate: false })}
                             disabled={sendingEmailId === d.id}
                             className="flex items-center gap-1.5 px-4 py-4 text-xs font-semibold text-[#1A4FD6] hover:bg-[#1A4FD6]/5 transition-colors shrink-0 font-sans border-l border-gray-100 disabled:opacity-50"
-                            title="Enviar PDF al cliente"
+                            title="Reenviar el correo con las ligas vigentes"
                           >
                             {sendingEmailId === d.id
                               ? <span className="w-3.5 h-3.5 border-2 border-current border-t-transparent rounded-full animate-spin inline-block" />
                               : <Mail size={14} />}
                             <span className="hidden sm:inline">{sendingEmailId === d.id ? 'Enviando...' : 'Enviar al cliente'}</span>
+                          </button>
+                        )}
+                        {d.pdf_path && (
+                          <button
+                            onClick={() => sendEmailMutation.mutate({ deliveryId: d.id, regenerate: true })}
+                            disabled={sendingEmailId === d.id}
+                            className="flex items-center gap-1.5 px-4 py-4 text-xs font-semibold text-[#1A4FD6] hover:bg-[#1A4FD6]/5 transition-colors shrink-0 font-sans border-l border-gray-100 disabled:opacity-50"
+                            title="Revoca las ligas anteriores, crea ligas nuevas y reenvía el correo"
+                          >
+                            <Link2 size={14} />
+                            <span className="hidden sm:inline">Regenerar liga y reenviar</span>
                           </button>
                         )}
                       </div>
@@ -814,6 +997,12 @@ export default function PolicyDetailPage() {
                               {v.attended_count}/{v.total_printers} equipos atendidos
                             </p>
                           )}
+                          {isCompleted && v.closed_at && (
+                            <p className="text-xs text-gray-500 font-sans mt-0.5">
+                              Cerrada manualmente{v.closed_by_name ? ` por ${v.closed_by_name}` : ''} el {fmtDate(v.closed_at)}
+                              {v.closed_reason ? ` — Motivo: ${v.closed_reason}` : ''}
+                            </p>
+                          )}
                           {visitDeliveryCount > 0 && (
                             <p className="text-xs text-gray-400 font-sans mt-0.5">
                               {visitDeliveryCount} entrega{visitDeliveryCount !== 1 ? 's' : ''} registrada{visitDeliveryCount !== 1 ? 's' : ''}
@@ -838,6 +1027,16 @@ export default function PolicyDetailPage() {
                             >
                               <Play size={10} />
                               Activar
+                            </button>
+                          )}
+                          {isActive && (
+                            <button
+                              onClick={() => setClosingVisit(v)}
+                              className="flex items-center gap-1 px-2 py-1 text-xs font-semibold font-sans rounded-lg border border-primary/40 text-primary hover:bg-primary/5 transition-colors"
+                              title="Cerrar esta visita indicando un motivo"
+                            >
+                              <Lock size={10} />
+                              Cerrar visita
                             </button>
                           )}
                           <button
@@ -923,6 +1122,18 @@ export default function PolicyDetailPage() {
           onClose={() => {
             setEditOpen(false)
             qc.invalidateQueries({ queryKey: ['policy-detail', id] })
+          }}
+        />
+      )}
+      {closingVisit && (
+        <CloseVisitModal
+          policyId={id!}
+          visit={closingVisit}
+          onClose={() => setClosingVisit(null)}
+          onClosed={() => {
+            setClosingVisit(null)
+            refetchVisits()
+            qc.invalidateQueries({ queryKey: ['deliveries', id] })
           }}
         />
       )}
