@@ -34,6 +34,7 @@ from app.models.share_link import TARGET_DELIVERY_PDF, TARGET_REPORT_PDF
 from app.services import delivery_email_service, share_link_service, visit_service
 from app.services.policy_status import policy_status as _policy_status, status_filter as _policy_status_filter, vigente as _policy_vigente
 from app.services.file_signing_service import signed_upload_url
+from app.services.visit_schedule import visit_dates
 
 settings = get_settings()
 from app.schemas.admin import (
@@ -2489,7 +2490,8 @@ def generate_policy_visits(
     """Auto-generate N visits based on policy.frequency_maintenance.
 
     Only allowed if the policy has no visits yet.
-    Schedules dates evenly between start_date and end_date.
+    Visit k (0-based) is scheduled at start_date + k * (12 / N) months; all of
+    them fall before end_date (see app.services.visit_schedule).
     """
     policy = _get_active_policy(db, policy_id)
 
@@ -2509,21 +2511,11 @@ def generate_policy_visits(
     print(f"[Visits] freq normalizado: '{raw_freq}'")
     print(f"[Visits] n_visits calculado: {n_visits}")
 
-    from datetime import date, timedelta
     start: date = policy.start_date.date() if hasattr(policy.start_date, "date") else policy.start_date
     end: date = policy.end_date.date() if hasattr(policy.end_date, "date") else policy.end_date
-    total_days = (end - start).days
 
     created_visits: list[PolicyVisit] = []
-    for i in range(n_visits):
-        # Distribute evenly between start_date and end_date (endpoint-inclusive).
-        # For a single visit, place it on start_date.
-        if n_visits == 1:
-            offset_days = 0
-        else:
-            offset_days = round(total_days * i / (n_visits - 1))
-        scheduled = start + timedelta(days=offset_days)
-
+    for i, scheduled in enumerate(visit_dates(start, end, n_visits)):
         visit = PolicyVisit(
             id=str(uuid.uuid4()),
             policy_id=policy_id,

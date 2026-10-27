@@ -16,9 +16,9 @@ Convenciones:
 |---|---|---|
 | Crítica | 1 | H-01 |
 | Alta | 5 | H-02, H-08, H-09, H-19, H-27 |
-| Media | 13 | H-03, H-04, H-05, H-06, H-07, H-11, H-12, H-13, H-14, H-15, H-17, H-23, H-24 |
+| Media | 14 | H-28, H-03, H-04, H-05, H-06, H-07, H-11, H-12, H-13, H-14, H-15, H-17, H-23, H-24 |
 | Baja | 8 | H-10, H-16, H-18, H-20, H-21, H-22, H-25, H-26 |
-| **Total** | **27** | |
+| **Total** | **28** | |
 
 ---
 
@@ -476,6 +476,22 @@ exp` y se compara con `hmac.compare_digest`; la ruta se resuelve con `Path.resol
   Resultado esperado si la hipótesis es cierta: el reporte del ZT410 con `status = 'signed'`, `service_date` entre `2026-10-26 22:15` y `2026-10-27 04:15`, `cuenta_en_visita_hoy = false` y `cuenta_si_started_at_fuera_cdmx = true`; la entrega con `visit_id` = id de la visita 1 y los dos reportes. (Nombres de tabla/columna tomados de los modelos; si `folio` o alguna columna difiere, ajustar.)
 - **Afecta al manual:** Sí. Visitas: qué cuenta como "equipo entregado en la visita" y cierre automático/manual.
 - **Estado:** Corregido en rama `fix/visitas-entregas` (sin desplegar), solo servidor: "entregado" = entrega con `visit_id` → `policy_delivery_reports`, sin comparar fechas. Pendiente en la app Flutter: las 4 pantallas con el filtro `service_date >= started_at` (no tocadas).
+
+## H-28 — Visitas generadas: fechas repartidas uniformemente entre inicio y fin (la última cae en `end_date`)
+
+- **Severidad:** Media
+- **Área:** backend
+- **Dónde:** `server/app/api/routers/admin.py` (`generate_policy_visits`, `_FREQUENCY_VISIT_COUNT`). Nueva regla en `server/app/services/visit_schedule.py`. Revisado: `lib/` (Flutter) no calcula fechas de visitas (solo guarda y muestra `scheduledDate` que llega en `/sync/download`), `admin-web` solo muestra `scheduled_date` (sin vista previa) y `delivery_pdf_service.py` solo ordena por esa fecha.
+- **Qué pasaba:** las N visitas se repartían de manera uniforme entre `start_date` y `end_date` (la última caía en `end_date`, que ya es la renovación).
+- **Regla nueva:**
+  - Intervalo en meses = 12 / número de visitas (Mensual 12 → 1, Bimestral 6 → 2, Trimestral 4 → 3, Semestral 2 → 6, Anual 1 → 12).
+  - La visita k (k = 0..N-1) cae en `start_date + k × intervalo` meses; la visita 1 cae exactamente en `start_date`.
+  - Siempre se calcula desde `start_date` (nunca encadenando). Si el día no existe en el mes destino (29, 30, 31) se usa el último día de ese mes (31 ene → 28 feb → 31 mar; 29 feb 2028 + 12 meses → 28 feb 2029).
+  - Todas las visitas quedan antes de `end_date`; la renovación es el día siguiente a `end_date`. Con la vigencia por defecto (H-23: inicio + 1 año − 1 día) siempre se generan las N. Si el admin acorta la vigencia y alguna fecha cae en o después de `end_date`, esa visita no se genera (se generan menos de N).
+  - Se mantiene estado `scheduled`, numeración Visita n/N, asignación a técnicos y los guards de regenerar/eliminar. No se recalculan visitas existentes (hay que eliminarlas y regenerarlas) ni hay migración.
+- **Cómo verificar:** póliza con inicio 2026-10-27 y "Trimestral" → visitas 2026-10-27, 2027-01-27, 2027-04-27, 2027-07-27. Pruebas en `server/tests/test_visits.py` (5 frecuencias, fin de mes, año bisiesto, Anual = 1 visita, vigencia corta, guards).
+- **Afecta al manual:** Sí. Visitas y Pólizas: regla de fechas de las visitas generadas (arriba) y que la renovación es el día siguiente a la fecha fin.
+- **Estado:** Corregido en rama `fix/datos-admin` (sin desplegar).
 
 ---
 

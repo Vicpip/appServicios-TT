@@ -1,7 +1,7 @@
 """Regla automática de cierre de visita y botón "Cerrar visita"."""
 import uuid
 
-from datetime import timedelta
+from datetime import date, timedelta
 
 from app.models.policy import PolicyVisit
 
@@ -238,3 +238,84 @@ def test_descarga_incluye_cierre_para_la_app(client, world, admin_headers, tech_
     assert v["closedReason"] == "Equipos retirados"
     assert v["closedByName"] == world.admin.name
     assert v["closedAt"]
+
+
+# -- H-28: fechas de las visitas generadas ------------------------------------
+
+import pytest
+
+from app.services.visit_schedule import add_months, visit_dates
+
+ADMIN = "/api/admin"
+
+
+def _generate(client, headers, world, start, end, frequency):
+    """Crea una póliza con ese rango y frecuencia y genera sus visitas."""
+    res = client.post(f"{ADMIN}/policies", json={
+        "client_id": world.client_row.id, "folio": f"POL-T-{uuid.uuid4().hex[:6]}",
+        "start_date": f"{start}T00:00:00", "end_date": f"{end}T00:00:00",
+        "coverage_type": "Integral", "frequency_maintenance": frequency,
+    }, headers=headers)
+    assert res.status_code == 201, res.text
+    pid = res.json()["id"]
+    res = client.post(f"{ADMIN}/policies/{pid}/visits/generate", json={}, headers=headers)
+    assert res.status_code == 201, res.text
+    return pid, res.json()
+
+
+@pytest.mark.parametrize("frequency, expected", [
+    ("Mensual (12 visitas)", [
+        "2026-10-27", "2026-11-27", "2026-12-27", "2027-01-27", "2027-02-27", "2027-03-27",
+        "2027-04-27", "2027-05-27", "2027-06-27", "2027-07-27", "2027-08-27", "2027-09-27"]),
+    ("Bimestral (6 visitas)", [
+        "2026-10-27", "2026-12-27", "2027-02-27", "2027-04-27", "2027-06-27", "2027-08-27"]),
+    ("Trimestral (4 visitas)", ["2026-10-27", "2027-01-27", "2027-04-27", "2027-07-27"]),
+    ("Semestral (2 visitas)", ["2026-10-27", "2027-04-27"]),
+    ("Anual (1 visita)", ["2026-10-27"]),
+])
+def test_visitas_por_frecuencia_desde_start_date(client, world, admin_headers, frequency, expected):
+    _, visits = _generate(client, admin_headers, world, "2026-10-27", "2027-10-26", frequency)
+    assert [v["scheduled_date"] for v in visits] == expected
+    assert [v["visit_number"] for v in visits] == list(range(1, len(expected) + 1))
+    assert {v["status"] for v in visits} == {"scheduled"}
+    assert all(v["scheduled_date"] < "2027-10-26" for v in visits)     # antes del end_date
+
+
+def test_visitas_fin_de_mes_no_encadenan(client, world, admin_headers):
+    _, visits = _generate(client, admin_headers, world, "2026-01-31", "2027-01-30", "Mensual (12 visitas)")
+    dates = [v["scheduled_date"] for v in visits]
+    assert dates[:5] == ["2026-01-31", "2026-02-28", "2026-03-31", "2026-04-30", "2026-05-31"]
+    assert dates[-1] == "2026-12-31"
+    _, bim = _generate(client, admin_headers, world, "2026-01-31", "2027-01-30", "Bimestral (6 visitas)")
+    # 31 ene -> 31 mar -> 31 may -> 31 jul -> 30 sep (sin 31) -> 30 nov
+    assert [v["scheduled_date"] for v in bim] == [
+        "2026-01-31", "2026-03-31", "2026-05-31", "2026-07-31", "2026-09-30", "2026-11-30"]
+
+
+def test_visitas_anio_bisiesto(client, world, admin_headers):
+    _, visits = _generate(client, admin_headers, world, "2028-02-29", "2029-02-27", "Trimestral (4 visitas)")
+    assert [v["scheduled_date"] for v in visits] == ["2028-02-29", "2028-05-29", "2028-08-29", "2028-11-29"]
+    _, visits = _generate(client, admin_headers, world, "2027-08-29", "2028-08-28", "Mensual (12 visitas)")
+    dates = [v["scheduled_date"] for v in visits]
+    assert dates[6] == "2028-02-29" and dates[5] == "2028-01-29"      # 2028 es bisiesto
+    assert add_months(date(2028, 2, 29), 12) == date(2029, 2, 28)     # recorte al año no bisiesto
+
+
+def test_visitas_anual_una_sola_en_start_date(client, world, admin_headers):
+    _, visits = _generate(client, admin_headers, world, "2026-10-27", "2027-10-26", "Anual (1 visita)")
+    assert len(visits) == 1 and visits[0]["scheduled_date"] == "2026-10-27"
+
+
+def test_visitas_solo_antes_del_end_date():
+    # Vigencia corta con frecuencia mensual: solo las fechas anteriores al fin
+    assert visit_dates(date(2026, 1, 1), date(2026, 4, 1), 12) == [
+        date(2026, 1, 1), date(2026, 2, 1), date(2026, 3, 1)]
+
+
+def test_regenerar_conserva_guards(client, world, admin_headers):
+    pid, _ = _generate(client, admin_headers, world, "2026-10-27", "2027-10-26", "Semestral (2 visitas)")
+    # ya tiene visitas -> 409 hasta eliminarlas; luego regenera con la misma regla
+    assert client.post(f"{ADMIN}/policies/{pid}/visits/generate", json={}, headers=admin_headers).status_code == 409
+    assert client.delete(f"{ADMIN}/policies/{pid}/visits", headers=admin_headers).status_code == 200
+    res = client.post(f"{ADMIN}/policies/{pid}/visits/generate", json={}, headers=admin_headers)
+    assert [v["scheduled_date"] for v in res.json()] == ["2026-10-27", "2027-04-27"]
