@@ -2424,25 +2424,18 @@ def _build_visit_item(visit: "PolicyVisit", db: Session) -> PolicyVisitItem:
         .scalar()
         or 0
     )
-    # Count reports in pending_delivery status for this policy's printers
-    printer_ids = [
-        pp.printer_id
-        for pp in db.query(PolicyPrinter)
-        .filter(PolicyPrinter.policy_id == visit.policy_id)
-        .all()
-    ]
-    from app.models.report import Report as ReportModel
-    attended_count = 0
-    if printer_ids:
-        attended_count = (
-            db.query(func.count(ReportModel.id))
-            .filter(
-                ReportModel.printer_id.in_(printer_ids),
-                ReportModel.status == "pending_delivery",
-            )
-            .scalar()
-            or 0
-        )
+    # Entregados: equipos con reporte en una entrega de ESTA visita. En curso se
+    # suman los equipos con reporte pending_delivery (atendidos, aún sin firmar);
+    # en una visita cerrada el conteo es el de la entrega.
+    delivered = visit_service.delivered_printer_ids(db, visit)
+    attended = set(delivered)
+    if visit.status == "in_progress":
+        attended |= {
+            r.printer_id
+            for r in visit_service.pending_delivery_reports(db, visit.policy_id)
+        }
+    attended_count = len(attended)
+    delivered_count = len(delivered)
     closer = db.get(User, visit.closed_by) if visit.closed_by else None
     closed_by_name = closer.name if closer else None
     return PolicyVisitItem(
@@ -2458,6 +2451,7 @@ def _build_visit_item(visit: "PolicyVisit", db: Session) -> PolicyVisitItem:
         closed_by_name=closed_by_name,
         closed_reason=visit.closed_reason,
         attended_count=attended_count,
+        delivered_count=delivered_count,
         total_printers=total_printers,
     )
 

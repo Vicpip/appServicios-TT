@@ -1,6 +1,8 @@
 """Regla automática de cierre de visita y botón "Cerrar visita"."""
 import uuid
 
+from datetime import timedelta
+
 from app.models.policy import PolicyVisit
 
 
@@ -58,6 +60,73 @@ def test_entrega_con_correo_adicional_invalido_se_rechaza(client, world, tech_he
     assert res.status_code == 422
 
 
+# -- entregado = entrega -> visit_id -> reportes (sin comparar fechas) -------
+
+
+def _visits_by_number(client, headers, world):
+    res = client.get(f"/api/admin/policies/{world.policy.id}/visits", headers=headers)
+    assert res.status_code == 200, res.text
+    return {v["visit_number"]: v for v in res.json()}
+
+
+def test_reporte_anterior_a_started_at_en_la_entrega_cuenta(client, world, db, tech_headers):
+    # Caso H-27: service_date (hora local) menor que started_at (UTC).
+    visit = _visit(db, world.visit1.id)
+    reports = []
+    for p in world.printers:
+        r = world.add_report(p)
+        r.service_date = visit.started_at - timedelta(hours=3)
+        reports.append(r)
+    db.commit()
+    assert _post_delivery(client, tech_headers, world, reports).status_code == 201
+    assert _visit(db, world.visit1.id).status == "completed"
+
+
+def test_parcial_y_luego_completa_cierra_sola(client, world, db, tech_headers):
+    r1 = world.add_report(world.printers[0])
+    _post_delivery(client, tech_headers, world, [r1])
+    assert _visit(db, world.visit1.id).status == "in_progress"
+    r2, r3 = world.add_report(world.printers[1]), world.add_report(world.printers[2])
+    _post_delivery(client, tech_headers, world, [r2, r3])
+    assert _visit(db, world.visit1.id).status == "completed"
+
+
+def test_entrega_sin_visit_id_no_cuenta(client, world, db, tech_headers):
+    reports = [world.add_report(p) for p in world.printers]
+    body = {
+        "id": str(uuid.uuid4()), "policy_id": world.policy.id,
+        "delivery_date": "2026-10-22T10:00:00", "signature_name": "Cliente Uno",
+        "signature_role": "Compras", "tech_id": world.tech.id,
+        "report_ids": [r.id for r in reports],
+    }
+    assert client.post("/api/policy-deliveries", json=body, headers=tech_headers).status_code == 201
+    assert _visit(db, world.visit1.id).status == "in_progress"
+
+
+def test_contador_no_baja_a_cero_al_firmar(client, world, admin_headers, tech_headers):
+    r1, r2 = world.add_report(world.printers[0]), world.add_report(world.printers[1])
+    v = _visits_by_number(client, admin_headers, world)[1]
+    assert (v["attended_count"], v["delivered_count"]) == (2, 0)
+    _post_delivery(client, tech_headers, world, [r1, r2])
+    v = _visits_by_number(client, admin_headers, world)[1]
+    assert (v["attended_count"], v["delivered_count"]) == (2, 2)
+    assert v["total_printers"] == 3
+
+
+def test_entrega_de_visita_anterior_no_cuenta_en_la_siguiente(
+    client, world, db, admin_headers, tech_headers
+):
+    reports = [world.add_report(p) for p in world.printers]
+    _post_delivery(client, tech_headers, world, reports)  # completa la visita 1
+    assert _visit(db, world.visit1.id).status == "completed"
+    url2 = f"/api/admin/policies/{world.policy.id}/visits/{world.visit2.id}"
+    assert client.patch(url2, json={"status": "in_progress"}, headers=admin_headers).status_code == 200
+    visits = _visits_by_number(client, admin_headers, world)
+    assert visits[2]["attended_count"] == 0 and visits[2]["delivered_count"] == 0
+    assert visits[1]["delivered_count"] == 3
+    assert _visit(db, world.visit2.id).status == "in_progress"
+
+
 # -- Cerrar visita ----------------------------------------------------------
 
 
@@ -111,8 +180,9 @@ def test_cerrar_visita_que_no_esta_en_curso(client, world, admin_headers):
     assert _close(client, admin_headers, world, visit=world.visit2).status_code == 409
 
 
-def test_resumen_de_cierre(client, world, admin_headers):
-    world.add_report(world.printers[0], status="signed")
+def test_resumen_de_cierre(client, world, db, admin_headers, tech_headers):
+    r1 = world.add_report(world.printers[0])
+    assert _post_delivery(client, tech_headers, world, [r1]).status_code == 201
     world.add_report(world.printers[1], status="pending_delivery")
     res = client.get(
         f"/api/admin/policies/{world.policy.id}/visits/{world.visit1.id}/close-summary",

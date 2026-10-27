@@ -363,7 +363,8 @@ class PolicyVisitItem(BaseModel):
     closed_by_name: str | None = None
     closed_reason: str | None = None
     # Computed
-    attended_count: int = 0   # reports pending_delivery for this policy
+    attended_count: int = 0   # entregados en la visita + pending_delivery (en curso)
+    delivered_count: int = 0  # equipos entregados en la visita
     total_printers: int = 0   # printers in policy
 
 

@@ -76,6 +76,7 @@ interface PolicyVisitItem {
   closed_by_name: string | null
   closed_reason: string | null
   attended_count: number
+  delivered_count: number
   total_printers: number
 }
 
@@ -1012,7 +1013,7 @@ export default function PolicyDetailPage() {
                         <div className="flex items-center gap-2 shrink-0">
                           {isActive && v.total_printers > 0 && (
                             <span className="text-xs font-bold font-sans text-blue-700 bg-blue-100 border border-blue-200 rounded-full px-2 py-0.5">
-                              {v.attended_count}/{v.total_printers} equipos
+                              {v.delivered_count}/{v.total_printers} equipos
                             </span>
                           )}
                           <span className={`inline-flex items-center px-2 py-0.5 rounded-full border text-xs font-medium font-sans ${statusColor}`}>

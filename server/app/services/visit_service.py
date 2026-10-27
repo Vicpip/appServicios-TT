@@ -4,11 +4,15 @@ from datetime import datetime, timezone
 from sqlalchemy.orm import Session
 
 from app.models.catalog import CatalogModel
-from app.models.policy import PolicyPrinter, PolicyVisit
+from app.models.policy import (
+    PolicyDelivery,
+    PolicyDeliveryReport,
+    PolicyPrinter,
+    PolicyVisit,
+)
 from app.models.printer import Printer
 from app.models.report import Report
 
-DELIVERED_STATUSES = ("signed", "Signed")
 PENDING_STATUS = "pending_delivery"
 
 
@@ -24,18 +28,24 @@ def policy_printer_ids(db: Session, policy_id: str) -> set[str]:
 
 
 def delivered_printer_ids(db: Session, visit: PolicyVisit) -> set[str]:
-    """Equipos de la póliza con reporte entregado (firmado) dentro de la visita
-    (service_date >= started_at)."""
+    """Equipos de la póliza entregados en la visita: impresoras de los reportes
+    incluidos en las entregas con visit_id == visita (unión entre entregas
+    parciales). No compara fechas; las entregas sin visit_id no cuentan."""
     printer_ids = policy_printer_ids(db, visit.policy_id)
     if not printer_ids:
         return set()
-    q = db.query(Report.printer_id).filter(
-        Report.printer_id.in_(printer_ids),
-        Report.status.in_(DELIVERED_STATUSES),
+    rows = (
+        db.query(Report.printer_id)
+        .join(PolicyDeliveryReport, PolicyDeliveryReport.report_id == Report.id)
+        .join(PolicyDelivery, PolicyDelivery.id == PolicyDeliveryReport.delivery_id)
+        .filter(
+            PolicyDelivery.visit_id == visit.id,
+            Report.printer_id.in_(printer_ids),
+        )
+        .distinct()
+        .all()
     )
-    if visit.started_at:
-        q = q.filter(Report.service_date >= visit.started_at)
-    return {row[0] for row in q.all()}
+    return {row[0] for row in rows}
 
 
 def pending_delivery_reports(db: Session, policy_id: str) -> list[Report]:

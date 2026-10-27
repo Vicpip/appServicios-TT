@@ -15,10 +15,10 @@ Convenciones:
 | Severidad | Cantidad | IDs |
 |---|---|---|
 | Crítica | 1 | H-01 |
-| Alta | 4 | H-02, H-08, H-09, H-19 |
+| Alta | 5 | H-02, H-08, H-09, H-19, H-27 |
 | Media | 13 | H-03, H-04, H-05, H-06, H-07, H-11, H-12, H-13, H-14, H-15, H-17, H-23, H-24 |
 | Baja | 8 | H-10, H-16, H-18, H-20, H-21, H-22, H-25, H-26 |
-| **Total** | **26** | |
+| **Total** | **27** | |
 
 ---
 
@@ -382,7 +382,8 @@ Convenciones:
 - **Arreglo propuesto:** reutilizar `visit_service`: para visitas `in_progress` devolver `attended_count = len(delivered_printers ∪ pending_printers)` filtrando `service_date >= visit.started_at`; para completadas, el conteo al cierre. Añadir campo `delivered_count` si se quiere ambos números. No tocar la regla de cierre automática.
 - **Cómo verificar:** póliza con 3 equipos: tras reportar 2 (sin firmar) → "2/3"; tras firmar la entrega parcial → sigue "2/3" (hoy baja a "0/3"). Pytest en `test_visits.py`.
 - **Afecta al manual:** Sí. Visitas: significado de "equipos atendidos".
-- **Estado:** Pendiente
+- **Relacionado:** H-27 (el filtro `service_date >= started_at` que H-24 propone reutilizar tiene un defecto de zona horaria; corregir H-24 sin H-27 heredaría el error).
+- **Estado:** Corregido en rama `fix/visitas-entregas` (sin desplegar). Servidor: `attended_count` = entregados ∪ `pending_delivery` (en curso) y nuevo `delivered_count`; badge usa `delivered_count`.
 
 ## H-25 — Portal: cuenta desactivada se muestra como credenciales inválidas; "Reenviar" invitación a usuario ya registrado
 
@@ -408,6 +409,64 @@ Convenciones:
 - **Afecta al manual:** Sí. Dashboard: definición de "Clientes activos".
 - **Estado:** Pendiente
 
+## H-27 — Visitas: "reporte de esta visita" compara `service_date` (hora local CDMX) con `started_at` (UTC); equipos entregados salen "Sin reporte" y la visita no se completa
+
+- **Severidad:** Alta
+- **Área:** backend + app Flutter (misma regla duplicada en ambos)
+- **Relacionado:** H-24 (contador "X/N equipos atendidos"; este hallazgo es independiente y se suma a él). Caso observado: póliza POL-2026-009 (Vibra), visita 1/4 En curso.
+- **Dónde:**
+  - `server/app/services/visit_service.py:26-38` (`delivered_printer_ids`): `Report.service_date >= visit.started_at` (línea 37). Lo usan `auto_complete_if_all_delivered` (`:53-68`, línea 64) y `visit_close_summary` (`:84-112`, línea 87).
+  - `server/app/api/routers/admin.py:2587` — `visit.started_at = _now_utc()` (`:84-85`: UTC sin tzinfo). Columnas `DateTime` sin zona: `server/app/models/policy.py:123`, `server/app/models/report.py:18`.
+  - `server/app/api/routers/sync.py:673` — la visita viaja a la app como `started_at.isoformat()` **sin `Z`**; `lib/features/sync/services/sync_service.dart:718-722` la lee con `DateTime.parse`, que sin `Z` la interpreta como hora local.
+  - Origen de `service_date`: la app lo crea con `DateTime.now()` (hora local del teléfono) y lo envía con `toIso8601String()` sin desfase (`lib/features/signature/presentation/signature_screen.dart:209, 237, 612, 789, 819`); el servidor lo guarda tal cual (`sync.py:93, 118`).
+  - Misma comparación en la app: `policy_delivery_signature_screen.dart:177-180` (auto-completar local y decide `visit_id`), `policy_delivery_screen.dart:80-82`, `policy_dashboard_screen.dart:1651-1652, 1700-1703`, `reports_screen.dart:526-553`.
+  - Asignación de `visit_id`: `policy_delivery_signature_screen.dart:158-169` (visita `in_progress` local de la póliza, siempre, aunque la entrega sea parcial; si no hay visita activa queda `null`); `sync.py:746` lo guarda sin validar. `report_ids` de la entrega = `args.reportIds` (`policy_delivery_screen.dart:107`, todos los reportes de la lista de entrega), y `sync.py:753-764` marca **todos** como `signed` sin mirar fechas. La relación entrega→reportes (`policy_delivery_reports`) sí queda guardada, pero `delivered_printer_ids` no la consulta.
+- **Qué pasa hoy:**
+  - Se comparan dos relojes distintos como si fueran el mismo: `started_at` es UTC y `service_date` es hora local (CDMX = UTC−6). Un reporte hecho **en las 6 horas siguientes a la activación** tiene un número de reloj menor que `started_at` y se descarta como "anterior a la visita", aunque sea posterior. Ejemplo del caso: activación 04:15 UTC del 27-oct (= 22:15 del 26-oct en CDMX); el ZT410 con `service_date` 26-oct 22:15–23:59 (local) es menor que `2026-10-27 04:15` y queda fuera; el ZT610 del 27-oct (hora local ≥ 04:15) entra.
+  - El reporte descartado ya está `signed` (la entrega lo firmó), así que no es `pending_delivery`; el resumen lo clasifica `without_report` (`visit_service.py:93-99`) → "Sin reporte", y `delivered_count` = 1 de 2. Al faltar un equipo, `auto_complete_if_all_delivered` no completa la visita (`sync.py:790`).
+  - Con una activación en horario laboral el efecto es peor: activación 10:00 CDMX (= 16:00 UTC) descarta todo reporte hecho entre 10:00 y 16:00 locales del mismo día.
+  - "0/2 equipos atendidos" es el defecto de H-24 (`admin.py:2437-2445` solo cuenta `pending_delivery`, ya firmados no cuentan); no depende de la zona horaria. "1 entrega registrada" es correcto: es 1 entrega con 2 reportes.
+  - Si el ZT410 se reportó **antes** de las 22:15 locales del 26-oct, la exclusión sería legítima (reporte previo a la activación); la hipótesis solo se confirma con los datos (consulta 2 de abajo).
+- **Impacto:** visitas que no se completan solas, resumen de cierre que muestra "Sin reporte" para equipos ya entregados (el admin puede cerrar manualmente con un motivo falso o repetir trabajo); la app y el servidor pueden discrepar entre sí porque cada uno interpreta `started_at` con una zona distinta.
+- **Arreglo propuesto:** **no definido todavía** (solo diagnóstico). Dirección a evaluar: definir "equipo entregado en la visita" por la relación `policy_deliveries.visit_id` → `policy_delivery_reports` → `reports` en vez de comparar fechas (cambiaría `visit_service.delivered_printer_ids`, `visit_close_summary`, el contador de H-24 y las 4 pantallas de la app que repiten el filtro), con decisión pendiente sobre entregas con `visit_id` nulo y reportes firmados antes de la visita.
+- **Cómo verificar (diagnóstico, solo lectura en el VPS):** correr las consultas de abajo y comparar `service_date` contra `started_at` en ambos relojes.
+
+  ```sql
+  -- 1) Póliza y visita
+  SELECT p.id AS policy_id, p.folio, v.id AS visit_id, v.visit_number, v.status,
+         v.started_at AS started_at_utc,
+         (v.started_at AT TIME ZONE 'UTC') AT TIME ZONE 'America/Mexico_City' AS started_at_cdmx
+  FROM policies p JOIN policy_visits v ON v.policy_id = p.id
+  WHERE p.folio = 'POL-2026-009' ORDER BY v.visit_number;
+
+  -- 2) Reportes de los equipos de la póliza (status, service_date y comparación)
+  SELECT pr.serial_number, r.code, r.status, r.service_date,
+         r.service_date >= v.started_at AS cuenta_en_visita_hoy,
+         r.service_date >= (v.started_at AT TIME ZONE 'UTC') AT TIME ZONE 'America/Mexico_City' AS cuenta_si_started_at_fuera_cdmx
+  FROM policies p
+  JOIN policy_visits v ON v.policy_id = p.id AND v.status = 'in_progress'
+  JOIN policy_printers pp ON pp.policy_id = p.id
+  JOIN printers pr ON pr.id = pp.printer_id
+  JOIN reports r ON r.printer_id = pr.id
+  WHERE p.folio = 'POL-2026-009'
+  ORDER BY r.service_date;
+
+  -- 3) Entrega(s): visit_id y reportes que lleva
+  SELECT d.id AS delivery_id, d.visit_id, d.delivery_date, d.signature_name,
+         r.code, r.status, r.service_date, pr.serial_number
+  FROM policies p
+  JOIN policy_deliveries d ON d.policy_id = p.id
+  LEFT JOIN policy_delivery_reports dr ON dr.delivery_id = d.id
+  LEFT JOIN reports r ON r.id = dr.report_id
+  LEFT JOIN printers pr ON pr.id = r.printer_id
+  WHERE p.folio = 'POL-2026-009'
+  ORDER BY d.delivery_date, pr.serial_number;
+  ```
+
+  Resultado esperado si la hipótesis es cierta: el reporte del ZT410 con `status = 'signed'`, `service_date` entre `2026-10-26 22:15` y `2026-10-27 04:15`, `cuenta_en_visita_hoy = false` y `cuenta_si_started_at_fuera_cdmx = true`; la entrega con `visit_id` = id de la visita 1 y los dos reportes. (Nombres de tabla/columna tomados de los modelos; si `folio` o alguna columna difiere, ajustar.)
+- **Afecta al manual:** Sí. Visitas: qué cuenta como "equipo entregado en la visita" y cierre automático/manual.
+- **Estado:** Corregido en rama `fix/visitas-entregas` (sin desplegar), solo servidor: "entregado" = entrega con `visit_id` → `policy_delivery_reports`, sin comparar fechas. Pendiente en la app Flutter: las 4 pantallas con el filtro `service_date >= started_at` (no tocadas).
+
 ---
 
 # A) Pendientes de verificar
@@ -425,6 +484,7 @@ Convenciones:
 | 9 | Si ya se hizo deploy de los commits del 21–22/10/2026 (`b49cb92`, `90153ed`, `d0571f0`) | `git log --oneline origin/main..HEAD` y `git branch -a --contains b49cb92`; en el servidor, `git -C /ruta/repo log -1 --format=%h` y `alembic current` (deben figurar 011–015); `curl $API/api/health`; comprobar que el admin muestra "Cerrar visita" en una visita En curso | H-20 |
 | 10 | Ver si la app Flutter descarga archivos vía `/uploads/` (antes de bloquearlo) | `grep -rn "uploads" lib/ --include=*.dart` y revisar `sync_service.dart` | H-19 |
 | 11 | Ruta de PDF de reportes (nombre del archivo) para evaluar si es adivinable | `SELECT storage_path FROM files WHERE storage_path LIKE '%pdf' LIMIT 5;` | H-19 |
+| 12 | Si el ZT410 de POL-2026-009 quedó fuera de la visita por zona horaria | Consultas SQL del apartado "Cómo verificar" de H-27 | H-27, H-24 |
 
 ---
 
