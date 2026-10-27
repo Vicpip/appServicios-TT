@@ -180,7 +180,7 @@ Convenciones:
   4. Decidir si se sigue guardando `policy.status` (Flutter lo descarga en `/sync/download`; revisar `lib/` antes de eliminarlo) o se migra con Alembic.
 - **Cómo verificar:** crear póliza con `end_date` ayer → portal la muestra "Vencida" (o no la lista, según la decisión) y admin igual. Crear otra con `end_date` en 10 días → aparece en el portal como "Por vencer". Prueba pytest comparando ambos endpoints.
 - **Afecta al manual:** Sí. Portal, "Mis Pólizas": criterio de qué pólizas aparecen y qué etiquetas existen; admin, "Estado" de póliza (reglas 30 días).
-- **Estado:** Pendiente
+- **Estado:** Corregido en rama `fix/datos-admin` (sin desplegar, sin migración). Fuente única `server/app/services/policy_status.py` (por `end_date`; `Deleted` aparte). Portal: lista pólizas no eliminadas con etiqueta "Vencida" (antes las ocultaba o las mostraba como activas); detalle usa el estado calculado y 404 si `Deleted`. Contadores "pólizas activas" (admin `active_policy_count` y dashboard del portal) = `end_date >= ahora` y `status != Deleted`. La columna `policy.status` y lo que descarga la app no cambian.
 
 ## H-10 — Portal: `pending_delivery` y `Reviewed-*` salen en crudo
 

@@ -32,6 +32,7 @@ from app.models.sync import SyncLog
 from app.models.user import User
 from app.models.share_link import TARGET_DELIVERY_PDF, TARGET_REPORT_PDF
 from app.services import delivery_email_service, share_link_service, visit_service
+from app.services.policy_status import policy_status as _policy_status, status_filter as _policy_status_filter, vigente as _policy_vigente
 from app.services.file_signing_service import signed_upload_url
 
 settings = get_settings()
@@ -84,19 +85,6 @@ _DAMAGE_KEYS = {"Rodillo dañado", "Cabezal dañado", "Sensor ribbon dañado", "
 
 def _now_utc() -> datetime:
     return datetime.now(timezone.utc).replace(tzinfo=None)
-
-
-def _policy_status(end_date: datetime) -> str:
-    # Normalize to naive UTC: Pydantic v2 parses ISO strings with 'Z' as
-    # timezone-aware datetimes; DB-loaded datetimes are naive. Stripping tzinfo
-    # (replace, not astimezone) is safe because we always work in UTC.
-    end = end_date.replace(tzinfo=None)
-    now = _now_utc()
-    if end < now:
-        return "Expired"
-    if end < now + timedelta(days=30):
-        return "Expiring"
-    return "Active"
 
 
 def _get_active_policy(db: Session, policy_id: str) -> Policy:
@@ -327,7 +315,7 @@ def list_clients(
     )
     policy_count_sq = (
         db.query(Policy.client_id, func.count(Policy.id).label("cnt"))
-        .filter(Policy.status == "Active")
+        .filter(_policy_vigente())
         .group_by(Policy.client_id)
         .subquery()
     )
@@ -2048,7 +2036,7 @@ def update_client(
     printer_count = db.query(func.count(Printer.id)).filter(Printer.client_id == client_id).scalar() or 0
     active_policy_count = (
         db.query(func.count(Policy.id))
-        .filter(Policy.client_id == client_id, Policy.status == "Active")
+        .filter(Policy.client_id == client_id, _policy_vigente())
         .scalar() or 0
     )
     return ClientListItem(

@@ -38,6 +38,7 @@ from app.models.client import Client
 from app.models.client_contact_email import ClientContactEmail
 from app.models.file import EntityFile, File
 from app.models.plant import Plant
+from app.services.policy_status import not_deleted as _policy_not_deleted, policy_status as _policy_status
 from app.models.policy import Policy, PolicyDelivery, PolicyDeliveryReport, PolicyPrinter
 from app.models.portal import PortalInvitation, PortalPasswordReset, PortalUser
 from app.models.printer import Printer
@@ -894,14 +895,14 @@ def list_policies(
     db: Session = Depends(get_db),
     payload: dict = Depends(get_current_portal_user),
 ) -> list[PortalPolicyItem]:
-    """Return active/current policies for the portal user's client."""
+    """Policies of the portal user's client (not deleted); expired ones are labelled "Expired"."""
     portal_user = _resolve_portal_user(payload, db)
 
     policies = (
         db.query(Policy)
         .filter(
             Policy.client_id == portal_user.client_id,
-            Policy.status.in_(["active", "Active", "Activa"]),
+            _policy_not_deleted(),
         )
         .order_by(Policy.end_date.desc())
         .all()
@@ -921,7 +922,7 @@ def list_policies(
                 coverage_type=p.coverage_type,
                 start_date=p.start_date,
                 end_date=p.end_date,
-                status=p.status,
+                status=_policy_status(p.end_date),
                 sla_notes=p.sla_notes,
                 frequency_maintenance=p.frequency_maintenance,
                 printer_count=printer_count,
@@ -945,7 +946,7 @@ def get_policy(
     portal_user = _resolve_portal_user(payload, db)
 
     policy: Policy | None = db.get(Policy, policy_id)
-    if not policy or policy.client_id != portal_user.client_id:
+    if not policy or policy.status == "Deleted" or policy.client_id != portal_user.client_id:
         raise HTTPException(status_code=404, detail="Póliza no encontrada")
 
     client: Client | None = db.get(Client, policy.client_id)
@@ -1012,7 +1013,7 @@ def get_policy(
         coverage_type=policy.coverage_type,
         start_date=policy.start_date,
         end_date=policy.end_date,
-        status=policy.status,
+        status=_policy_status(policy.end_date),
         sla_notes=policy.sla_notes,
         frequency_maintenance=policy.frequency_maintenance,
         client_name=client.name if client else "",
@@ -1041,7 +1042,7 @@ def get_policy_delivery(
     portal_user = _resolve_portal_user(payload, db)
 
     policy: Policy | None = db.get(Policy, policy_id)
-    if not policy or policy.client_id != portal_user.client_id:
+    if not policy or policy.status == "Deleted" or policy.client_id != portal_user.client_id:
         raise HTTPException(status_code=404, detail="Póliza no encontrada")
 
     delivery: PolicyDelivery | None = db.get(PolicyDelivery, delivery_id)

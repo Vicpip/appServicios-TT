@@ -139,7 +139,7 @@ export default function Dashboard() {
     },
     {
       label: 'Pólizas activas',
-      value: policies.length,
+      value: policies.filter(p => p.status !== 'Expired').length,
       loading: loadingPolicies,
       icon: ShieldCheck,
       accent: 'bg-emerald-50',

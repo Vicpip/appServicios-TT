@@ -21,6 +21,7 @@ export default function Polizas() {
     },
     staleTime: 60_000,
   })
+  const vigentes = policies.filter(p => p.status !== 'Expired').length
 
   return (
     <div className="space-y-5">
@@ -28,7 +29,8 @@ export default function Polizas() {
         <h2 className="text-xl font-bold text-[#1A1A2E] font-heading">Mis Pólizas</h2>
         {!isLoading && (
           <p className="text-sm text-gray-400 font-sans mt-0.5">
-            {policies.length} póliza{policies.length !== 1 ? 's' : ''} activa{policies.length !== 1 ? 's' : ''}
+            {vigentes} póliza{vigentes !== 1 ? 's' : ''} activa{vigentes !== 1 ? 's' : ''}
+            {policies.length > vigentes && ` · ${policies.length - vigentes} vencida${policies.length - vigentes !== 1 ? 's' : ''}`}
           </p>
         )}
       </div>
@@ -42,7 +44,7 @@ export default function Polizas() {
           {Array.from({ length: 3 }).map((_, i) => <SkeletonCard key={i} />)}
         </div>
       ) : policies.length === 0 ? (
-        <EmptyState message="No tienes pólizas activas" icon={ShieldCheck} />
+        <EmptyState message="No tienes pólizas registradas" icon={ShieldCheck} />
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {policies.map(p => (
