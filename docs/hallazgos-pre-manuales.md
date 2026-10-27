@@ -100,7 +100,7 @@ Convenciones:
   3. Opcional: endpoint admin dedicado `GET /api/admin/sync/summary` para no depender del de la app.
 - **Cómo verificar:** con registros en `SyncLog`, la pantalla debe mostrar el mismo número que `curl -H "Authorization: Bearer $ADMIN_TOKEN" $API/api/sync/status`. `curl "$API/api/admin/sync/history?date_from=2026-10-01T00:00:00&date_to=2026-10-02T23:59:59"` devuelve solo filas de ese rango. Prueba pytest: crear 3 `SyncLog` con fechas distintas y comprobar filtrado.
 - **Afecta al manual:** Sí. Sección Sincronización: quitar la mención de "Pendientes" y confirmar que Desde/Hasta funcionan.
-- **Estado:** Pendiente
+- **Estado:** Corregido en rama `fix/datos-admin` (sin desplegar). `SyncPage.tsx` lee `synced_total` y `failed` y se eliminó la tarjeta "Pendientes"; `GET /api/admin/sync/history` acepta `date_from`/`date_to` (sobre `synced_at`, UTC). `GET /api/sync/status` sin cambios (lo usa la app).
 
 ## H-04 — Portal, detalle de impresora: estadísticas calculadas en el navegador con estados inexistentes
 

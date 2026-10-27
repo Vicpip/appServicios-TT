@@ -87,6 +87,13 @@ def _now_utc() -> datetime:
     return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
+def _naive_utc(dt: datetime) -> datetime:
+    """Aware datetimes (query strings with 'Z') -> naive UTC, como se guardan en la BD."""
+    if dt.tzinfo is not None:
+        return dt.astimezone(timezone.utc).replace(tzinfo=None)
+    return dt
+
+
 def _get_active_policy(db: Session, policy_id: str) -> Policy:
     """Return the policy or raise 404 when it does not exist or was soft-deleted."""
     policy = db.get(Policy, policy_id)
@@ -1219,17 +1226,23 @@ def _enrich_sync_item(row: SyncLog, db: Session) -> tuple[str | None, str | None
 def sync_history(
     status: str | None = Query(None),
     entity_type: str | None = Query(None),
+    date_from: datetime | None = Query(None),
+    date_to: datetime | None = Query(None),
     offset: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=500),
     db: Session = Depends(get_db),
 ) -> dict:
-    """Paginated sync log history."""
+    """Paginated sync log history (date_from/date_to filter on synced_at, UTC)."""
     q = db.query(SyncLog)
 
     if status:
         q = q.filter(SyncLog.status == status)
     if entity_type:
         q = q.filter(SyncLog.entity_type == entity_type)
+    if date_from:
+        q = q.filter(SyncLog.synced_at >= _naive_utc(date_from))
+    if date_to:
+        q = q.filter(SyncLog.synced_at <= _naive_utc(date_to))
 
     total = q.count()
     rows = q.order_by(SyncLog.synced_at.desc()).offset(offset).limit(limit).all()

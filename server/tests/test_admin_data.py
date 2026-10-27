@@ -187,3 +187,37 @@ def test_filtro_estado_de_polizas_antes_de_paginar(client, world, db, admin_head
     assert get("Expired", limit=200)["total"] == 5
     assert get("Active", limit=200)["total"] == 1                               # la del world
     assert client.get(f"{ADMIN}/policies?limit=1", headers=admin_headers).json()["total"] == 12
+
+
+# -- H-03 ---------------------------------------------------------------------
+
+from datetime import datetime
+
+from app.models.sync import SyncLog
+
+
+def test_sync_history_filtra_por_fecha(client, world, db, admin_headers):
+    for day, status in ((1, "synced"), (5, "synced"), (9, "error")):
+        db.add(SyncLog(
+            id=str(uuid.uuid4()), entity_type="report", entity_id=f"r{day}", action="Insert",
+            status=status, synced_at=datetime(2026, 10, day, 12, 0),
+        ))
+    db.commit()
+
+    def ids(**params):
+        res = client.get(f"{ADMIN}/sync/history", params=params, headers=admin_headers).json()
+        return res["total"], {i["entity_id"] for i in res["items"]}
+
+    assert ids() == (3, {"r1", "r5", "r9"})
+    assert ids(date_from="2026-10-02T00:00:00") == (2, {"r5", "r9"})
+    assert ids(date_to="2026-10-06T23:59:59") == (2, {"r1", "r5"})
+    assert ids(date_from="2026-10-02T00:00:00Z", date_to="2026-10-06T23:59:59Z") == (1, {"r5"})
+    assert ids(date_from="2026-10-02T00:00:00", status="error") == (1, {"r9"})
+
+
+def test_sync_status_de_la_app_no_cambia(client, world, db, tech_headers):
+    db.add(SyncLog(id=str(uuid.uuid4()), entity_type="report", entity_id="x", action="Insert", status="synced"))
+    db.add(SyncLog(id=str(uuid.uuid4()), entity_type="report", entity_id="y", action="Insert", status="error"))
+    db.commit()
+    body = client.get("/api/sync/status", headers=tech_headers).json()
+    assert body == {"synced_total": 1, "failed": 1, "pending_reports": 0}

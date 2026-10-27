@@ -20,8 +20,7 @@ interface SyncHistoryItem {
 }
 
 interface SyncStatusData {
-  synced: number
-  pending: number
+  synced_total: number
   failed: number
 }
 
@@ -164,7 +163,7 @@ export default function SyncPage() {
       </div>
 
       {/* Counter cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <div className="bg-white rounded-xl border border-emerald-100 shadow-sm p-5 flex items-center gap-4 border-l-4 border-l-emerald-500">
           <div className="w-10 h-10 rounded-xl bg-emerald-50 flex items-center justify-center shrink-0">
             <CheckCircle2 size={18} className="text-emerald-600" />
@@ -172,7 +171,7 @@ export default function SyncPage() {
           <div>
             <p className="text-sm text-gray-500 font-sans">Sincronizados</p>
             <p className="text-2xl font-bold text-[#1A1A2E] font-heading leading-none mt-0.5">
-              {syncStatus?.synced ?? 0}
+              {syncStatus?.synced_total ?? 0}
             </p>
           </div>
         </div>
@@ -185,18 +184,6 @@ export default function SyncPage() {
             <p className="text-sm text-gray-500 font-sans">Con error</p>
             <p className="text-2xl font-bold text-[#1A1A2E] font-heading leading-none mt-0.5">
               {syncStatus?.failed ?? 0}
-            </p>
-          </div>
-        </div>
-
-        <div className="bg-white rounded-xl border border-amber-100 shadow-sm p-5 flex items-center gap-4 border-l-4 border-l-amber-400">
-          <div className="w-10 h-10 rounded-xl bg-amber-50 flex items-center justify-center shrink-0">
-            <Clock size={18} className="text-amber-500" />
-          </div>
-          <div>
-            <p className="text-sm text-gray-500 font-sans">Pendientes</p>
-            <p className="text-2xl font-bold text-[#1A1A2E] font-heading leading-none mt-0.5">
-              {syncStatus?.pending ?? 0}
             </p>
           </div>
         </div>
