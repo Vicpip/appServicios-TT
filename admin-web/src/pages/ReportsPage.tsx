@@ -448,7 +448,7 @@ interface Filters {
 
 const EMPTY_FILTERS: Filters = { client_id: '', tech_id: '', status: '', date_from: '', date_to: '' }
 
-const STATUS_OPTIONS = ['Draft', 'Signed', 'Synced', 'Reviewed-Approved', 'Reviewed-Rejected']
+const STATUS_OPTIONS = ['Signed', 'pending_delivery']
 
 function FiltersBar({
   filters,

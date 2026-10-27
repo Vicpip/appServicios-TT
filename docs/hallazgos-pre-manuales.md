@@ -368,7 +368,7 @@ exp` y se compara con `hmac.compare_digest`; la ruta se resuelve con `Path.resol
 - **Arreglo propuesto:** cambiar `STATUS_OPTIONS` a `['Signed','pending_delivery']` (+ el resto si el negocio confirma que existen). Backend sin cambios (`admin.py:118` filtra por igualdad).
 - **Cómo verificar:** el filtro muestra "Pendiente entrega" y devuelve solo esos reportes (`curl "$API/api/admin/reports?status=pending_delivery"`).
 - **Afecta al manual:** Sí. Reportes: lista de estados del filtro.
-- **Estado:** Pendiente
+- **Estado:** Corregido en rama `fix/datos-admin` (sin desplegar). `STATUS_OPTIONS` de `ReportsPage.tsx` = `Signed` y `pending_delivery` (los estados reales; `Draft`, `Synced` y `Reviewed-*` no existen en datos). Backend sin cambios; prueba de filtro añadida.
 
 ## H-23 — Admin, Pólizas: la fecha fin se recalcula sola según la frecuencia (posible regla incorrecta)
 

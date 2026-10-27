@@ -221,3 +221,15 @@ def test_sync_status_de_la_app_no_cambia(client, world, db, tech_headers):
     db.commit()
     body = client.get("/api/sync/status", headers=tech_headers).json()
     assert body == {"synced_total": 1, "failed": 1, "pending_reports": 0}
+
+
+# -- H-22 ---------------------------------------------------------------------
+
+
+def test_filtro_de_reportes_pendiente_de_entrega(client, world, admin_headers):
+    world.add_report(world.printers[0], status="pending_delivery", code="R-PEND")
+    world.add_report(world.printers[1], status="Signed", code="R-FIRM")
+    res = client.get(f"{ADMIN}/reports?status=pending_delivery", headers=admin_headers).json()
+    assert [r["code"] for r in res["items"]] == ["R-PEND"] and res["total"] == 1
+    res = client.get(f"{ADMIN}/reports?status=Signed", headers=admin_headers).json()
+    assert [r["code"] for r in res["items"]] == ["R-FIRM"]
