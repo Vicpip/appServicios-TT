@@ -553,7 +553,7 @@ function DeleteModal({ policy, onClose }: { policy: PolicyListItem; onClose: () 
             </div>
             <div>
               <h3 className="font-semibold text-[#1A1A2E] font-heading">Eliminar póliza</h3>
-              <p className="text-sm text-gray-400 font-sans">Esta acción no se puede deshacer.</p>
+              <p className="text-sm text-gray-400 font-sans">La póliza dejará de mostrarse en el sistema (baja lógica).</p>
             </div>
           </div>
           <p className="text-sm text-gray-600 font-sans mb-5">

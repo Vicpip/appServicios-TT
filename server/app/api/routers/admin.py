@@ -99,6 +99,14 @@ def _policy_status(end_date: datetime) -> str:
     return "Active"
 
 
+def _get_active_policy(db: Session, policy_id: str) -> Policy:
+    """Return the policy or raise 404 when it does not exist or was soft-deleted."""
+    policy = db.get(Policy, policy_id)
+    if not policy or policy.status == "Deleted":
+        raise HTTPException(status_code=404, detail="Policy not found")
+    return policy
+
+
 def _printer_status(last_checkboxes_json: str | None) -> str:
     if not last_checkboxes_json:
         return "Sin Historial"
@@ -1161,6 +1169,8 @@ def list_policies(
         .outerjoin(printer_count_sq, Policy.id == printer_count_sq.c.policy_id)
     )
 
+    q = q.filter(Policy.status != "Deleted")
+
     if client_id:
         q = q.filter(Policy.client_id == client_id)
 
@@ -1410,9 +1420,7 @@ def get_next_policy_folio(db: Session = Depends(get_db)) -> dict:
 @router.get("/policies/{policy_id}", response_model=dict, dependencies=[Depends(require_admin)])
 def get_policy(policy_id: str, db: Session = Depends(get_db)) -> dict:
     """Get policy detail including assigned printers."""
-    policy = db.get(Policy, policy_id)
-    if not policy:
-        raise HTTPException(status_code=404, detail="Policy not found")
+    policy = _get_active_policy(db, policy_id)
     return _policy_detail(policy, db).model_dump()
 
 
@@ -1425,9 +1433,7 @@ def update_policy(
     policy_id: str, body: PolicyUpdate, db: Session = Depends(get_db)
 ) -> dict:
     """Update mutable fields of a policy and recalculate status."""
-    policy = db.get(Policy, policy_id)
-    if not policy:
-        raise HTTPException(status_code=404, detail="Policy not found")
+    policy = _get_active_policy(db, policy_id)
 
     if body.folio is not None:
         conflict = (
@@ -1486,9 +1492,7 @@ def assign_printers(
     policy_id: str, body: AssignPrintersRequest, db: Session = Depends(get_db)
 ) -> dict:
     """Assign one or more printers to a policy. Validates same client."""
-    policy = db.get(Policy, policy_id)
-    if not policy:
-        raise HTTPException(status_code=404, detail="Policy not found")
+    policy = _get_active_policy(db, policy_id)
 
     added, skipped, invalid = [], [], []
 
@@ -1555,9 +1559,7 @@ def remove_printer_from_policy(
 @router.get("/policies/{policy_id}/assignments", response_model=dict, dependencies=[Depends(require_admin)])
 def list_assignments(policy_id: str, db: Session = Depends(get_db)) -> dict:
     """List technician assignments for printers in a policy."""
-    policy = db.get(Policy, policy_id)
-    if not policy:
-        raise HTTPException(status_code=404, detail="Policy not found")
+    policy = _get_active_policy(db, policy_id)
     rows = (
         db.query(PolicyPrinterAssignment)
         .filter(PolicyPrinterAssignment.policy_id == policy_id)
@@ -1585,9 +1587,7 @@ def assign_technician(
     policy_id: str, body: AssignTechnicianRequest, db: Session = Depends(get_db)
 ) -> dict:
     """Upsert: assign a technician to a printer within a policy."""
-    policy = db.get(Policy, policy_id)
-    if not policy:
-        raise HTTPException(status_code=404, detail="Policy not found")
+    policy = _get_active_policy(db, policy_id)
 
     # Validate printer belongs to policy
     pp = (
@@ -1665,9 +1665,7 @@ def delete_assignment(
 
 def _create_policy_delivery(policy_id: str, body: PolicyDeliveryCreate, db: Session) -> PolicyDeliveryItem:
     """Shared logic: create delivery + link reports + mark as signed."""
-    policy = db.get(Policy, policy_id)
-    if not policy:
-        raise HTTPException(status_code=404, detail="Policy not found")
+    policy = _get_active_policy(db, policy_id)
 
     delivery = PolicyDelivery(
         id=str(uuid.uuid4()),
@@ -1713,9 +1711,7 @@ def _create_policy_delivery(policy_id: str, body: PolicyDeliveryCreate, db: Sess
 @router.get("/policies/{policy_id}/deliveries", response_model=dict, dependencies=[Depends(require_admin)])
 def list_deliveries(policy_id: str, db: Session = Depends(get_db)) -> dict:
     """List delivery history for a policy."""
-    policy = db.get(Policy, policy_id)
-    if not policy:
-        raise HTTPException(status_code=404, detail="Policy not found")
+    policy = _get_active_policy(db, policy_id)
     rows = (
         db.query(PolicyDelivery)
         .filter(PolicyDelivery.policy_id == policy_id)
@@ -2459,9 +2455,7 @@ def _build_visit_item(visit: "PolicyVisit", db: Session) -> PolicyVisitItem:
 @router.get("/policies/{policy_id}/visits", response_model=list, dependencies=[Depends(require_admin)])
 def list_policy_visits(policy_id: str, db: Session = Depends(get_db)) -> list:
     """List all visits for a given policy, ordered by visit_number."""
-    policy = db.get(Policy, policy_id)
-    if not policy:
-        raise HTTPException(status_code=404, detail="Policy not found")
+    policy = _get_active_policy(db, policy_id)
 
     visits = (
         db.query(PolicyVisit)
@@ -2483,9 +2477,7 @@ def generate_policy_visits(
     Only allowed if the policy has no visits yet.
     Schedules dates evenly between start_date and end_date.
     """
-    policy = db.get(Policy, policy_id)
-    if not policy:
-        raise HTTPException(status_code=404, detail="Policy not found")
+    policy = _get_active_policy(db, policy_id)
 
     existing = (
         db.query(PolicyVisit).filter(PolicyVisit.policy_id == policy_id).count()
@@ -2547,9 +2539,7 @@ def update_policy_visit(
     Validates: if status=in_progress, no other visit of this policy may already
     be in_progress.
     """
-    visit = db.get(PolicyVisit, visit_id)
-    if not visit or visit.policy_id != policy_id:
-        raise HTTPException(status_code=404, detail="Visit not found")
+    visit = _get_visit_or_404(db, policy_id, visit_id)
 
     if body.status == "completed" and visit.status != "completed":
         raise HTTPException(
@@ -2591,6 +2581,7 @@ def update_policy_visit(
 
 
 def _get_visit_or_404(db: Session, policy_id: str, visit_id: str) -> PolicyVisit:
+    _get_active_policy(db, policy_id)
     visit = db.get(PolicyVisit, visit_id)
     if not visit or visit.policy_id != policy_id:
         raise HTTPException(status_code=404, detail="Visit not found")
@@ -2663,9 +2654,7 @@ def delete_all_policy_visits(
     db: Session = Depends(get_db),
 ) -> dict:
     """Delete ALL visits for a policy at once. Returns count of deleted visits."""
-    policy = db.get(Policy, policy_id)
-    if not policy:
-        raise HTTPException(status_code=404, detail="Policy not found")
+    policy = _get_active_policy(db, policy_id)
 
     deleted = (
         db.query(PolicyVisit)
@@ -2684,6 +2673,7 @@ def delete_policy_visit(
     db: Session = Depends(get_db),
 ) -> None:
     """Delete a visit regardless of status. Admin has full control."""
+    _get_active_policy(db, policy_id)
     print(f"[DELETE visit] policy_id={policy_id} visit_id={visit_id}")
     visit = db.query(PolicyVisit).filter(
         PolicyVisit.id == visit_id,

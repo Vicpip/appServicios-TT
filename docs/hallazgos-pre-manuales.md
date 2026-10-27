@@ -164,7 +164,7 @@ Convenciones:
 - **Arreglo propuesto:** en `list_policies` añadir `.filter(Policy.status != "Deleted")` (antes del `total`); `get_policy`/`update_policy`/`assign_*`/`visits` deben responder 404 si `status == "Deleted"`. Verificar que `sync.py:/sync/download` también las excluya. Ajustar el texto del diálogo si se mantiene la baja lógica. No cambiar el valor `"Deleted"` (lo usa `dashboard_policies_expiring`).
 - **Cómo verificar:** `DELETE /api/admin/policies/{id}` → luego `GET /api/admin/policies` no la incluye y `GET /api/admin/policies/{id}` → 404. Prueba pytest en `test_e2e_policy.py`.
 - **Afecta al manual:** Sí. Sección Pólizas: "Eliminar" la quita del listado.
-- **Estado:** Pendiente
+- **Estado:** Corregido en rama `fix/datos-admin` (sin desplegar). La póliza `Deleted` sale del listado admin y responde 404 en detalle, edición, asignación de impresoras/técnicos, entregas y visitas; `/api/sync/download` ya la excluía (sin cambios). Texto del diálogo: "dejará de mostrarse (baja lógica)".
 
 ## H-09 — Estado de póliza calculado de dos maneras (admin en vivo vs. portal por estado guardado)
 
