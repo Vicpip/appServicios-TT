@@ -150,26 +150,22 @@ export function PolicyModal({ policy, onClose }: PolicyModalProps) {
   const [printerSearch, setPrinterSearch] = useState('')
   const [error, setError] = useState<string | null>(null)
 
+  // Vigencia por defecto: 1 año (inicio + 1 año - 1 día) sin importar la frecuencia.
+  // Si el usuario ya editó la fecha fin (o la póliza ya existe) no se vuelve a pisar.
+  const [endDateTouched, setEndDateTouched] = useState(isEdit)
+
   function setField<K extends keyof PolicyFormData>(key: K, value: PolicyFormData[K]) {
+    if (key === 'end_date') setEndDateTouched(true)
     setForm((prev) => {
       const next = { ...prev, [key]: value }
-      if (key === 'frequency_maintenance' || key === 'start_date') {
-        const startDate = key === 'start_date' ? (value as string) : prev.start_date
-        const frequency = key === 'frequency_maintenance' ? (value as string) : prev.frequency_maintenance
-        if (startDate && frequency) {
+      if (key === 'start_date' && !endDateTouched) {
+        const startDate = value as string
+        if (startDate) {
           const d = new Date(startDate + 'T12:00:00')
-          if (frequency.startsWith('Anual')) {
-            d.setFullYear(d.getFullYear() + 1)
-          } else if (frequency.startsWith('Semestral')) {
-            d.setMonth(d.getMonth() + 6)
-          } else if (frequency.startsWith('Trimestral')) {
-            d.setMonth(d.getMonth() + 3)
-          } else if (frequency.startsWith('Bimestral')) {
-            d.setMonth(d.getMonth() + 2)
-          } else if (frequency.startsWith('Mensual')) {
-            d.setMonth(d.getMonth() + 1)
-          }
-          next.end_date = d.toISOString().slice(0, 10)
+          d.setFullYear(d.getFullYear() + 1)
+          d.setDate(d.getDate() - 1)
+          const pad = (n: number) => String(n).padStart(2, '0')
+          next.end_date = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
         }
       }
       return next

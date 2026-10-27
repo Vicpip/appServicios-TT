@@ -380,7 +380,7 @@ exp` y se compara con `hmac.compare_digest`; la ruta se resuelve con `Path.resol
 - **Arreglo propuesto:** confirmar con negocio. Si la vigencia por defecto debe ser un año: fijar `end_date = start + 1 año − 1 día` en ambos cambios, sin pisar si el usuario ya la editó (guardar un flag `endDateTouched`). Si es intencional, documentarlo en el manual. Backend sin cambios.
 - **Cómo verificar:** elegir inicio 2026-01-01 y "Mensual": fecha fin = 2026-12-31 (o lo acordado), y editarla a mano no se pierde al cambiar la frecuencia.
 - **Afecta al manual:** Sí. Pólizas, campo "Fecha fin".
-- **Estado:** Pendiente
+- **Estado:** Corregido en rama `fix/datos-admin` (sin desplegar). `PoliciesPage.tsx`: la fecha fin por defecto es inicio + 1 año − 1 día para todas las frecuencias (ej. 2026-01-01 → 2026-12-31); si el usuario edita la fecha fin (o la póliza ya existe) un flag `endDateTouched` impide pisarla al cambiar el inicio o la frecuencia. Backend sin cambios. Sin prueba automática (el repo no tiene pruebas de front); verificar a mano.
 
 ## H-24 — Admin, visitas: "X/N equipos atendidos" cuenta reportes pendientes de entrega
 
