@@ -305,6 +305,7 @@ def get_report_files(report_id: str, db: Session = Depends(get_db)) -> dict:
 @router.get("/clients", response_model=dict, dependencies=[Depends(require_admin)])
 def list_clients(
     search: str | None = Query(None),
+    is_active: bool | None = Query(None),
     offset: int = Query(0, ge=0),
     limit: int = Query(20, ge=1, le=200),
     db: Session = Depends(get_db),
@@ -341,6 +342,8 @@ def list_clients(
 
     if search:
         q = q.filter(Client.name.ilike(f"%{search}%") | Client.rfc.ilike(f"%{search}%"))
+    if is_active is not None:
+        q = q.filter(Client.is_active.is_(is_active))
 
     total = q.count()
     rows = q.order_by(Client.name).offset(offset).limit(limit).all()

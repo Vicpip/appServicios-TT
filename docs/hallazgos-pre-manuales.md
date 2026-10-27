@@ -417,7 +417,7 @@ exp` y se compara con `hmac.compare_digest`; la ruta se resuelve con `Path.resol
 - **Arreglo propuesto:** añadir `is_active: bool | None` al listado y que el dashboard pida `is_active=true`; mantener el listado completo por defecto. Reactivar: ver H-18.
 - **Cómo verificar:** desactivar un cliente → la tarjeta baja en 1; `curl "$API/api/admin/clients?is_active=true&limit=1"` da el total correcto.
 - **Afecta al manual:** Sí. Dashboard: definición de "Clientes activos".
-- **Estado:** Pendiente
+- **Estado:** Corregido en rama `fix/datos-admin` (sin desplegar). `GET /api/admin/clients` acepta `is_active` (sin el parámetro devuelve todos); el KPI "Clientes activos" del dashboard pide `is_active=true`. La reactivación sigue pendiente (H-18).
 
 ## H-27 — Visitas: "reporte de esta visita" compara `service_date` (hora local CDMX) con `started_at` (UTC); equipos entregados salen "Sin reporte" y la visita no se completa
 

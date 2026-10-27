@@ -233,3 +233,20 @@ def test_filtro_de_reportes_pendiente_de_entrega(client, world, admin_headers):
     assert [r["code"] for r in res["items"]] == ["R-PEND"] and res["total"] == 1
     res = client.get(f"{ADMIN}/reports?status=Signed", headers=admin_headers).json()
     assert [r["code"] for r in res["items"]] == ["R-FIRM"]
+
+
+# -- H-26 ---------------------------------------------------------------------
+
+from app.models.client import Client
+
+
+def test_listado_de_clientes_filtra_por_is_active(client, world, db, admin_headers):
+    db.add(Client(id=str(uuid.uuid4()), name="Cliente Baja", is_active=False))
+    db.commit()
+
+    def total(**params):
+        return client.get(f"{ADMIN}/clients", params={"limit": 1, **params}, headers=admin_headers).json()["total"]
+
+    assert total() == 2                      # sin filtro: todos
+    assert total(is_active="true") == 1
+    assert total(is_active="false") == 1

@@ -135,7 +135,7 @@ function useActiveClients() {
     queryKey: ['kpi', 'clients'],
     queryFn: async () => {
       const res = await apiClient.get<PagedResponse<unknown>>(API.clients.list, {
-        params: { limit: 1 },
+        params: { is_active: true, limit: 1 },
       })
       return res.data.total ?? 0
     },
