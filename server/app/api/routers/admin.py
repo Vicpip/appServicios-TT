@@ -723,14 +723,20 @@ def list_printers(
             | CatalogModel.brand.ilike(pattern)
         )
 
-    rows = q.order_by(Printer.serial_number).offset(offset).limit(limit).all()
-    total = q.count()
+    q = q.order_by(Printer.serial_number)
+    if printer_status:
+        # El estado sale del JSON del último reporte: se filtra en Python ANTES de
+        # paginar y se pagina la lista ya filtrada, para que total y páginas coincidan.
+        matching = [r for r in q.all() if _printer_status(r[-1]) == printer_status]
+        total = len(matching)
+        rows = matching[offset:offset + limit]
+    else:
+        total = q.count()
+        rows = q.offset(offset).limit(limit).all()
 
     items = []
     for printer, client_name, plant_name, area_name, model_brand, model_name, model_dpi, last_service_date, last_checkboxes in rows:
         status = _printer_status(last_checkboxes)
-        if printer_status and status != printer_status:
-            continue
         items.append(
             PrinterListItem(
                 id=printer.id,
@@ -1161,15 +1167,19 @@ def list_policies(
 
     if client_id:
         q = q.filter(Policy.client_id == client_id)
+    if status:
+        criterion = _policy_status_filter(status)
+        if criterion is None:  # estado desconocido (p. ej. "Deleted"): no hay resultados
+            q = q.filter(Policy.id.is_(None))
+        else:
+            q = q.filter(criterion)
 
-    rows = q.order_by(Policy.end_date).offset(offset).limit(limit).all()
     total = q.count()
+    rows = q.order_by(Policy.end_date).offset(offset).limit(limit).all()
 
     items = []
     for policy, client_name, printer_count in rows:
         computed_status = _policy_status(policy.end_date)
-        if status and computed_status != status:
-            continue
         items.append(
             PolicyListItem(
                 id=policy.id,

@@ -122,3 +122,68 @@ def test_contador_de_polizas_activas_usa_end_date(client, world, db, admin_heade
     _add_policy(db, world, "POL-2026-903", 90, status="Deleted")   # eliminada
     item = client.get(f"{ADMIN}/clients", headers=admin_headers).json()["items"][0]
     assert item["active_policy_count"] == 2  # la de world + la que vence en 10 días
+
+
+# -- H-07 ---------------------------------------------------------------------
+
+from app.models.printer import Printer
+from app.models.report import Report
+
+
+def _add_printers_with_reports(db, world, n, damaged_idx):
+    """n impresoras más (SN-1xx); las de damaged_idx tienen el último reporte con rodillo dañado."""
+    base = world.printers[0]
+    for i in range(n):
+        p = Printer(
+            id=str(uuid.uuid4()), qr_uuid=str(uuid.uuid4()), serial_number=f"SN-1{i:02d}",
+            client_id=world.client_row.id, plant_id=base.plant_id, area_id=base.area_id,
+            model_id=base.model_id, is_active=True,
+        )
+        db.add(p)
+        db.flush()
+        db.add(Report(
+            id=str(uuid.uuid4()), code=f"RX-{i:02d}", printer_id=p.id, tech_id=world.tech.id,
+            service_type="Preventivo", status="Signed", service_date=now() - timedelta(hours=2),
+            linear_inches_counter=1,
+            technical_checkboxes='{"Rodillo dañado": %s}' % ("true" if i in damaged_idx else "false"),
+        ))
+    db.commit()
+
+
+def test_filtro_estado_de_impresoras_antes_de_paginar(client, world, db, admin_headers):
+    _add_printers_with_reports(db, world, 25, damaged_idx={3, 14, 24})
+    url = f"{ADMIN}/printers?printer_status=En%20Atenci%C3%B3n"
+
+    page1 = client.get(f"{url}&limit=2&offset=0", headers=admin_headers).json()
+    page2 = client.get(f"{url}&limit=2&offset=2", headers=admin_headers).json()
+    assert page1["total"] == page2["total"] == 3
+    assert [i["serial_number"] for i in page1["items"]] == ["SN-103", "SN-114"]
+    assert [i["serial_number"] for i in page2["items"]] == ["SN-124"]
+
+    full = client.get(f"{url}&limit=20", headers=admin_headers).json()
+    assert full["total"] == 3 and len(full["items"]) == 3
+    assert {i["printer_status"] for i in full["items"]} == {"En Atención"}
+
+    correcto = client.get(f"{ADMIN}/printers?printer_status=Correcto&limit=200", headers=admin_headers).json()
+    assert correcto["total"] == 22 and len(correcto["items"]) == 22
+
+
+def test_filtro_estado_de_polizas_antes_de_paginar(client, world, db, admin_headers):
+    for i in range(6):
+        _add_policy(db, world, f"POL-2026-5{i:02d}", 10 + i, status="Active")   # 6 por vencer
+    for i in range(5):
+        _add_policy(db, world, f"POL-2026-6{i:02d}", -1 - i, status="Active")   # 5 vencidas
+    _add_policy(db, world, "POL-2026-700", 15, status="Deleted")                # eliminada: no cuenta
+
+    def get(status, **params):
+        qs = "&".join(f"{k}={v}" for k, v in {"status": status, **params}.items())
+        return client.get(f"{ADMIN}/policies?{qs}", headers=admin_headers).json()
+
+    p1, p2 = get("Expiring", limit=4, offset=0), get("Expiring", limit=4, offset=4)
+    assert p1["total"] == p2["total"] == 6
+    assert len(p1["items"]) == 4 and len(p2["items"]) == 2
+    assert {i["status"] for i in p1["items"] + p2["items"]} == {"Expiring"}
+
+    assert get("Expired", limit=200)["total"] == 5
+    assert get("Active", limit=200)["total"] == 1                               # la del world
+    assert client.get(f"{ADMIN}/policies?limit=1", headers=admin_headers).json()["total"] == 12

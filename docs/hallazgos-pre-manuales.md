@@ -152,7 +152,7 @@ Convenciones:
   - No tocar `sync.py` ni el portal.
 - **Cómo verificar:** con 25 impresoras de las que 3 "En Atención" repartidas en distintas páginas, `curl "$API/api/admin/printers?printer_status=En%20Atenci%C3%B3n&limit=20"` devuelve las 3 y `total=3`. En pantalla, el chip "En Atención" muestra las 3 y la paginación no aparece. KPI = conteo real SQL.
 - **Afecta al manual:** Sí. Secciones Impresoras y Pólizas (filtros) y Dashboard (KPI): ya no hay salvedades.
-- **Estado:** Pendiente
+- **Estado:** Corregido en rama `fix/datos-admin` (sin desplegar). Pólizas: el filtro de estado es SQL (`policy_status.status_filter`) antes de offset/limit y `total` usa el mismo filtro. Impresoras: el estado depende del JSON del último reporte, así que se filtra antes de paginar en Python y se pagina la lista filtrada (`total` = coincidencias). Dashboard: KPI "Impresoras en atención" y "Pólizas por vencer" usan `total` (limit=1) en vez de `items.length` con limit=200.
 
 ## H-08 — "Eliminar póliza" marca `Deleted` pero el listado y el detalle del admin la siguen mostrando
 

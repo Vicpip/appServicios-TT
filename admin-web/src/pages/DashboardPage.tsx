@@ -149,9 +149,9 @@ function usePrintersInAttention() {
     queryKey: ['kpi', 'printers-attention'],
     queryFn: async () => {
       const res = await apiClient.get<PagedResponse<unknown>>(API.printers.list, {
-        params: { printer_status: 'En Atención', limit: 200 },
+        params: { printer_status: 'En Atención', limit: 1 },
       })
-      return res.data.items?.length ?? 0
+      return res.data.total ?? 0
     },
     placeholderData: 0,
     retry: false,
@@ -163,9 +163,9 @@ function useExpiringPolicies() {
     queryKey: ['kpi', 'policies-expiring'],
     queryFn: async () => {
       const res = await apiClient.get<PagedResponse<unknown>>(API.policies.list, {
-        params: { status: 'Expiring', limit: 200 },
+        params: { status: 'Expiring', limit: 1 },
       })
-      return res.data.items?.length ?? 0
+      return res.data.total ?? 0
     },
     placeholderData: 0,
     retry: false,
