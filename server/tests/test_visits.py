@@ -319,3 +319,27 @@ def test_regenerar_conserva_guards(client, world, admin_headers):
     assert client.delete(f"{ADMIN}/policies/{pid}/visits", headers=admin_headers).status_code == 200
     res = client.post(f"{ADMIN}/policies/{pid}/visits/generate", json={}, headers=admin_headers)
     assert [v["scheduled_date"] for v in res.json()] == ["2026-10-27", "2027-04-27"]
+
+
+# -- Cerrar visita: motivo opcional si todos los equipos están entregados -------
+
+
+def test_cerrar_sin_motivo_si_todos_entregados(client, world, db, admin_headers, tech_headers):
+    reports = [world.add_report(p) for p in world.printers]
+    # Entrega de los 3 equipos, pero la visita se deja en curso para probar el cierre manual
+    assert _post_delivery(client, tech_headers, world, reports).status_code == 201
+    v = _visit(db, world.visit1.id)
+    v.status, v.completed_at = "in_progress", None
+    db.commit()
+    res = _close(client, admin_headers, world, reason="")
+    assert res.status_code == 200, res.text
+    assert res.json()["status"] == "completed" and res.json()["closed_reason"] is None
+    assert _visit(db, world.visit1.id).closed_at is not None
+
+
+def test_cerrar_sin_motivo_si_faltan_equipos_sigue_siendo_422(client, world, tech_headers, admin_headers):
+    r1 = world.add_report(world.printers[0])
+    assert _post_delivery(client, tech_headers, world, [r1]).status_code == 201   # 1 de 3
+    res = _close(client, admin_headers, world, reason="")
+    assert res.status_code == 422 and "motivo" in res.json()["detail"].lower()
+    assert _close(client, admin_headers, world, reason="Cliente canceló").status_code == 200

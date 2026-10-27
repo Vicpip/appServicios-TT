@@ -488,6 +488,7 @@ exp` y se compara con `hmac.compare_digest`; la ruta se resuelve con `Path.resol
   - La visita k (k = 0..N-1) cae en `start_date + k × intervalo` meses; la visita 1 cae exactamente en `start_date`.
   - Siempre se calcula desde `start_date` (nunca encadenando). Si el día no existe en el mes destino (29, 30, 31) se usa el último día de ese mes (31 ene → 28 feb → 31 mar; 29 feb 2028 + 12 meses → 28 feb 2029).
   - Todas las visitas quedan antes de `end_date`; la renovación es el día siguiente a `end_date`. Con la vigencia por defecto (H-23: inicio + 1 año − 1 día) siempre se generan las N. Si el admin acorta la vigencia y alguna fecha cae en o después de `end_date`, esa visita no se genera (se generan menos de N).
+  - Extra (misma rama): en "Cerrar visita" el motivo es opcional cuando todos los equipos están entregados (backend 422 solo si faltan equipos; el modal marca "(opcional)"); `closed_reason` queda nulo.
   - Se mantiene estado `scheduled`, numeración Visita n/N, asignación a técnicos y los guards de regenerar/eliminar. No se recalculan visitas existentes (hay que eliminarlas y regenerarlas) ni hay migración.
 - **Cómo verificar:** póliza con inicio 2026-10-27 y "Trimestral" → visitas 2026-10-27, 2027-01-27, 2027-04-27, 2027-07-27. Pruebas en `server/tests/test_visits.py` (5 frecuencias, fin de mes, año bisiesto, Anual = 1 visita, vigencia corta, guards).
 - **Afecta al manual:** Sí. Visitas y Pólizas: regla de fechas de las visitas generadas (arriba) y que la renovación es el día siguiente a la fecha fin.

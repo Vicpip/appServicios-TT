@@ -224,7 +224,9 @@ function CloseVisitModal({
   })
 
   const blocked = !!summary && summary.pending_delivery_count > 0
-  const canSubmit = !!summary && !blocked && reason.trim().length > 0 && !closeMutation.isPending
+  // El motivo solo es obligatorio si faltan equipos por entregar.
+  const allDelivered = !!summary && summary.delivered_count >= summary.total_printers
+  const canSubmit = !!summary && !blocked && (allDelivered || reason.trim().length > 0) && !closeMutation.isPending
 
   return (
     <>
@@ -291,7 +293,8 @@ function CloseVisitModal({
 
                 <div>
                   <label className="block text-xs font-semibold text-gray-500 font-sans mb-1">
-                    Motivo del cierre <span className="text-red-500">*</span>
+                    Motivo del cierre{' '}
+                    {allDelivered ? <span className="font-normal text-gray-400">(opcional)</span> : <span className="text-red-500">*</span>}
                   </label>
                   <textarea
                     value={reason}

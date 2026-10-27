@@ -375,16 +375,18 @@ class PolicyVisitUpdate(BaseModel):
 
 
 class VisitCloseRequest(BaseModel):
-    """Body de POST /policies/{id}/visits/{visit_id}/close."""
+    """Body de POST /policies/{id}/visits/{visit_id}/close.
 
-    reason: str
+    El motivo es opcional aquí; el endpoint lo exige cuando faltan equipos por
+    entregar (si todos están entregados puede ir vacío).
+    """
+
+    reason: str = ""
 
     @field_validator("reason")
     @classmethod
-    def _reason_required(cls, v: str) -> str:
+    def _reason_clean(cls, v: str) -> str:
         v = (v or "").strip()
-        if not v:
-            raise ValueError("El motivo es obligatorio")
         if len(v) > 1000:
             raise ValueError("El motivo es demasiado largo (máx. 1000 caracteres)")
         return v

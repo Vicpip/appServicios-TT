@@ -2615,8 +2615,8 @@ def close_policy_visit(
 ) -> dict:
     """Cierra manualmente la visita en curso: completed + closed_at/by/reason.
 
-    Se bloquea si la póliza tiene reportes pending_delivery (primero deben
-    entregarse con firma). Una visita cerrada así no la reabre la regla
+    El motivo es obligatorio solo si faltan equipos por entregar. Se bloquea si la
+    póliza tiene reportes pending_delivery (primero deben entregarse con firma). Una visita cerrada así no la reabre la regla
     automática ni el PATCH.
     """
     visit = _get_visit_or_404(db, policy_id, visit_id)
@@ -2634,19 +2634,25 @@ def close_policy_visit(
                 f"de entrega ({codes}). Primero deben entregarse con la firma del cliente."
             ),
         )
+    summary = visit_service.visit_close_summary(db, visit)
+    if not body.reason and summary["delivered_count"] < summary["total_printers"]:
+        raise HTTPException(
+            status_code=422,
+            detail="El motivo es obligatorio cuando faltan equipos por entregar.",
+        )
     now = _now_utc()
     visit.status = "completed"
     visit.completed_at = now
     visit.closed_at = now
     visit.closed_by = current_user["sub"]
-    visit.closed_reason = body.reason
+    visit.closed_reason = body.reason or None
     db.add(SyncLog(
         id=str(uuid.uuid4()),
         entity_type="policy_visit",
         entity_id=visit.id,
         action="close",
         status="synced",
-        server_response=json.dumps({"closed_by": current_user["sub"], "reason": body.reason}),
+        server_response=json.dumps({"closed_by": current_user["sub"], "reason": body.reason or None}),
         synced_at=now,
     ))
     db.commit()
