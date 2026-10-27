@@ -45,6 +45,7 @@ from app.models.report import Report
 from app.models.area import Area
 from app.models.user import User
 from app.portal_auth import get_current_portal_user
+from app.services.file_signing_service import signed_upload_url
 from app.schemas.admin import ClientContactEmailCreate, ClientContactEmailItem
 from app.schemas.portal import (
     ForgotPasswordRequest,
@@ -846,17 +847,14 @@ def get_report_files(
         .all()
     )
 
-    upload_dir_path = Path(_settings.upload_dir)
     photos: list[str] = []
     signature: str | None = None
     pdf: str | None = None
 
     for ef, f in rows:
-        try:
-            rel = Path(f.storage_path).relative_to(upload_dir_path)
-            url = f"/uploads/{rel.as_posix()}"
-        except ValueError:
-            url = f"/uploads/{f.storage_path.lstrip('/')}"
+        url = signed_upload_url(f.storage_path)
+        if url is None:
+            continue
         if ef.file_category == "photo":
             photos.append(url)
         elif ef.file_category == "signature":
@@ -867,11 +865,10 @@ def get_report_files(
     # Fallback: use raw paths from report if EntityFile table is empty
     if not photos and report.photo_paths and report.photo_paths != "[]":
         raw_paths = json.loads(report.photo_paths)
-        photos = [f"/uploads/{p.lstrip('/')}" if not p.startswith("/uploads") else p for p in raw_paths]
+        photos = [u for u in (signed_upload_url(p) for p in raw_paths) if u]
 
     if not signature and report.signature_image_path:
-        sig = report.signature_image_path
-        signature = f"/uploads/{sig.lstrip('/')}" if not sig.startswith("/uploads") else sig
+        signature = signed_upload_url(report.signature_image_path)
 
     return PortalReportFiles(photos=photos, signature=signature, pdf=pdf)
 
@@ -994,6 +991,7 @@ def get_policy(
                 tech_name=tech.name if tech else None,
                 report_count=report_count,
                 pdf_path=d.pdf_path,
+                pdf_url=signed_upload_url(d.pdf_path),
             )
         )
 

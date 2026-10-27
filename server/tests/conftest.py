@@ -17,6 +17,7 @@ from pathlib import Path
 _UPLOADS = tempfile.mkdtemp(prefix="smp_test_uploads_")
 os.environ["DATABASE_URL"] = "sqlite://"
 os.environ["SECRET_KEY"] = "test-secret-key"
+os.environ["FILE_SIGNING_SECRET"] = "test-file-signing-secret-0123456789abcdef"
 os.environ["UPLOAD_DIR"] = _UPLOADS
 os.environ["API_BASE_URL"] = "https://api.test.local"
 os.environ["PUBLIC_LINK_RATE_LIMIT"] = "1000"  # las pruebas de límite lo bajan

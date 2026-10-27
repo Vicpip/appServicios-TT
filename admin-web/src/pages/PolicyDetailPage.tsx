@@ -35,6 +35,7 @@ interface PolicyDeliveryItem {
   signature_image_path: string | null
   report_count: number
   pdf_path: string | null
+  pdf_url?: string | null
   total_printers: number
   visit_id: string | null
   extra_email: string | null
@@ -699,12 +700,12 @@ export default function PolicyDetailPage() {
                         </button>
                         <button
                           onClick={() => {
-                            if (!d.pdf_path) return
-                            window.open(`${API_BASE}/${d.pdf_path.replace(/^\//, '')}`, '_blank')
+                            if (!d.pdf_url) return
+                            window.open(`${API_BASE}${d.pdf_url}`, '_blank')
                           }}
-                          disabled={!d.pdf_path}
+                          disabled={!d.pdf_url}
                           className="flex items-center gap-1.5 px-4 py-4 text-xs font-semibold text-[#1A4FD6] hover:bg-[#1A4FD6]/5 transition-colors shrink-0 font-sans border-l border-gray-100 disabled:opacity-40 disabled:cursor-not-allowed"
-                          title={d.pdf_path ? 'Descargar PDF de entrega' : 'PDF no disponible'}
+                          title={d.pdf_url ? 'Descargar PDF de entrega' : 'PDF no disponible'}
                         >
                           <FileDown size={14} />
                           <span className="hidden sm:inline">Descargar PDF</span>

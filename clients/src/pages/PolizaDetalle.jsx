@@ -225,10 +225,10 @@ export default function PolizaDetalle() {
                           </div>
                         </button>
                         <button
-                          onClick={() => d.pdf_path && window.open(`${API_BASE}/${d.pdf_path}`, '_blank')}
-                          disabled={!d.pdf_path}
+                          onClick={() => d.pdf_url && window.open(`${API_BASE}${d.pdf_url}`, '_blank')}
+                          disabled={!d.pdf_url}
                           className="flex items-center gap-1.5 px-4 py-4 text-xs font-semibold text-primary hover:bg-primary/5 transition-colors shrink-0 font-sans border-l border-gray-100 disabled:opacity-50 disabled:cursor-not-allowed"
-                          title={d.pdf_path ? 'Descargar PDF de entrega' : 'PDF no disponible'}
+                          title={d.pdf_url ? 'Descargar PDF de entrega' : 'PDF no disponible'}
                         >
                           <FileDown size={14} />
                           <span className="hidden sm:inline">Descargar PDF</span>

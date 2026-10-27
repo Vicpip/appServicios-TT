@@ -32,6 +32,7 @@ from app.models.sync import SyncLog
 from app.models.user import User
 from app.models.share_link import TARGET_DELIVERY_PDF, TARGET_REPORT_PDF
 from app.services import delivery_email_service, share_link_service, visit_service
+from app.services.file_signing_service import signed_upload_url
 
 settings = get_settings()
 from app.schemas.admin import (
@@ -276,17 +277,14 @@ def get_report_files(report_id: str, db: Session = Depends(get_db)) -> dict:
         .all()
     )
 
-    upload_dir_path = Path(settings.upload_dir)
     photos: list[str] = []
     signature: str | None = None
     pdf: str | None = None
 
     for ef, f in rows:
-        try:
-            rel = Path(f.storage_path).relative_to(upload_dir_path)
-            url = f"/uploads/{rel.as_posix()}"
-        except ValueError:
-            url = f"/uploads/{f.storage_path.lstrip('/')}"
+        url = signed_upload_url(f.storage_path)
+        if url is None:
+            continue
         if ef.file_category == "photo":
             photos.append(url)
         elif ef.file_category == "signature":
@@ -457,7 +455,7 @@ def get_client_detail(client_id: str, db: Session = Depends(get_db)) -> dict:
                 "total_reportes": top["total_reportes"],
             }
 
-    logo_url = f"/uploads/{client.logo_path}" if client.logo_path else None
+    logo_url = signed_upload_url(client.logo_path)
 
     return {
         "client": {
@@ -541,7 +539,7 @@ async def upload_client_logo(
     client.logo_path = f"logos/{client_id}.{ext}"
     db.commit()
 
-    return {"logo_url": f"/uploads/logos/{client_id}.{ext}"}
+    return {"logo_url": signed_upload_url(client.logo_path)}
 
 
 @router.delete("/clients/{client_id}/logo", response_model=dict, dependencies=[Depends(require_admin)])
@@ -618,7 +616,7 @@ def get_technician_detail(tech_id: str, db: Session = Depends(get_db)) -> dict:
     if not tech:
         raise HTTPException(status_code=404, detail="Technician not found")
     report_count = db.query(Report).filter(Report.tech_id == tech_id).count()
-    signature_url = f"/uploads/{tech.signature_path}" if tech.signature_path else None
+    signature_url = signed_upload_url(tech.signature_path)
     return {
         "id": tech.id, "code": tech.code, "name": tech.name,
         "email": tech.email, "role": tech.role, "is_active": tech.is_active,
@@ -1708,6 +1706,7 @@ def _create_policy_delivery(policy_id: str, body: PolicyDeliveryCreate, db: Sess
         signature_image_path=delivery.signature_image_path,
         report_count=len(body.report_ids),
         pdf_path=delivery.pdf_path,
+        pdf_url=signed_upload_url(delivery.pdf_path),
     )
 
 
@@ -1745,6 +1744,7 @@ def list_deliveries(policy_id: str, db: Session = Depends(get_db)) -> dict:
             signature_image_path=d.signature_image_path,
             report_count=report_count,
             pdf_path=d.pdf_path,
+            pdf_url=signed_upload_url(d.pdf_path),
             total_printers=total_printers,
             visit_id=d.visit_id,
             extra_email=d.extra_email,

@@ -2,6 +2,7 @@ import hashlib
 import json
 import logging
 import os
+import re
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -265,6 +266,28 @@ def sync_reports_bulk(
     )
 
 
+_SAFE_SEGMENT = re.compile(r"^[A-Za-z0-9_.-]{1,128}$")
+_MAX_FILENAME_LEN = 120
+
+
+def safe_upload_filename(name: str | None) -> str:
+    """Solo el basename, sin separadores ni "..", con caracteres seguros y largo acotado."""
+    base = (name or "").replace("\\", "/").split("/")[-1].replace(chr(0), "")
+    base = re.sub(r"[^\w.\- ]+", "_", base).strip(" .")
+    base = re.sub(r"\.{2,}", ".", base)
+    if len(base) > _MAX_FILENAME_LEN:
+        stem, dot, ext = base.rpartition(".")
+        ext = ext[:10] if dot else ""
+        base = (stem[: _MAX_FILENAME_LEN - len(ext) - 1] + "." + ext) if ext else base[:_MAX_FILENAME_LEN]
+    return base or f"{uuid.uuid4()}.bin"
+
+
+def _safe_segment(value: str, field: str) -> str:
+    if not _SAFE_SEGMENT.match(value) or value in (".", ".."):
+        raise HTTPException(status_code=400, detail=f"{field} no válido")
+    return value
+
+
 @router.post("/files", response_model=SyncResponse, status_code=200)
 async def sync_file(
     entity_type: str = Form(...),
@@ -285,13 +308,21 @@ async def sync_file(
         # Normal files: UPLOAD_DIR/{entity_type}/{entity_id}/{file_category}/{filename}
         # When entity_type == file_category (e.g. delivery_pdf) skip the redundant subdir:
         #   UPLOAD_DIR/{entity_type}/{entity_id}/{filename}
-        filename = file.filename or f"{uuid.uuid4()}.bin"
+        # entity_type / entity_id / file_category / filename vienen del cliente y
+        # forman la ruta en disco: se validan y se comprueba que no salga de UPLOAD_DIR.
+        _safe_segment(entity_type, "entity_type")
+        _safe_segment(entity_id, "entity_id")
+        _safe_segment(file_category, "file_category")
+        filename = safe_upload_filename(file.filename)
+        upload_root = Path(settings.upload_dir).resolve()
         if entity_type == file_category:
-            dest_dir = Path(settings.upload_dir) / entity_type / entity_id
+            dest_dir = upload_root / entity_type / entity_id
         else:
-            dest_dir = Path(settings.upload_dir) / entity_type / entity_id / file_category
+            dest_dir = upload_root / entity_type / entity_id / file_category
+        dest_path = (dest_dir / filename).resolve()
+        if not dest_path.is_relative_to(upload_root):
+            raise HTTPException(status_code=400, detail="Nombre de archivo no válido")
         dest_dir.mkdir(parents=True, exist_ok=True)
-        dest_path = dest_dir / filename
         dest_path.write_bytes(contents)
 
         storage_path = str(dest_path)
@@ -401,6 +432,9 @@ async def sync_file(
             server_id=file_record.id,
             message=storage_path,
         )
+    except HTTPException:
+        db.rollback()
+        raise
     except Exception as exc:
         db.rollback()
         raise HTTPException(status_code=500, detail=f"Failed to upload file: {exc}")

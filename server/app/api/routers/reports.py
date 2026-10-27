@@ -20,6 +20,7 @@ from app.models.report import Report
 from app.models.user import User
 from app.schemas.report import ReportSendEmailRequest, ReportUpdate
 from app.services import share_link_service
+from app.services.file_signing_service import signed_upload_url
 from app.services.delivery_email_service import dedupe_emails, report_in_policy_delivery
 from app.services.email_service import send_service_report_email
 
@@ -47,16 +48,13 @@ def _build_report_response(report: Report, db: Session) -> dict:
         )
         .all()
     )
-    upload_path = Path(settings.upload_dir)
     photos: list[str] = []
     signature_url: str | None = None
     pdf_url: str | None = None
     for ef, f in rows:
-        try:
-            rel = Path(f.storage_path).relative_to(upload_path)
-            url = f"/uploads/{rel.as_posix()}"
-        except ValueError:
-            url = f"/uploads/{f.storage_path.lstrip('/')}"
+        url = signed_upload_url(f.storage_path)
+        if url is None:
+            continue
         if ef.file_category == "photo":
             photos.append(url)
         elif ef.file_category == "signature":

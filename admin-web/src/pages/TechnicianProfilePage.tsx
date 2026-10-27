@@ -124,7 +124,7 @@ export default function TechnicianProfilePage() {
   const totalPages = Math.ceil((reportsData?.total ?? 0) / PAGE_SIZE)
   const currentPage = Math.floor(offset / PAGE_SIZE) + 1
 
-  const serverBase = typeof window !== 'undefined' ? `${window.location.protocol}//${window.location.hostname}:8000` : ''
+  const serverBase = ((import.meta.env.VITE_API_URL as string) ?? '').replace(/\/$/, '')
 
   return (
     <div className="p-6 max-w-5xl mx-auto space-y-6">

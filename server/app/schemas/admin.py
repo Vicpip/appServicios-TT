@@ -327,6 +327,7 @@ class PolicyDeliveryItem(BaseModel):
     signature_image_path: str | None
     report_count: int
     pdf_path: str | None = None
+    pdf_url: str | None = None  # URL firmada con vigencia corta (usar en lugar de pdf_path)
     total_printers: int = 0
     visit_id: str | None = None
     extra_email: str | None = None

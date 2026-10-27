@@ -253,6 +253,7 @@ class PortalPolicyDeliveryItem(BaseModel):
     tech_name: Optional[str]
     report_count: int
     pdf_path: Optional[str] = None
+    pdf_url: Optional[str] = None  # URL firmada con vigencia corta
 
 
 class PortalPolicyDeliveryDetail(BaseModel):
