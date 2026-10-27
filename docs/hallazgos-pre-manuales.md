@@ -268,7 +268,7 @@ Convenciones:
 - **Arreglo propuesto:** usar `import.meta.env.VITE_API_URL` (como `ReportsPage.tsx:78`). Extraer el mapa `STATUS` de `ReportsPage.tsx` a `admin-web/src/lib/reportStatus.ts` y reutilizarlo en las tres pantallas. No tocar el backend.
 - **Cómo verificar:** en producción el perfil del técnico muestra la firma; los estados se ven "Firmado", "Pendiente entrega", etc.
 - **Afecta al manual:** Sí. Perfil de técnico y detalle de impresora: etiquetas de estado.
-- **Estado:** Pendiente
+- **Estado:** Corregido en rama `fix/datos-admin` (sin desplegar). URL de la firma ya corregida en `fix/uploads-firmadas`; el mapa de estados se extrajo a `admin-web/src/lib/reportStatus.ts` (solo etiqueta y clases; los iconos quedan en `ReportsPage.tsx` porque el archivo es `.ts`) y lo usan `ReportsPage`, `TechnicianProfilePage` y `PrinterDetailPage` ("Firmado", "Pendiente entrega", etc.).
 
 ## H-17 — Técnicos: administradores invisibles en la lista y técnicos inactivos sin indicación
 

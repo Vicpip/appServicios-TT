@@ -5,6 +5,7 @@ import { ArrowLeft, Printer, Trash2, FileText, Download, ChevronLeft, ChevronRig
 import apiClient from '@/api/client'
 import { API } from '@/api/endpoints'
 import { DetailModal } from '@/pages/ReportsPage'
+import { reportStatusConfig } from '@/lib/reportStatus'
 
 const API_BASE = (import.meta.env.VITE_API_URL as string ?? '').replace(/\/$/, '')
 
@@ -50,12 +51,6 @@ const PAGE_SIZE = 20
 
 function fmtDate(iso: string) {
   return new Date(iso).toLocaleDateString('es-MX', { day: '2-digit', month: 'short', year: 'numeric' })
-}
-
-const STATUS_COLORS: Record<string, string> = {
-  Synced: 'bg-green-50 text-green-700 border-green-200',
-  Signed: 'bg-blue-50 text-blue-700 border-blue-200',
-  Draft: 'bg-gray-100 text-gray-500 border-gray-200',
 }
 
 export default function PrinterDetailPage() {
@@ -322,8 +317,8 @@ export default function PrinterDetailPage() {
                       <td className="px-4 py-3 text-gray-700">{r.service_type}</td>
                       <td className="px-4 py-3 text-gray-700">{r.tech_name ?? '—'}</td>
                       <td className="px-4 py-3">
-                        <span className={`inline-flex px-2 py-0.5 text-xs font-medium rounded-full border ${STATUS_COLORS[r.status] ?? 'bg-gray-100 text-gray-500 border-gray-200'}`}>
-                          {r.status}
+                        <span className={`inline-flex px-2 py-0.5 text-xs font-medium rounded-full border ${reportStatusConfig(r.status).classes}`}>
+                          {reportStatusConfig(r.status).label}
                         </span>
                       </td>
                       <td className="px-6 py-3 text-right">

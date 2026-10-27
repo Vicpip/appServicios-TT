@@ -18,6 +18,7 @@ import {
 } from 'lucide-react'
 import apiClient from '@/api/client'
 import { API } from '@/api/endpoints'
+import { reportStatusConfig } from '@/lib/reportStatus'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -102,18 +103,18 @@ function parseJson<T>(raw: string | null | undefined, fallback: T): T {
 // Status badge
 // ---------------------------------------------------------------------------
 
-const STATUS: Record<string, { label: string; classes: string; icon: React.ReactNode }> = {
-  Draft:                { label: 'Borrador',          classes: 'bg-gray-100 text-gray-600 border-gray-200',          icon: <Clock size={11} /> },
-  Signed:               { label: 'Firmado',           classes: 'bg-blue-50 text-blue-700 border-blue-200',           icon: <FileText size={11} /> },
-  signed:               { label: 'Firmado',           classes: 'bg-blue-50 text-blue-700 border-blue-200',           icon: <FileText size={11} /> },
-  pending_delivery:     { label: 'Pendiente entrega', classes: 'bg-yellow-50 text-yellow-700 border-yellow-200',     icon: <Clock size={11} /> },
-  Synced:               { label: 'Sincronizado',      classes: 'bg-emerald-50 text-emerald-700 border-emerald-200',  icon: <CheckCircle2 size={11} /> },
-  'Reviewed-Approved':  { label: 'Aprobado',          classes: 'bg-green-50 text-green-700 border-green-200',        icon: <CheckCircle2 size={11} /> },
-  'Reviewed-Rejected':  { label: 'Rechazado',         classes: 'bg-red-50 text-red-600 border-red-200',              icon: <XCircle size={11} /> },
+const STATUS_ICONS: Record<string, React.ReactNode> = {
+  Draft: <Clock size={11} />,
+  Signed: <FileText size={11} />,
+  signed: <FileText size={11} />,
+  pending_delivery: <Clock size={11} />,
+  Synced: <CheckCircle2 size={11} />,
+  'Reviewed-Approved': <CheckCircle2 size={11} />,
+  'Reviewed-Rejected': <XCircle size={11} />,
 }
 
 function StatusBadge({ status }: { status: string }) {
-  const cfg = STATUS[status] ?? { label: status, classes: 'bg-gray-100 text-gray-600 border-gray-200', icon: <AlertCircle size={11} /> }
+  const cfg = { ...reportStatusConfig(status), icon: STATUS_ICONS[status] ?? <AlertCircle size={11} /> }
   return (
     <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full border text-xs font-medium font-sans ${cfg.classes}`}>
       {cfg.icon}{cfg.label}
@@ -505,7 +506,7 @@ function FiltersBar({
 
         <select value={filters.status} onChange={(e) => onChange({ status: e.target.value })} className={selectCls}>
           <option value="">Todos los estados</option>
-          {STATUS_OPTIONS.map((s) => <option key={s} value={s}>{STATUS[s]?.label ?? s}</option>)}
+          {STATUS_OPTIONS.map((s) => <option key={s} value={s}>{reportStatusConfig(s).label}</option>)}
         </select>
 
         <div className="flex flex-col gap-0.5">

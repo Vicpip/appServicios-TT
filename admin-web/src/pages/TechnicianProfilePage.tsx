@@ -5,6 +5,7 @@ import { ArrowLeft, User, FileText, ChevronLeft, ChevronRight } from 'lucide-rea
 import apiClient from '@/api/client'
 import { API } from '@/api/endpoints'
 import { DetailModal } from '@/pages/ReportsPage'
+import { reportStatusConfig } from '@/lib/reportStatus'
 
 interface TechnicianDetail {
   id: string
@@ -50,12 +51,6 @@ function endOf(unit: 'day' | 'week' | 'month' | 'year', d: Date): Date {
   if (unit === 'week') { const day = r.getDay(); r.setDate(r.getDate() + (6 - day)); r.setHours(23, 59, 59, 999); return r }
   if (unit === 'month') { r.setMonth(r.getMonth() + 1, 0); r.setHours(23, 59, 59, 999); return r }
   r.setMonth(11, 31); r.setHours(23, 59, 59, 999); return r
-}
-
-const STATUS_COLORS: Record<string, string> = {
-  Synced: 'bg-green-50 text-green-700 border-green-200',
-  Signed: 'bg-blue-50 text-blue-700 border-blue-200',
-  Draft: 'bg-gray-100 text-gray-500 border-gray-200',
 }
 
 export default function TechnicianProfilePage() {
@@ -266,8 +261,8 @@ export default function TechnicianProfilePage() {
                         <td className="px-4 py-3 text-gray-600">{r.printer_serial ?? '—'}</td>
                         <td className="px-4 py-3 text-gray-600">{r.client_name ?? '—'}</td>
                         <td className="px-4 py-3">
-                          <span className={`inline-flex px-2 py-0.5 text-xs font-medium rounded-full border ${STATUS_COLORS[r.status] ?? 'bg-gray-100 text-gray-500 border-gray-200'}`}>
-                            {r.status}
+                          <span className={`inline-flex px-2 py-0.5 text-xs font-medium rounded-full border ${reportStatusConfig(r.status).classes}`}>
+                            {reportStatusConfig(r.status).label}
                           </span>
                         </td>
                       </tr>
