@@ -30,11 +30,12 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 
-from app.auth import create_access_token, get_current_user
+from app.auth import create_access_token, get_current_active_user, require_admin
 from app.config import get_settings
 from app.database import get_db
 from app.models.catalog import CatalogModel
 from app.models.client import Client
+from app.models.client_contact_email import ClientContactEmail
 from app.models.file import EntityFile, File
 from app.models.plant import Plant
 from app.models.policy import Policy, PolicyDelivery, PolicyDeliveryReport, PolicyPrinter
@@ -44,6 +45,7 @@ from app.models.report import Report
 from app.models.area import Area
 from app.models.user import User
 from app.portal_auth import get_current_portal_user
+from app.schemas.admin import ClientContactEmailCreate, ClientContactEmailItem
 from app.schemas.portal import (
     ForgotPasswordRequest,
     ForgotPasswordResponse,
@@ -201,7 +203,7 @@ def get_invite_info(
 def invite_client(
     body: InviteRequest,
     db: Session = Depends(get_db),
-    current_user: dict = Depends(get_current_user),
+    current_user: dict = Depends(require_admin),
 ) -> InviteResponse:
     """Internal-only: admin/technician invites a client contact to the portal."""
 
@@ -1081,7 +1083,7 @@ def get_policy_delivery(
 
 
 # ===========================================================================
-# Admin management endpoints — require internal JWT (get_current_user)
+# Admin management endpoints — require internal admin JWT (require_admin)
 # ===========================================================================
 
 
@@ -1097,7 +1099,7 @@ def get_policy_delivery(
 def list_client_portal_users(
     client_id: str,
     db: Session = Depends(get_db),
-    current_user: dict = Depends(get_current_user),
+    current_user: dict = Depends(require_admin),
 ) -> list[PortalUserAdminItem]:
     """Admin: list all portal users registered for a given client."""
     client: Client | None = db.get(Client, client_id)
@@ -1145,7 +1147,7 @@ def toggle_portal_user_active(
     user_id: str,
     body: PortalUserToggleRequest,
     db: Session = Depends(get_db),
-    current_user: dict = Depends(get_current_user),
+    current_user: dict = Depends(require_admin),
 ) -> PortalUserToggleResponse:
     """Admin: activate or deactivate a portal user."""
     portal_user: PortalUser | None = db.get(PortalUser, user_id)
@@ -1161,3 +1163,66 @@ def toggle_portal_user_active(
         name=portal_user.name,
         is_active=portal_user.is_active,
     )
+
+
+# ---------------------------------------------------------------------------
+# /api/portal/contact-emails — correos de contacto del propio cliente
+# El client_id sale siempre del usuario del portal, nunca de la URL.
+# ---------------------------------------------------------------------------
+
+
+@router.get("/contact-emails", response_model=list[ClientContactEmailItem])
+def list_portal_contact_emails(
+    payload: dict = Depends(get_current_portal_user),
+    db: Session = Depends(get_db),
+) -> list[ClientContactEmailItem]:
+    portal_user = _resolve_portal_user(payload, db)
+    rows = (
+        db.query(ClientContactEmail)
+        .filter(
+            ClientContactEmail.client_id == portal_user.client_id,
+            ClientContactEmail.is_active.is_(True),
+        )
+        .order_by(ClientContactEmail.created_at)
+        .all()
+    )
+    return [ClientContactEmailItem.model_validate(r) for r in rows]
+
+
+@router.post(
+    "/contact-emails",
+    response_model=ClientContactEmailItem,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_portal_contact_email(
+    body: ClientContactEmailCreate,
+    payload: dict = Depends(get_current_portal_user),
+    db: Session = Depends(get_db),
+) -> ClientContactEmailItem:
+    portal_user = _resolve_portal_user(payload, db)
+    row = ClientContactEmail(
+        id=str(uuid.uuid4()),
+        client_id=portal_user.client_id,
+        email=body.email,
+        label=body.label,
+        is_active=True,
+    )
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+    return ClientContactEmailItem.model_validate(row)
+
+
+@router.delete("/contact-emails/{email_id}")
+def delete_portal_contact_email(
+    email_id: str,
+    payload: dict = Depends(get_current_portal_user),
+    db: Session = Depends(get_db),
+) -> dict:
+    portal_user = _resolve_portal_user(payload, db)
+    row = db.get(ClientContactEmail, email_id)
+    if not row or row.client_id != portal_user.client_id:
+        raise HTTPException(status_code=404, detail="Correo no encontrado")
+    db.delete(row)
+    db.commit()
+    return {"success": True, "id": email_id}

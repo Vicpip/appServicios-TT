@@ -10,7 +10,7 @@ from pathlib import Path
 
 from fastapi import APIRouter, Depends, File as FastAPIFile, HTTPException, Query, UploadFile
 from fastapi.responses import StreamingResponse
-from app.auth import get_current_active_user, get_current_user
+from app.auth import require_admin, require_internal
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
@@ -115,7 +115,7 @@ def _printer_status(last_checkboxes_json: str | None) -> str:
 # GET /api/admin/reports
 # ---------------------------------------------------------------------------
 
-@router.get("/reports", response_model=dict)
+@router.get("/reports", response_model=dict, dependencies=[Depends(require_admin)])
 def list_reports(
     client_id: str | None = Query(None),
     tech_id: str | None = Query(None),
@@ -180,7 +180,7 @@ def list_reports(
 # GET /api/admin/reports/{report_id}
 # ---------------------------------------------------------------------------
 
-@router.get("/reports/{report_id}", response_model=ReportDetail)
+@router.get("/reports/{report_id}", response_model=ReportDetail, dependencies=[Depends(require_admin)])
 def get_report(report_id: str, db: Session = Depends(get_db)) -> ReportDetail:
     """Get full detail of a single report."""
     row = (
@@ -237,7 +237,7 @@ def get_report(report_id: str, db: Session = Depends(get_db)) -> ReportDetail:
 # POST /api/admin/reports/{report_id}/review
 # ---------------------------------------------------------------------------
 
-@router.post("/reports/{report_id}/review")
+@router.post("/reports/{report_id}/review", dependencies=[Depends(require_admin)])
 def review_report(
     report_id: str,
     body: ReviewRequest,
@@ -263,7 +263,7 @@ def review_report(
 # GET /api/admin/reports/{report_id}/files
 # ---------------------------------------------------------------------------
 
-@router.get("/reports/{report_id}/files")
+@router.get("/reports/{report_id}/files", dependencies=[Depends(require_admin)])
 def get_report_files(report_id: str, db: Session = Depends(get_db)) -> dict:
     """Return URLs for photos, signature and PDF associated with a report."""
     rows = (
@@ -301,7 +301,7 @@ def get_report_files(report_id: str, db: Session = Depends(get_db)) -> dict:
 # GET /api/admin/clients
 # ---------------------------------------------------------------------------
 
-@router.get("/clients", response_model=dict)
+@router.get("/clients", response_model=dict, dependencies=[Depends(require_admin)])
 def list_clients(
     search: str | None = Query(None),
     offset: int = Query(0, ge=0),
@@ -365,7 +365,7 @@ def list_clients(
 # GET /api/admin/clients/{client_id}/detail
 # ---------------------------------------------------------------------------
 
-@router.get("/clients/{client_id}/detail", response_model=dict)
+@router.get("/clients/{client_id}/detail", response_model=dict, dependencies=[Depends(require_admin)])
 def get_client_detail(client_id: str, db: Session = Depends(get_db)) -> dict:
     client = db.get(Client, client_id)
     if not client:
@@ -503,12 +503,11 @@ _LOGO_MAGIC = {
 }
 
 
-@router.patch("/clients/{client_id}/logo", response_model=dict)
+@router.patch("/clients/{client_id}/logo", response_model=dict, dependencies=[Depends(require_admin)])
 async def upload_client_logo(
     client_id: str,
     logo: UploadFile = FastAPIFile(...),
     db: Session = Depends(get_db),
-    _current_user: dict = Depends(get_current_user),
 ) -> dict:
     client = db.get(Client, client_id)
     if not client:
@@ -545,11 +544,10 @@ async def upload_client_logo(
     return {"logo_url": f"/uploads/logos/{client_id}.{ext}"}
 
 
-@router.delete("/clients/{client_id}/logo", response_model=dict)
+@router.delete("/clients/{client_id}/logo", response_model=dict, dependencies=[Depends(require_admin)])
 def delete_client_logo(
     client_id: str,
     db: Session = Depends(get_db),
-    _current_user: dict = Depends(get_current_user),
 ) -> dict:
     client = db.get(Client, client_id)
     if not client:
@@ -569,7 +567,7 @@ def delete_client_logo(
 # GET /api/admin/technicians
 # ---------------------------------------------------------------------------
 
-@router.get("/technicians", response_model=dict)
+@router.get("/technicians", response_model=dict, dependencies=[Depends(require_admin)])
 def list_technicians(
     offset: int = Query(0, ge=0),
     limit: int = Query(20, ge=1, le=200),
@@ -614,7 +612,7 @@ def list_technicians(
 # GET /api/admin/technicians/{tech_id}  — Perfil
 # ---------------------------------------------------------------------------
 
-@router.get("/technicians/{tech_id}", response_model=dict)
+@router.get("/technicians/{tech_id}", response_model=dict, dependencies=[Depends(require_admin)])
 def get_technician_detail(tech_id: str, db: Session = Depends(get_db)) -> dict:
     tech = db.query(User).filter(User.id == tech_id, User.role == "technician").first()
     if not tech:
@@ -634,7 +632,7 @@ def get_technician_detail(tech_id: str, db: Session = Depends(get_db)) -> dict:
 # GET /api/admin/technicians/{tech_id}/reports  — Reportes con filtro de fecha
 # ---------------------------------------------------------------------------
 
-@router.get("/technicians/{tech_id}/reports", response_model=dict)
+@router.get("/technicians/{tech_id}/reports", response_model=dict, dependencies=[Depends(require_admin)])
 def get_technician_reports(
     tech_id: str,
     date_from: str | None = Query(None),
@@ -672,7 +670,7 @@ def get_technician_reports(
 # GET /api/admin/printers
 # ---------------------------------------------------------------------------
 
-@router.get("/printers", response_model=dict)
+@router.get("/printers", response_model=dict, dependencies=[Depends(require_admin)])
 def list_printers(
     client_id: str | None = Query(None),
     printer_status: str | None = Query(None),
@@ -775,7 +773,7 @@ def _sanitize_upload_str(s: str) -> str:
     return _SAFE_STR_RE.sub("", s).strip()
 
 
-@router.get("/printers/template/download")
+@router.get("/printers/template/download", dependencies=[Depends(require_admin)])
 def download_printers_template(db: Session = Depends(get_db)) -> StreamingResponse:
     import openpyxl
     from openpyxl.styles import Font, PatternFill
@@ -844,7 +842,7 @@ def download_printers_template(db: Session = Depends(get_db)) -> StreamingRespon
 # POST /api/admin/printers/bulk-upload
 # ---------------------------------------------------------------------------
 
-@router.post("/printers/bulk-upload", response_model=dict)
+@router.post("/printers/bulk-upload", response_model=dict, dependencies=[Depends(require_admin)])
 async def bulk_upload_printers(
     file: UploadFile = FastAPIFile(...),
     db: Session = Depends(get_db),
@@ -1002,7 +1000,7 @@ async def bulk_upload_printers(
 # GET /api/admin/printers/{printer_id}  — Detalle
 # ---------------------------------------------------------------------------
 
-@router.get("/printers/{printer_id}", response_model=dict)
+@router.get("/printers/{printer_id}", response_model=dict, dependencies=[Depends(require_admin)])
 def get_printer_detail(printer_id: str, db: Session = Depends(get_db)) -> dict:
     printer = db.get(Printer, printer_id)
     if not printer:
@@ -1034,7 +1032,7 @@ def get_printer_detail(printer_id: str, db: Session = Depends(get_db)) -> dict:
 # GET /api/admin/printers/{printer_id}/reports  — Historial paginado
 # ---------------------------------------------------------------------------
 
-@router.get("/printers/{printer_id}/reports", response_model=dict)
+@router.get("/printers/{printer_id}/reports", response_model=dict, dependencies=[Depends(require_admin)])
 def get_printer_reports(
     printer_id: str,
     offset: int = Query(0, ge=0),
@@ -1069,7 +1067,7 @@ def get_printer_reports(
 # GET /api/admin/printers/{printer_id}/stats
 # ---------------------------------------------------------------------------
 
-@router.get("/printers/{printer_id}/stats", response_model=dict)
+@router.get("/printers/{printer_id}/stats", response_model=dict, dependencies=[Depends(require_admin)])
 def get_printer_stats(printer_id: str, db: Session = Depends(get_db)) -> dict:
     thirty_days_ago = _now_utc() - timedelta(days=30)
 
@@ -1140,7 +1138,7 @@ def get_printer_stats(printer_id: str, db: Session = Depends(get_db)) -> dict:
 # GET /api/admin/policies
 # ---------------------------------------------------------------------------
 
-@router.get("/policies", response_model=dict)
+@router.get("/policies", response_model=dict, dependencies=[Depends(require_admin)])
 def list_policies(
     client_id: str | None = Query(None),
     status: str | None = Query(None),
@@ -1211,7 +1209,7 @@ def _enrich_sync_item(row: SyncLog, db: Session) -> tuple[str | None, str | None
     return (tech.name if tech else None), detalle
 
 
-@router.get("/sync/history", response_model=dict)
+@router.get("/sync/history", response_model=dict, dependencies=[Depends(require_admin)])
 def sync_history(
     status: str | None = Query(None),
     entity_type: str | None = Query(None),
@@ -1354,7 +1352,7 @@ def _policy_detail(policy: Policy, db: Session) -> PolicyDetail:
 # POST /api/admin/policies  — Crear póliza
 # ---------------------------------------------------------------------------
 
-@router.post("/policies", response_model=dict, status_code=201)
+@router.post("/policies", response_model=dict, status_code=201, dependencies=[Depends(require_admin)])
 def create_policy(body: PolicyCreate, db: Session = Depends(get_db)) -> dict:
     """Create a new maintenance policy."""
     if not db.get(Client, body.client_id):
@@ -1388,7 +1386,7 @@ def create_policy(body: PolicyCreate, db: Session = Depends(get_db)) -> dict:
 # GET /api/admin/policies/next-folio  — Siguiente folio sugerido
 # ---------------------------------------------------------------------------
 
-@router.get("/policies/next-folio", response_model=dict)
+@router.get("/policies/next-folio", response_model=dict, dependencies=[Depends(require_admin)])
 def get_next_policy_folio(db: Session = Depends(get_db)) -> dict:
     """Return the next suggested folio in POL-YYYY-NNN format for the current year."""
     import re
@@ -1411,7 +1409,7 @@ def get_next_policy_folio(db: Session = Depends(get_db)) -> dict:
 # GET /api/admin/policies/{policy_id}  — Detalle
 # ---------------------------------------------------------------------------
 
-@router.get("/policies/{policy_id}", response_model=dict)
+@router.get("/policies/{policy_id}", response_model=dict, dependencies=[Depends(require_admin)])
 def get_policy(policy_id: str, db: Session = Depends(get_db)) -> dict:
     """Get policy detail including assigned printers."""
     policy = db.get(Policy, policy_id)
@@ -1424,7 +1422,7 @@ def get_policy(policy_id: str, db: Session = Depends(get_db)) -> dict:
 # PUT /api/admin/policies/{policy_id}  — Editar
 # ---------------------------------------------------------------------------
 
-@router.put("/policies/{policy_id}", response_model=dict)
+@router.put("/policies/{policy_id}", response_model=dict, dependencies=[Depends(require_admin)])
 def update_policy(
     policy_id: str, body: PolicyUpdate, db: Session = Depends(get_db)
 ) -> dict:
@@ -1467,7 +1465,7 @@ def update_policy(
 # DELETE /api/admin/policies/{policy_id}  — Soft delete
 # ---------------------------------------------------------------------------
 
-@router.delete("/policies/{policy_id}", status_code=200)
+@router.delete("/policies/{policy_id}", status_code=200, dependencies=[Depends(require_admin)])
 def delete_policy(policy_id: str, db: Session = Depends(get_db)) -> dict:
     """Soft-delete a policy by setting its status to 'Deleted'."""
     policy = db.get(Policy, policy_id)
@@ -1485,7 +1483,7 @@ def delete_policy(policy_id: str, db: Session = Depends(get_db)) -> dict:
 # POST /api/admin/policies/{policy_id}/printers  — Asignar impresoras
 # ---------------------------------------------------------------------------
 
-@router.post("/policies/{policy_id}/printers", status_code=200)
+@router.post("/policies/{policy_id}/printers", status_code=200, dependencies=[Depends(require_admin)])
 def assign_printers(
     policy_id: str, body: AssignPrintersRequest, db: Session = Depends(get_db)
 ) -> dict:
@@ -1531,7 +1529,7 @@ def assign_printers(
 # DELETE /api/admin/policies/{policy_id}/printers/{printer_id}  — Quitar impresora
 # ---------------------------------------------------------------------------
 
-@router.delete("/policies/{policy_id}/printers/{printer_id}", status_code=200)
+@router.delete("/policies/{policy_id}/printers/{printer_id}", status_code=200, dependencies=[Depends(require_admin)])
 def remove_printer_from_policy(
     policy_id: str, printer_id: str, db: Session = Depends(get_db)
 ) -> dict:
@@ -1556,7 +1554,7 @@ def remove_printer_from_policy(
 # FASE 7 — Asignaciones técnico-impresora
 # ===========================================================================
 
-@router.get("/policies/{policy_id}/assignments", response_model=dict)
+@router.get("/policies/{policy_id}/assignments", response_model=dict, dependencies=[Depends(require_admin)])
 def list_assignments(policy_id: str, db: Session = Depends(get_db)) -> dict:
     """List technician assignments for printers in a policy."""
     policy = db.get(Policy, policy_id)
@@ -1584,7 +1582,7 @@ def list_assignments(policy_id: str, db: Session = Depends(get_db)) -> dict:
     return {"total": len(items), "items": items}
 
 
-@router.post("/policies/{policy_id}/assignments", response_model=dict)
+@router.post("/policies/{policy_id}/assignments", response_model=dict, dependencies=[Depends(require_admin)])
 def assign_technician(
     policy_id: str, body: AssignTechnicianRequest, db: Session = Depends(get_db)
 ) -> dict:
@@ -1643,7 +1641,7 @@ def assign_technician(
     ).model_dump()
 
 
-@router.delete("/policies/{policy_id}/assignments/{printer_id}", status_code=200)
+@router.delete("/policies/{policy_id}/assignments/{printer_id}", status_code=200, dependencies=[Depends(require_admin)])
 def delete_assignment(
     policy_id: str, printer_id: str, db: Session = Depends(get_db)
 ) -> dict:
@@ -1713,7 +1711,7 @@ def _create_policy_delivery(policy_id: str, body: PolicyDeliveryCreate, db: Sess
     )
 
 
-@router.get("/policies/{policy_id}/deliveries", response_model=dict)
+@router.get("/policies/{policy_id}/deliveries", response_model=dict, dependencies=[Depends(require_admin)])
 def list_deliveries(policy_id: str, db: Session = Depends(get_db)) -> dict:
     """List delivery history for a policy."""
     policy = db.get(Policy, policy_id)
@@ -1755,7 +1753,7 @@ def list_deliveries(policy_id: str, db: Session = Depends(get_db)) -> dict:
     return {"total": len(items), "items": items}
 
 
-@router.get("/policy-deliveries/{delivery_id}/detail", response_model=dict)
+@router.get("/policy-deliveries/{delivery_id}/detail", response_model=dict, dependencies=[Depends(require_admin)])
 def get_delivery_detail(delivery_id: str, db: Session = Depends(get_db)) -> dict:
     """Get full delivery detail including each report's printer info."""
     delivery = db.get(PolicyDelivery, delivery_id)
@@ -1801,7 +1799,7 @@ def get_delivery_detail(delivery_id: str, db: Session = Depends(get_db)) -> dict
     }
 
 
-@router.post("/policies/{policy_id}/deliveries", response_model=dict, status_code=201)
+@router.post("/policies/{policy_id}/deliveries", response_model=dict, status_code=201, dependencies=[Depends(require_admin)])
 def create_delivery_admin(
     policy_id: str, body: PolicyDeliveryCreate, db: Session = Depends(get_db)
 ) -> dict:
@@ -1809,11 +1807,10 @@ def create_delivery_admin(
     return _create_policy_delivery(policy_id, body, db).model_dump()
 
 
-@router.post("/policy-deliveries/{delivery_id}/regenerate-pdf", response_model=dict)
+@router.post("/policy-deliveries/{delivery_id}/regenerate-pdf", response_model=dict, dependencies=[Depends(require_admin)])
 def regenerate_delivery_pdf_endpoint(
     delivery_id: str,
     db: Session = Depends(get_db),
-    _current_user: User = Depends(get_current_user),
 ) -> dict:
     """Regenerate the PDF for a policy delivery."""
     delivery = db.get(PolicyDelivery, delivery_id)
@@ -1834,12 +1831,11 @@ def regenerate_delivery_pdf_endpoint(
     return {"success": True, "pdf_url": pdf_path}
 
 
-@router.post("/policy-deliveries/{delivery_id}/send-email", response_model=dict)
+@router.post("/policy-deliveries/{delivery_id}/send-email", response_model=dict, dependencies=[Depends(require_admin)])
 def send_delivery_email(
     delivery_id: str,
     body: DeliverySendEmailRequest | None = None,
     db: Session = Depends(get_db),
-    _current_user: dict = Depends(get_current_active_user),
 ) -> dict:
     """Reenvía el correo único de la entrega (con ligas, sin adjuntos).
 
@@ -1872,11 +1868,10 @@ def send_delivery_email(
     return {"sent_to": result.sent_to}
 
 
-@router.post("/policy-deliveries/{delivery_id}/regenerate-links", response_model=dict)
+@router.post("/policy-deliveries/{delivery_id}/regenerate-links", response_model=dict, dependencies=[Depends(require_admin)])
 def regenerate_delivery_links(
     delivery_id: str,
     db: Session = Depends(get_db),
-    _current_user: dict = Depends(get_current_active_user),
 ) -> dict:
     """Revoca las ligas públicas de la entrega (resumen + reportes) y crea nuevas.
 
@@ -1904,7 +1899,7 @@ def regenerate_delivery_links(
 # CRUD — Técnicos
 # ===========================================================================
 
-@router.post("/technicians", response_model=dict, status_code=201)
+@router.post("/technicians", response_model=dict, status_code=201, dependencies=[Depends(require_admin)])
 def create_technician(body: TechnicianCreate, db: Session = Depends(get_db)) -> dict:
     """Create a new technician user."""
     if db.query(User).filter(User.email == body.email).first():
@@ -1935,7 +1930,7 @@ def create_technician(body: TechnicianCreate, db: Session = Depends(get_db)) -> 
     ).model_dump()
 
 
-@router.put("/technicians/{tech_id}", response_model=dict)
+@router.put("/technicians/{tech_id}", response_model=dict, dependencies=[Depends(require_admin)])
 def update_technician(
     tech_id: str, body: TechnicianUpdate, db: Session = Depends(get_db)
 ) -> dict:
@@ -1975,7 +1970,7 @@ def update_technician(
     ).model_dump()
 
 
-@router.delete("/technicians/{tech_id}", status_code=200)
+@router.delete("/technicians/{tech_id}", status_code=200, dependencies=[Depends(require_admin)])
 def delete_technician(tech_id: str, db: Session = Depends(get_db)) -> dict:
     """Soft-delete a technician (set is_active=False)."""
     tech = db.get(User, tech_id)
@@ -1990,7 +1985,7 @@ def delete_technician(tech_id: str, db: Session = Depends(get_db)) -> dict:
     return {"success": True, "id": tech_id}
 
 
-@router.post("/technicians/{tech_id}/revoke-tokens", status_code=200)
+@router.post("/technicians/{tech_id}/revoke-tokens", status_code=200, dependencies=[Depends(require_admin)])
 def revoke_technician_tokens(tech_id: str, db: Session = Depends(get_db)) -> dict:
     """Invalidate every mobile token of a technician (forces re-login).
 
@@ -2009,7 +2004,7 @@ def revoke_technician_tokens(tech_id: str, db: Session = Depends(get_db)) -> dic
 # CRUD — Clientes
 # ===========================================================================
 
-@router.post("/clients", response_model=dict, status_code=201)
+@router.post("/clients", response_model=dict, status_code=201, dependencies=[Depends(require_admin)])
 def create_client(body: ClientCreate, db: Session = Depends(get_db)) -> dict:
     """Create a new client."""
     client = Client(
@@ -2034,7 +2029,7 @@ def create_client(body: ClientCreate, db: Session = Depends(get_db)) -> dict:
     ).model_dump()
 
 
-@router.put("/clients/{client_id}", response_model=dict)
+@router.put("/clients/{client_id}", response_model=dict, dependencies=[Depends(require_admin)])
 def update_client(
     client_id: str, body: ClientUpdate, db: Session = Depends(get_db)
 ) -> dict:
@@ -2072,7 +2067,7 @@ def update_client(
     ).model_dump()
 
 
-@router.delete("/clients/{client_id}", status_code=200)
+@router.delete("/clients/{client_id}", status_code=200, dependencies=[Depends(require_admin)])
 def delete_client(client_id: str, db: Session = Depends(get_db)) -> dict:
     """Soft-delete a client (set is_active=False)."""
     client = db.get(Client, client_id)
@@ -2090,7 +2085,7 @@ def delete_client(client_id: str, db: Session = Depends(get_db)) -> dict:
 # CRUD — Correos de contacto por cliente
 # ===========================================================================
 
-@router.get("/clients/{client_id}/contact-emails", response_model=list[ClientContactEmailItem])
+@router.get("/clients/{client_id}/contact-emails", response_model=list[ClientContactEmailItem], dependencies=[Depends(require_internal)])
 def list_contact_emails(client_id: str, db: Session = Depends(get_db)) -> list[ClientContactEmailItem]:
     """List active contact emails for a client."""
     client = db.get(Client, client_id)
@@ -2106,7 +2101,7 @@ def list_contact_emails(client_id: str, db: Session = Depends(get_db)) -> list[C
     return [ClientContactEmailItem.model_validate(row) for row in rows]
 
 
-@router.post("/clients/{client_id}/contact-emails", response_model=ClientContactEmailItem, status_code=201)
+@router.post("/clients/{client_id}/contact-emails", response_model=ClientContactEmailItem, status_code=201, dependencies=[Depends(require_admin)])
 def create_contact_email(
     client_id: str, body: ClientContactEmailCreate, db: Session = Depends(get_db)
 ) -> ClientContactEmailItem:
@@ -2128,7 +2123,7 @@ def create_contact_email(
     return ClientContactEmailItem.model_validate(contact_email)
 
 
-@router.patch("/clients/{client_id}/contact-emails/{email_id}", response_model=ClientContactEmailItem)
+@router.patch("/clients/{client_id}/contact-emails/{email_id}", response_model=ClientContactEmailItem, dependencies=[Depends(require_admin)])
 def update_contact_email(
     client_id: str,
     email_id: str,
@@ -2150,7 +2145,7 @@ def update_contact_email(
     return ClientContactEmailItem.model_validate(contact_email)
 
 
-@router.delete("/clients/{client_id}/contact-emails/{email_id}", status_code=200)
+@router.delete("/clients/{client_id}/contact-emails/{email_id}", status_code=200, dependencies=[Depends(require_admin)])
 def delete_contact_email(client_id: str, email_id: str, db: Session = Depends(get_db)) -> dict:
     """Permanently delete a client contact email."""
     contact_email = db.get(ClientContactEmail, email_id)
@@ -2166,7 +2161,7 @@ def delete_contact_email(client_id: str, email_id: str, db: Session = Depends(ge
 # Plants & Areas (auxiliares para crear impresoras)
 # ===========================================================================
 
-@router.get("/plants", response_model=dict)
+@router.get("/plants", response_model=dict, dependencies=[Depends(require_admin)])
 def list_plants(
     client_id: str | None = Query(None),
     db: Session = Depends(get_db),
@@ -2180,7 +2175,7 @@ def list_plants(
     return {"total": len(items), "items": items}
 
 
-@router.post("/plants", response_model=dict, status_code=201)
+@router.post("/plants", response_model=dict, status_code=201, dependencies=[Depends(require_admin)])
 def create_plant(body: PlantCreate, db: Session = Depends(get_db)) -> dict:
     """Create a new plant for a client."""
     if not db.get(Client, body.client_id):
@@ -2202,7 +2197,7 @@ def create_plant(body: PlantCreate, db: Session = Depends(get_db)) -> dict:
     ).model_dump()
 
 
-@router.put("/plants/{plant_id}", response_model=dict)
+@router.put("/plants/{plant_id}", response_model=dict, dependencies=[Depends(require_admin)])
 def update_plant(plant_id: str, body: PlantUpdate, db: Session = Depends(get_db)) -> dict:
     plant = db.get(Plant, plant_id)
     if not plant:
@@ -2219,7 +2214,7 @@ def update_plant(plant_id: str, body: PlantUpdate, db: Session = Depends(get_db)
     ).model_dump()
 
 
-@router.get("/areas", response_model=dict)
+@router.get("/areas", response_model=dict, dependencies=[Depends(require_admin)])
 def list_areas(
     plant_id: str | None = Query(None),
     db: Session = Depends(get_db),
@@ -2233,7 +2228,7 @@ def list_areas(
     return {"total": len(items), "items": items}
 
 
-@router.post("/areas", response_model=dict, status_code=201)
+@router.post("/areas", response_model=dict, status_code=201, dependencies=[Depends(require_admin)])
 def create_area(body: AreaCreate, db: Session = Depends(get_db)) -> dict:
     """Create a new area inside a plant."""
     if not db.get(Plant, body.plant_id):
@@ -2250,7 +2245,7 @@ def create_area(body: AreaCreate, db: Session = Depends(get_db)) -> dict:
     return AreaListItem(id=area.id, name=area.name, plant_id=area.plant_id).model_dump()
 
 
-@router.get("/catalog/models", response_model=dict)
+@router.get("/catalog/models", response_model=dict, dependencies=[Depends(require_admin)])
 def list_catalog_models(db: Session = Depends(get_db)) -> dict:
     """List active printer models from the catalog."""
     rows = db.query(CatalogModel).filter(CatalogModel.is_active.is_(True)).order_by(
@@ -2263,7 +2258,7 @@ def list_catalog_models(db: Session = Depends(get_db)) -> dict:
     return {"total": len(items), "items": items}
 
 
-@router.post("/catalog/models", response_model=dict, status_code=201)
+@router.post("/catalog/models", response_model=dict, status_code=201, dependencies=[Depends(require_admin)])
 def create_catalog_model(body: CatalogModelCreate, db: Session = Depends(get_db)) -> dict:
     """Create a new printer model in the catalog."""
     model = CatalogModel(
@@ -2283,7 +2278,7 @@ def create_catalog_model(body: CatalogModelCreate, db: Session = Depends(get_db)
 # CRUD — Impresoras
 # ===========================================================================
 
-@router.post("/printers", response_model=dict, status_code=201)
+@router.post("/printers", response_model=dict, status_code=201, dependencies=[Depends(require_admin)])
 def create_printer(body: PrinterCreate, db: Session = Depends(get_db)) -> dict:
     """Create a new printer."""
     if not db.get(Client, body.client_id):
@@ -2332,7 +2327,7 @@ def create_printer(body: PrinterCreate, db: Session = Depends(get_db)) -> dict:
     ).model_dump()
 
 
-@router.put("/printers/{printer_id}", response_model=dict)
+@router.put("/printers/{printer_id}", response_model=dict, dependencies=[Depends(require_admin)])
 def update_printer(
     printer_id: str, body: PrinterUpdate, db: Session = Depends(get_db)
 ) -> dict:
@@ -2394,7 +2389,7 @@ def update_printer(
     ).model_dump()
 
 
-@router.delete("/printers/{printer_id}", status_code=200)
+@router.delete("/printers/{printer_id}", status_code=200, dependencies=[Depends(require_admin)])
 def delete_printer(printer_id: str, db: Session = Depends(get_db)) -> dict:
     """Soft-delete a printer (set is_active=False)."""
     printer = db.get(Printer, printer_id)
@@ -2467,7 +2462,7 @@ def _build_visit_item(visit: "PolicyVisit", db: Session) -> PolicyVisitItem:
     )
 
 
-@router.get("/policies/{policy_id}/visits", response_model=list)
+@router.get("/policies/{policy_id}/visits", response_model=list, dependencies=[Depends(require_admin)])
 def list_policy_visits(policy_id: str, db: Session = Depends(get_db)) -> list:
     """List all visits for a given policy, ordered by visit_number."""
     policy = db.get(Policy, policy_id)
@@ -2483,7 +2478,7 @@ def list_policy_visits(policy_id: str, db: Session = Depends(get_db)) -> list:
     return [_build_visit_item(v, db).model_dump() for v in visits]
 
 
-@router.post("/policies/{policy_id}/visits/generate", response_model=list, status_code=201)
+@router.post("/policies/{policy_id}/visits/generate", response_model=list, status_code=201, dependencies=[Depends(require_admin)])
 def generate_policy_visits(
     policy_id: str,
     _body: GenerateVisitsRequest,
@@ -2546,7 +2541,7 @@ def generate_policy_visits(
     return [_build_visit_item(v, db).model_dump() for v in created_visits]
 
 
-@router.patch("/policies/{policy_id}/visits/{visit_id}", response_model=dict)
+@router.patch("/policies/{policy_id}/visits/{visit_id}", response_model=dict, dependencies=[Depends(require_admin)])
 def update_policy_visit(
     policy_id: str,
     visit_id: str,
@@ -2608,12 +2603,11 @@ def _get_visit_or_404(db: Session, policy_id: str, visit_id: str) -> PolicyVisit
     return visit
 
 
-@router.get("/policies/{policy_id}/visits/{visit_id}/close-summary", response_model=dict)
+@router.get("/policies/{policy_id}/visits/{visit_id}/close-summary", response_model=dict, dependencies=[Depends(require_admin)])
 def visit_close_summary(
     policy_id: str,
     visit_id: str,
     db: Session = Depends(get_db),
-    _current_user: dict = Depends(get_current_active_user),
 ) -> dict:
     """Resumen previo al cierre: equipos con reporte entregado y los que no."""
     visit = _get_visit_or_404(db, policy_id, visit_id)
@@ -2626,7 +2620,7 @@ def close_policy_visit(
     visit_id: str,
     body: VisitCloseRequest,
     db: Session = Depends(get_db),
-    current_user: dict = Depends(get_current_active_user),
+    current_user: dict = Depends(require_admin),
 ) -> dict:
     """Cierra manualmente la visita en curso: completed + closed_at/by/reason.
 
@@ -2634,8 +2628,6 @@ def close_policy_visit(
     entregarse con firma). Una visita cerrada así no la reabre la regla
     automática ni el PATCH.
     """
-    if current_user.get("role") != "admin":
-        raise HTTPException(status_code=403, detail="Solo un administrador puede cerrar visitas")
     visit = _get_visit_or_404(db, policy_id, visit_id)
     if visit.status != "in_progress":
         raise HTTPException(
@@ -2671,7 +2663,7 @@ def close_policy_visit(
     return _build_visit_item(visit, db).model_dump()
 
 
-@router.delete("/policies/{policy_id}/visits", status_code=200)
+@router.delete("/policies/{policy_id}/visits", status_code=200, dependencies=[Depends(require_admin)])
 def delete_all_policy_visits(
     policy_id: str,
     db: Session = Depends(get_db),
@@ -2691,7 +2683,7 @@ def delete_all_policy_visits(
     return {"deleted": deleted}
 
 
-@router.delete("/policies/{policy_id}/visits/{visit_id}", status_code=204)
+@router.delete("/policies/{policy_id}/visits/{visit_id}", status_code=204, dependencies=[Depends(require_admin)])
 def delete_policy_visit(
     policy_id: str,
     visit_id: str,
@@ -2714,7 +2706,7 @@ def delete_policy_visit(
 # Dashboard — endpoints de resumen rápido
 # ===========================================================================
 
-@router.get("/dashboard/reports-by-day", response_model=list)
+@router.get("/dashboard/reports-by-day", response_model=list, dependencies=[Depends(require_admin)])
 def dashboard_reports_by_day(db: Session = Depends(get_db)) -> list:
     """Return last 7 days of reports grouped by service type. Always returns all 7 days."""
     today = date.today()
@@ -2755,7 +2747,7 @@ def dashboard_reports_by_day(db: Session = Depends(get_db)) -> list:
     return result
 
 
-@router.get("/dashboard/printers-attention", response_model=list)
+@router.get("/dashboard/printers-attention", response_model=list, dependencies=[Depends(require_admin)])
 def dashboard_printers_attention(db: Session = Depends(get_db)) -> list:
     """Return up to 5 active printers whose latest report has at least one damage key true."""
     latest_report_sq = (
@@ -2818,7 +2810,7 @@ def dashboard_printers_attention(db: Session = Depends(get_db)) -> list:
     return result
 
 
-@router.get("/dashboard/policies-expiring", response_model=list)
+@router.get("/dashboard/policies-expiring", response_model=list, dependencies=[Depends(require_admin)])
 def dashboard_policies_expiring(db: Session = Depends(get_db)) -> list:
     """Return up to 5 policies expiring within the next 30 days (not Deleted)."""
     now = _now_utc()

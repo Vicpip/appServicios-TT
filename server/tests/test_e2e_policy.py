@@ -28,7 +28,7 @@ def test_flujo_completo_de_poliza(client, world, db, tech_headers, admin_headers
     assert _visit(db, world.visit1.id).status == "in_progress"      # sigue en curso
     assert len(outbox.sent) == 1                                     # un correo por la entrega 1
     # Visita 2 no se puede activar mientras la 1 sigue en curso
-    assert client.patch(f"{visits_url}/{world.visit2.id}", json={"status": "in_progress"}).status_code == 409
+    assert client.patch(f"{visits_url}/{world.visit2.id}", json={"status": "in_progress"}, headers=admin_headers).status_code == 409
 
     # 2) Reporte del tercero -> entrega que completa la póliza
     d2, _ = sync_delivery(client, tech_headers, world, world.printers[2:], extra_email=None)
@@ -58,5 +58,5 @@ def test_flujo_completo_de_poliza(client, world, db, tech_headers, admin_headers
         assert db.get(PolicyDelivery, did).email_sent_at is not None
 
     # 5) Ya completada la visita 1, se puede activar la 2
-    res = client.patch(f"{visits_url}/{world.visit2.id}", json={"status": "in_progress"})
+    res = client.patch(f"{visits_url}/{world.visit2.id}", json={"status": "in_progress"}, headers=admin_headers)
     assert res.status_code == 200 and res.json()["status"] == "in_progress"

@@ -13,7 +13,7 @@ from app.models.user import User
 
 from app.config import get_settings
 
-security = HTTPBearer()
+security = HTTPBearer(auto_error=False)
 
 
 def create_access_token(
@@ -45,15 +45,26 @@ def verify_token(token: str) -> dict:
         )
 
 
+def _bearer_token(credentials: Optional[HTTPAuthorizationCredentials]) -> str:
+    """Sin header Authorization: 401 (HTTPBearer por defecto respondería 403)."""
+    if credentials is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="No autenticado",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    return credentials.credentials
+
+
 def get_current_user(
-    credentials: HTTPAuthorizationCredentials = Depends(security),
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(security),
 ) -> dict:
     """FastAPI dependency — returns the decoded JWT payload."""
-    return verify_token(credentials.credentials)
+    return verify_token(_bearer_token(credentials))
 
 
 def get_current_active_user(
-    credentials: HTTPAuthorizationCredentials = Depends(security),
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(security),
     db: Session = Depends(get_db),
 ) -> dict:
     """Like [get_current_user] but also checks the user in the database.
@@ -63,7 +74,7 @@ def get_current_active_user(
     Tokens issued before ``token_version`` existed carry no ``tv`` claim and are
     treated as version 0.
     """
-    payload = verify_token(credentials.credentials)
+    payload = verify_token(_bearer_token(credentials))
     user = db.get(User, payload.get("sub"))
     if user is None:
         raise HTTPException(
@@ -81,5 +92,19 @@ def get_current_active_user(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Sesión revocada",
             headers={"WWW-Authenticate": "Bearer"},
+        )
+    return payload
+
+
+# Cualquier usuario interno activo (técnico o admin).
+require_internal = get_current_active_user
+
+
+def require_admin(payload: dict = Depends(get_current_active_user)) -> dict:
+    """Solo usuarios internos con role == 'admin'; 403 en otro caso."""
+    if payload.get("role") != "admin":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Acceso restringido a administradores",
         )
     return payload

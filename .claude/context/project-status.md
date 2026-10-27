@@ -1197,3 +1197,16 @@ disparo no-fatal desde `sync_service` cuando el PDF del reporte ya se subió al 
 | Migraciones | Alembic `013_policy_visit_close_fields`, `014_file_share_links`, `015_policy_delivery_email_fields` (015 marca las entregas existentes como ya enviadas). Drift sigue en v11 (columnas añadidas a v11; `closed*` solo `addColumn` si `from >= 9`). |
 | Pruebas | `server/tests` (pytest + TestClient, SQLite, correo falso): `cd server && venv313\Scripts\python -m pytest tests` (52). Flutter: `flutter test` (33): migración Drift v10→v11 (`test/drift_migration_test.dart`, esquemas en `test/drift_schemas`), cola por técnico / offline (`SyncService.uploadPending`), tarjeta de correo y pantalla "Firma de entrega". `localDatabase` ya no es `final` (las pruebas la sustituyen). |
 | Docs | `docs/manual-tecnico.md`: 4.12, 4.21, 4.23 (+captura 59, repetir 50), 5.2, 6.4, 7.1, 7.4; [VERIFICAR] resueltos retirados. |
+
+---
+
+## ✅ fix/auth-admin — H-01 y H-02 (27/10/2026) — SIN deploy, SIN push
+
+Rama `fix/auth-admin` creada desde `f7523e8` (commit en producción; no está en `origin/main`).
+- `server/app/auth.py`: `require_internal`, `require_admin` (403), y sin header Authorization ahora responde 401 (antes 403).
+- `admin.py`: `require_admin` por endpoint; `GET /clients/{id}/contact-emails` usa `require_internal` (la app lo llama con token de técnico).
+- `portal.py`: invite y usuarios del portal → `require_admin`; nuevos `GET/POST/DELETE /api/portal/contact-emails` (client_id sale del usuario del portal).
+- `reports.py GET /{id}` y `sync.py GET /policies` exigen token (la app no los llama).
+- `auth.py` login: `client_type == "web"` y rol != admin → 403 "Acceso restringido a administradores".
+- `clients/Configuracion.jsx` usa los endpoints del portal; `admin-web LoginPage.tsx` muestra el mensaje del 403.
+- Desplegar JUNTOS: backend + clients (si no, la Configuración del portal da 401/403).

@@ -831,6 +831,7 @@ def create_policy_delivery(
 def get_policies_for_app(
     client_id: str | None = None,
     db: Session = Depends(get_db),
+    _current_user: dict = Depends(get_current_active_user),
 ) -> list:
     """Return active/expiring policies for a client — consumed by the Flutter app."""
     from datetime import timedelta

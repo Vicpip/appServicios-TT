@@ -183,7 +183,7 @@ def test_correo_adicional_se_guarda_en_la_entrega(client, world, db, tech_header
         client, tech_headers, world, world.printers[:1], extra_email="  Extra@Cliente.com "
     )
     assert _delivery(db, delivery_id).extra_email == "Extra@Cliente.com"
-    items = client.get(f"/api/admin/policies/{world.policy.id}/deliveries").json()["items"]
+    items = client.get(f"/api/admin/policies/{world.policy.id}/deliveries", headers=admin_headers).json()["items"]
     assert items[0]["extra_email"] == "Extra@Cliente.com"
 
 

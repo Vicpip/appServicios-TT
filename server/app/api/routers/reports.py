@@ -101,6 +101,7 @@ def _build_report_response(report: Report, db: Session) -> dict:
 def get_report(
     report_id: str,
     db: Session = Depends(get_db),
+    _current_user: dict = Depends(get_current_active_user),
 ) -> dict:
     """Return full report detail including associated file URLs."""
     report: Report | None = db.get(Report, report_id)

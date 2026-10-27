@@ -25,7 +25,7 @@ export default function Configuracion() {
   const { data, isLoading, error } = useQuery({
     queryKey: ['portal', 'contact-emails', clientId],
     queryFn: async () => {
-      const res = await apiClient.get(`/api/admin/clients/${clientId}/contact-emails`)
+      const res = await apiClient.get(`/api/portal/contact-emails`)
       return res.data
     },
     enabled: !!clientId,
@@ -45,7 +45,7 @@ export default function Configuracion() {
     }
     setSaving(true)
     try {
-      const res = await apiClient.post(`/api/admin/clients/${clientId}/contact-emails`, {
+      const res = await apiClient.post(`/api/portal/contact-emails`, {
         email: trimmed,
         label: newLabel.trim() || null,
       })
@@ -64,7 +64,7 @@ export default function Configuracion() {
     setActionIds((prev) => new Set(prev).add(emailId))
     setActionError(null)
     try {
-      await apiClient.delete(`/api/admin/clients/${clientId}/contact-emails/${emailId}`)
+      await apiClient.delete(`/api/portal/contact-emails/${emailId}`)
       setEmails((prev) => prev.filter((em) => em.id !== emailId))
     } catch (err) {
       setActionError(err?.response?.data?.detail ?? 'Error al eliminar el correo.')

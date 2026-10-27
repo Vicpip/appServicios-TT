@@ -132,9 +132,9 @@ def test_resumen_de_cierre(client, world, admin_headers):
 def test_cerrar_permite_activar_la_siguiente(client, world, admin_headers):
     url2 = f"/api/admin/policies/{world.policy.id}/visits/{world.visit2.id}"
     # Mientras la 1 sigue en curso, no se puede activar la 2.
-    assert client.patch(url2, json={"status": "in_progress"}).status_code == 409
+    assert client.patch(url2, json={"status": "in_progress"}, headers=admin_headers).status_code == 409
     assert _close(client, admin_headers, world).status_code == 200
-    res = client.patch(url2, json={"status": "in_progress"})
+    res = client.patch(url2, json={"status": "in_progress"}, headers=admin_headers)
     assert res.status_code == 200
     assert res.json()["status"] == "in_progress"
 
@@ -144,8 +144,8 @@ def test_visita_cerrada_no_se_reabre(client, world, db, admin_headers, tech_head
     completed_at = _visit(db, world.visit1.id).completed_at
     url1 = f"/api/admin/policies/{world.policy.id}/visits/{world.visit1.id}"
     # PATCH manual
-    assert client.patch(url1, json={"status": "in_progress"}).status_code == 409
-    assert client.patch(url1, json={"status": "scheduled"}).status_code == 409
+    assert client.patch(url1, json={"status": "in_progress"}, headers=admin_headers).status_code == 409
+    assert client.patch(url1, json={"status": "scheduled"}, headers=admin_headers).status_code == 409
     # Regla automática: una entrega tardía ligada a la visita cerrada no la toca.
     reports = [world.add_report(p, status="pending_delivery") for p in world.printers]
     assert _post_delivery(client, tech_headers, world, reports).status_code == 201
@@ -155,9 +155,9 @@ def test_visita_cerrada_no_se_reabre(client, world, db, admin_headers, tech_head
     assert v.closed_reason
 
 
-def test_patch_no_permite_completar_sin_motivo(client, world):
+def test_patch_no_permite_completar_sin_motivo(client, world, admin_headers):
     url1 = f"/api/admin/policies/{world.policy.id}/visits/{world.visit1.id}"
-    assert client.patch(url1, json={"status": "completed"}).status_code == 409
+    assert client.patch(url1, json={"status": "completed"}, headers=admin_headers).status_code == 409
 
 
 def test_descarga_incluye_cierre_para_la_app(client, world, admin_headers, tech_headers):

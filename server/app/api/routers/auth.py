@@ -103,6 +103,12 @@ def login(body: LoginRequest, db: Session = Depends(get_db)) -> LoginResponse:
             detail="Usuario desactivado",
         )
 
+    if body.client_type == "web" and user.role != "admin":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Acceso restringido a administradores",
+        )
+
     expires = _mobile_token_expire() if body.client_type == "mobile" else None
     token = _issue_token(user, expires)
 

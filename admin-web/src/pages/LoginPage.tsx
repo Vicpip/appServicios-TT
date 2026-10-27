@@ -64,7 +64,13 @@ const LoginPage = () => {
       clearSessionExpired()
       login(res.data.access_token)
       navigate('/', { replace: true })
-    } catch {
+    } catch (err) {
+      if (axios.isAxiosError(err) && err.response?.status === 403) {
+        setError(err.response.data?.detail ?? 'Acceso denegado')
+        setPassword('')
+        passwordRef.current?.focus()
+        return
+      }
       const next = attempts + 1
       setAttempts(next)
       setError('Credenciales inválidas')
