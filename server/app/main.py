@@ -64,10 +64,8 @@ app.include_router(portal_router)
 app.include_router(public_router)
 app.include_router(files_router)
 
-# Static files — serve uploaded photos/signatures/PDFs
-_upload_path = Path(settings.upload_dir)
-_upload_path.mkdir(parents=True, exist_ok=True)
-app.mount("/uploads", StaticFiles(directory=str(_upload_path)), name="uploads")
+# /uploads ya NO se monta (H-19): las fotos/firmas/PDFs se sirven solo con URL firmada
+# (GET /api/files/signed) y los logos con GET /api/portal/client-logo.
 
 # Static assets — logo and brand images (lib/img/ at repo root)
 _static_path = Path(__file__).resolve().parent.parent.parent / "lib" / "img"

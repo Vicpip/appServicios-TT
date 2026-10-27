@@ -24,7 +24,7 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from fastapi.responses import RedirectResponse
+from fastapi.responses import FileResponse
 from passlib.context import CryptContext
 from sqlalchemy import func
 from sqlalchemy.orm import Session
@@ -45,7 +45,11 @@ from app.models.report import Report
 from app.models.area import Area
 from app.models.user import User
 from app.portal_auth import get_current_portal_user
-from app.services.file_signing_service import signed_upload_url
+from app.services.file_signing_service import (
+    resolve_inside_uploads,
+    signed_upload_url,
+    to_relative_upload_path,
+)
 from app.schemas.admin import ClientContactEmailCreate, ClientContactEmailItem
 from app.schemas.portal import (
     ForgotPasswordRequest,
@@ -156,11 +160,18 @@ def _resolve_portal_user(payload: dict, db: Session) -> PortalUser:
 def get_client_logo(
     client_id: str = Query(...),
     db: Session = Depends(get_db),
-) -> RedirectResponse:
+) -> FileResponse:
     client = db.get(Client, client_id)
-    if not client or not client.logo_path:
+    rel = to_relative_upload_path(client.logo_path) if client else None
+    # Solo se sirve lo que está bajo logos/; cualquier otra ruta guardada se ignora.
+    path = resolve_inside_uploads(rel) if rel and rel.startswith("logos/") else None
+    if path is None:
         raise HTTPException(status_code=404, detail="Logo not found")
-    return RedirectResponse(url=f"/uploads/{client.logo_path}", status_code=302)
+    return FileResponse(
+        path,
+        media_type="image/png" if path.suffix.lower() == ".png" else "image/jpeg",
+        headers={"X-Content-Type-Options": "nosniff", "Cache-Control": "public, max-age=300"},
+    )
 
 
 # ---------------------------------------------------------------------------

@@ -318,7 +318,17 @@ Convenciones:
   4. Mientras tanto: agregar sufijo aleatorio al nombre de los PDFs nuevos de entrega.
 - **Cómo verificar:** `curl -I $API/uploads/deliveries/<nombre>.pdf` → 404/403 sin token; con token de admin o portal con alcance → 200; con token del portal de otro cliente → 403. El enlace del correo sigue funcionando hasta su vencimiento y deja de funcionar al "Regenerar liga".
 - **Afecta al manual:** Sí. "Ver PDF" / "Descargar PDF" requieren sesión; solo las ligas de correo son públicas con 30 días de vigencia.
-- **Estado:** Pendiente
+- **Estado:** Implementado en la rama `fix/uploads-firmadas` (pendiente de deploy y de validar en producción).
+- **Implementación (decisión: URLs firmadas HMAC, sin cambios en Flutter/APK):**
+  - **Etapa 2a** (compatible; `/uploads` seguía montado): `GET /api/files/signed?p=<ruta relativa a UPLOAD_DIR>&e=<epoch>&s=<HMAC-SHA256>` (`server/app/api/routers/files.py`, `server/app/services/file_signing_service.py`). Firma inválida, vencida o ruta insegura → 403 con cuerpo idéntico; archivo inexistente → 404. Se firma `ruta
+exp` y se compara con `hmac.compare_digest`; la ruta se resuelve con `Path.resolve()` y debe quedar dentro de `UPLOAD_DIR` (rechaza `..`, absolutas, backslash, NUL y symlinks que salgan). Vigencia `FILE_URL_TTL_SECONDS` (3600 s). `FILE_SIGNING_SECRET` es obligatorio con `APP_ENV=production` (≥ 32 caracteres, distinto del ejemplo) o la API no arranca.
+  - Emisores que ahora devuelven URLs firmadas (formato relativo `/api/files/signed?...`, así `API_BASE + path` sigue valiendo): `admin.py` (`get_report_files`, firma de técnico, logo del cliente, entregas), `portal.py` (`get_report_files` con validación de alcance por cliente/planta, entregas) y `reports.py` (`_build_report_response`). Las entregas agregan `pdf_url` firmado y conservan `pdf_path`.
+  - Normalización de rutas guardadas en BD (formatos reales de producción): `uploads/report/...` (`files.storage_path` es **relativa con prefijo `uploads/`**, no absoluta), `uploads/signature/...`, `uploads/delivery_pdf/...`, `uploads/deliveries/...`, `logos/...`; las rutas locales del teléfono (`/data/user/0/...`, 55 reportes en `reports.signature_image_path`) no existen en el servidor y se omiten.
+  - `sync.py` (`POST /api/files`): `filename` reducido a basename seguro (≤ 120 caracteres), `entity_type`/`entity_id`/`file_category` validados (`^[A-Za-z0-9_.-]{1,128}$`) y verificación de que el destino resuelto esté dentro de `UPLOAD_DIR`.
+  - **Etapa 2b** (commit aparte): se quita `app.mount("/uploads")` de `main.py` (`/static` intacto) y `GET /api/portal/client-logo` sirve el logo directo con `FileResponse` (solo bajo `logos/`) en vez de redirigir a `/uploads`.
+  - Frontends: `PolicyDetailPage.tsx` y `PolizaDetalle.jsx` descargan el PDF de entrega con `pdf_url`; `TechnicianProfilePage.tsx` usa `VITE_API_URL` (antes `hostname:8000`, ver H-16). El resto ya usaba `API_BASE + url`.
+  - Límite conocido: las URLs son compartibles mientras no venzan (1 h) y una página admin/portal abierta más de 1 h sin recargar muestra 403 al abrir un PDF; se resuelve recargando. Los correos siguen usando `/api/public/files/{token}` (sin cambios).
+  - Pendiente (hallazgo aparte): `GET/PATCH /api/reports/{id}` y `POST /api/reports/{id}/send-email` aceptan a cualquier usuario interno activo sin comprobar autoría; coincide con que `/api/sync/download` entrega a todo técnico los reportes de los últimos 90 días.
 
 ## H-20 — Documentación del proyecto desactualizada
 
