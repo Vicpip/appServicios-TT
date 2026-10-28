@@ -131,15 +131,24 @@ def _portal_token(portal_user: PortalUser, db: Session) -> str:
     )
 
 
-def _get_printer_ids_in_scope(portal_user: PortalUser, db: Session) -> list[str]:
-    """Return the list of printer IDs visible to this portal user."""
-    q = db.query(Printer.id).filter(
+def _scoped_printers_query(portal_user: PortalUser, db: Session, *entities):
+    """Query over the printers visible to this portal user (single source of scope).
+
+    ``entities`` defaults to the Printer model; pass columns (e.g. Printer.id) to
+    select only those.
+    """
+    q = db.query(*(entities or (Printer,))).filter(
         Printer.client_id == portal_user.client_id,
         Printer.is_active.is_(True),
     )
     if portal_user.plant_id is not None:
         q = q.filter(Printer.plant_id == portal_user.plant_id)
-    return [row[0] for row in q.all()]
+    return q
+
+
+def _get_printer_ids_in_scope(portal_user: PortalUser, db: Session) -> list[str]:
+    """Return the list of printer IDs visible to this portal user."""
+    return [row[0] for row in _scoped_printers_query(portal_user, db, Printer.id).all()]
 
 
 def _resolve_portal_user(payload: dict, db: Session) -> PortalUser:
@@ -530,17 +539,7 @@ def list_printers(
     """Return printers in scope filtered by the portal user's plant access."""
     portal_user = _resolve_portal_user(payload, db)
 
-    q = (
-        db.query(Printer)
-        .filter(
-            Printer.client_id == portal_user.client_id,
-            Printer.is_active.is_(True),
-        )
-    )
-    if portal_user.plant_id is not None:
-        q = q.filter(Printer.plant_id == portal_user.plant_id)
-
-    printers = q.all()
+    printers = _scoped_printers_query(portal_user, db).all()
 
     items: list[PortalPrinterListItem] = []
     for p in printers:
