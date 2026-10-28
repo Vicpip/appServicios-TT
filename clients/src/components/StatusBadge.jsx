@@ -13,6 +13,9 @@ const STATUS_MAP = {
   synced:     { label: 'Correcto',   classes: 'bg-green-50 text-green-700 border-green-200' },
   draft:      { label: 'En proceso', classes: 'bg-gray-100 text-gray-500 border-gray-200' },
   pending:    { label: 'En proceso', classes: 'bg-gray-100 text-gray-500 border-gray-200' },
+  pending_delivery:    { label: 'Pendiente de entrega', classes: 'bg-amber-50 text-amber-700 border-amber-200' },
+  'reviewed-approved': { label: 'Aprobado',  classes: 'bg-green-50 text-green-700 border-green-200' },
+  'reviewed-rejected': { label: 'Rechazado', classes: 'bg-red-50 text-red-600 border-red-200' },
 }
 
 export default function StatusBadge({ status }) {
