@@ -576,9 +576,13 @@ def delete_client_logo(
 def list_technicians(
     offset: int = Query(0, ge=0),
     limit: int = Query(20, ge=1, le=200),
+    role: str = Query("technician", pattern="^(technician|admin|all)$"),
     db: Session = Depends(get_db),
 ) -> dict:
-    """List technicians with their report count and last sync."""
+    """List users with their report count and last sync.
+
+    ``role``: technician (default), admin or all.
+    """
     report_count_sq = (
         db.query(Report.tech_id, func.count(Report.id).label("cnt"))
         .group_by(Report.tech_id)
@@ -591,8 +595,9 @@ def list_technicians(
             func.coalesce(report_count_sq.c.cnt, 0).label("reports_count"),
         )
         .outerjoin(report_count_sq, User.id == report_count_sq.c.tech_id)
-        .filter(User.role == "technician")
     )
+    if role != "all":
+        q = q.filter(User.role == role)
 
     total = q.count()
     rows = q.order_by(User.name).offset(offset).limit(limit).all()
@@ -604,6 +609,7 @@ def list_technicians(
             name=user.name,
             email=user.email,
             role=user.role,
+            is_active=bool(user.is_active),
             reports_count=reports_count,
             last_sync_at=user.last_sync_at,
         )
@@ -619,7 +625,7 @@ def list_technicians(
 
 @router.get("/technicians/{tech_id}", response_model=dict, dependencies=[Depends(require_admin)])
 def get_technician_detail(tech_id: str, db: Session = Depends(get_db)) -> dict:
-    tech = db.query(User).filter(User.id == tech_id, User.role == "technician").first()
+    tech = db.query(User).filter(User.id == tech_id, User.role.in_(("technician", "admin"))).first()
     if not tech:
         raise HTTPException(status_code=404, detail="Technician not found")
     report_count = db.query(Report).filter(Report.tech_id == tech_id).count()
@@ -1613,8 +1619,13 @@ def assign_technician(
     if not pp:
         raise HTTPException(status_code=422, detail="Printer not assigned to this policy")
 
-    if not db.get(User, body.technician_id):
+    assignee = db.get(User, body.technician_id)
+    if not assignee:
         raise HTTPException(status_code=404, detail="Technician not found")
+    if assignee.role != "technician":
+        raise HTTPException(status_code=409, detail="Solo se puede asignar a usuarios con rol técnico.")
+    if not assignee.is_active:
+        raise HTTPException(status_code=409, detail=f"El técnico {assignee.name} está inactivo y no se le pueden asignar equipos.")
 
     existing = (
         db.query(PolicyPrinterAssignment)
@@ -1936,19 +1947,37 @@ def create_technician(body: TechnicianCreate, db: Session = Depends(get_db)) -> 
         name=tech.name,
         email=tech.email,
         role=tech.role,
+        is_active=bool(tech.is_active),
         reports_count=0,
         last_sync_at=None,
     ).model_dump()
+
+
+def _is_last_active_admin(db: Session, user: User) -> bool:
+    """True si ``user`` es administrador activo y no hay otro administrador activo."""
+    if user.role != "admin" or not user.is_active:
+        return False
+    others = (
+        db.query(User.id)
+        .filter(User.role == "admin", User.is_active.is_(True), User.id != user.id)
+        .first()
+    )
+    return others is None
 
 
 @router.put("/technicians/{tech_id}", response_model=dict, dependencies=[Depends(require_admin)])
 def update_technician(
     tech_id: str, body: TechnicianUpdate, db: Session = Depends(get_db)
 ) -> dict:
-    """Update a technician's mutable fields."""
+    """Update a technician's (or admin's) mutable fields."""
     tech = db.get(User, tech_id)
     if not tech:
         raise HTTPException(status_code=404, detail="Technician not found")
+    if body.role is not None and body.role != tech.role and _is_last_active_admin(db, tech):
+        raise HTTPException(
+            status_code=409,
+            detail="No puedes cambiar el rol del último administrador activo.",
+        )
 
     if body.email is not None:
         conflict = db.query(User).filter(User.email == body.email, User.id != tech_id).first()
@@ -1976,19 +2005,31 @@ def update_technician(
         name=tech.name,
         email=tech.email,
         role=tech.role,
+        is_active=bool(tech.is_active),
         reports_count=reports_count,
         last_sync_at=tech.last_sync_at,
     ).model_dump()
 
 
 @router.delete("/technicians/{tech_id}", status_code=200, dependencies=[Depends(require_admin)])
-def delete_technician(tech_id: str, db: Session = Depends(get_db)) -> dict:
-    """Soft-delete a technician (set is_active=False)."""
+def delete_technician(
+    tech_id: str,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(require_admin),
+) -> dict:
+    """Soft-delete a technician or admin (set is_active=False)."""
     tech = db.get(User, tech_id)
     if not tech:
         raise HTTPException(status_code=404, detail="Technician not found")
     if not tech.is_active:
         raise HTTPException(status_code=409, detail="Technician is already inactive")
+    if tech.id == current_user.get("sub"):
+        raise HTTPException(status_code=409, detail="No puedes desactivar tu propia cuenta.")
+    if _is_last_active_admin(db, tech):
+        raise HTTPException(
+            status_code=409,
+            detail="No puedes desactivar al último administrador activo.",
+        )
 
     tech.is_active = False
     tech.token_version = (tech.token_version or 0) + 1

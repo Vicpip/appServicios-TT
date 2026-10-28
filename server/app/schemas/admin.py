@@ -67,6 +67,7 @@ class TechnicianListItem(BaseModel):
     name: str
     email: str
     role: str
+    is_active: bool = True
     reports_count: int
     last_sync_at: datetime | None
 

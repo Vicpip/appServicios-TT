@@ -280,7 +280,7 @@ Convenciones:
 - **Arreglo propuesto:** `list_technicians`: aceptar `role` (`technician|admin|all`) y devolver `is_active`; el front muestra badge "Inactivo" y un filtro de rol; el selector de asignación solo lista `is_active`. Añadir `is_active` a `TechnicianListItem` (`server/app/schemas/admin.py`). No cambiar el nombre de la ruta `/technicians` (la usa el front y quizá el sync).
 - **Cómo verificar:** crear un admin desde el modal → aparece con filtro "Administradores". Desactivar un técnico → tarjeta con "Inactivo" y ya no está en el selector de asignación de pólizas.
 - **Afecta al manual:** Sí. Técnicos: roles visibles, estado en tarjeta.
-- **Estado:** Pendiente
+- **Estado:** Corregido en rama `fix/operacion-admin` (sin desplegar). `GET /technicians?role=technician|admin|all` (por defecto `technician`) y `is_active` en `TechnicianListItem`; detalle y edición funcionan para admins. Guardas 409: un admin no puede desactivarse a sí mismo ni desactivar/degradar al último admin activo. Asignar un usuario inactivo o que no sea técnico → 409. `TechniciansPage.tsx`: filtro Técnicos/Administradores/Todos, badge "Inactivo" y error del servidor al desactivar; el selector de `PolicyDetailPage.tsx` solo lista activos. Pruebas en `test_admin_users.py`.
 
 ## H-18 — Funciones solo por API (sin UI): decisión de alcance
 

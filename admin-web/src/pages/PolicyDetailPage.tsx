@@ -106,6 +106,7 @@ interface TechnicianOption {
   name: string
   email: string
   role: string
+  is_active: boolean
   reports_count: number
   last_sync_at: string | null
 }
@@ -917,7 +918,7 @@ export default function PolicyDetailPage() {
                             disabled={assignMutation.isPending || removeMutation.isPending}
                           >
                             <option value="">Sin asignar</option>
-                            {techniciansData?.map((t) => (
+                            {techniciansData?.filter((t) => t.is_active).map((t) => (
                               <option key={t.id} value={t.id}>
                                 {t.code ? `[${t.code}] ` : ''}{t.name}
                               </option>

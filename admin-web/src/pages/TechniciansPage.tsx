@@ -15,6 +15,7 @@ interface TechnicianListItem {
   name: string
   email: string
   role: string
+  is_active: boolean
   reports_count: number
   last_sync_at: string | null
 }
@@ -314,9 +315,14 @@ function TechModal({ tech, onClose }: TechModalProps) {
 
 function DeleteTechModal({ tech, onClose }: { tech: TechnicianListItem; onClose: () => void }) {
   const qc = useQueryClient()
+  const [error, setError] = useState<string | null>(null)
   const deleteMutation = useMutation({
     mutationFn: async () => apiClient.delete(API.technicians.detail(tech.id)),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['technicians'] }); onClose() },
+    onError: (err: unknown) => {
+      const msg = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail
+      setError(msg ?? 'No se pudo desactivar.')
+    },
   })
 
   return (
@@ -336,9 +342,10 @@ function DeleteTechModal({ tech, onClose }: { tech: TechnicianListItem; onClose:
           <p className="text-sm text-gray-600 font-sans mb-5">
             ¿Desactivar a <span className="font-semibold">{tech.name}</span>?
           </p>
+          {error && <p className="text-sm text-red-600 font-sans mb-4">{error}</p>}
           <div className="flex gap-2 justify-end">
             <button onClick={onClose} className="px-4 py-2 text-sm font-semibold text-gray-600 font-sans rounded-lg hover:bg-gray-100 transition-colors">Cancelar</button>
-            <button onClick={() => deleteMutation.mutate()} disabled={deleteMutation.isPending} className="px-4 py-2 text-sm font-semibold text-white bg-red-500 hover:bg-red-600 disabled:opacity-50 rounded-lg transition-colors font-sans">
+            <button onClick={() => { setError(null); deleteMutation.mutate() }} disabled={deleteMutation.isPending} className="px-4 py-2 text-sm font-semibold text-white bg-red-500 hover:bg-red-600 disabled:opacity-50 rounded-lg transition-colors font-sans">
               {deleteMutation.isPending ? 'Desactivando…' : 'Desactivar'}
             </button>
           </div>
@@ -357,12 +364,13 @@ export default function TechniciansPage() {
   const [showCreate, setShowCreate] = useState(false)
   const [editTech, setEditTech] = useState<TechnicianListItem | null>(null)
   const [deleteTech, setDeleteTech] = useState<TechnicianListItem | null>(null)
+  const [roleFilter, setRoleFilter] = useState<'technician' | 'admin' | 'all'>('technician')
 
   const { data, isLoading, isFetching } = useQuery({
-    queryKey: ['technicians'],
+    queryKey: ['technicians', roleFilter],
     queryFn: async () => {
       const res = await apiClient.get<PagedResponse<TechnicianListItem>>(API.technicians.list, {
-        params: { limit: 200 },
+        params: { limit: 200, role: roleFilter },
       })
       return res.data
     },
@@ -380,8 +388,31 @@ export default function TechniciansPage() {
         <div>
           <h2 className="text-xl font-bold text-[#1A1A2E] font-heading">Técnicos</h2>
           <p className="text-sm text-gray-400 font-sans mt-0.5">
-            {isFetching ? 'Actualizando…' : `${total} técnico${total !== 1 ? 's' : ''} registrado${total !== 1 ? 's' : ''}`}
+            {isFetching
+              ? 'Actualizando…'
+              : roleFilter === 'admin'
+                ? `${total} administrador${total !== 1 ? 'es' : ''} registrado${total !== 1 ? 's' : ''}`
+                : roleFilter === 'all'
+                  ? `${total} usuario${total !== 1 ? 's' : ''} registrado${total !== 1 ? 's' : ''}`
+                  : `${total} técnico${total !== 1 ? 's' : ''} registrado${total !== 1 ? 's' : ''}`}
           </p>
+        </div>
+        <div className="flex items-center gap-1 bg-gray-100 rounded-lg p-1">
+          {([
+            ['technician', 'Técnicos'],
+            ['admin', 'Administradores'],
+            ['all', 'Todos'],
+          ] as const).map(([value, label]) => (
+            <button
+              key={value}
+              onClick={() => setRoleFilter(value)}
+              className={`px-3 py-1.5 text-xs font-semibold font-sans rounded-md transition-colors ${
+                roleFilter === value ? 'bg-white text-primary shadow-sm' : 'text-gray-500 hover:text-gray-700'
+              }`}
+            >
+              {label}
+            </button>
+          ))}
         </div>
         <button
           onClick={() => setShowCreate(true)}
@@ -410,7 +441,7 @@ export default function TechniciansPage() {
       ) : items.length === 0 ? (
         <div className="bg-white rounded-xl border border-border p-12 text-center shadow-sm">
           <Users size={32} className="mx-auto text-gray-200 mb-3" />
-          <p className="text-sm text-gray-400 font-sans">No hay técnicos registrados.</p>
+          <p className="text-sm text-gray-400 font-sans">No hay usuarios en esta vista.</p>
           <button onClick={() => setShowCreate(true)} className="mt-3 text-sm text-primary font-semibold font-sans hover:underline">
             Crear el primero
           </button>
@@ -418,7 +449,7 @@ export default function TechniciansPage() {
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
           {items.map((tech) => (
-            <div key={tech.id} className="bg-white rounded-xl border border-border p-5 shadow-sm hover:shadow-md transition-shadow group cursor-pointer" onClick={() => navigate(`/technicians/${tech.id}`)}>
+            <div key={tech.id} className={`bg-white rounded-xl border border-border p-5 shadow-sm hover:shadow-md transition-shadow group cursor-pointer ${tech.is_active ? '' : 'opacity-70'}`} onClick={() => navigate(`/technicians/${tech.id}`)}>
               {/* Identity row */}
               <div className="flex items-center gap-3 mb-4">
                 <InitialAvatar name={tech.name} />
@@ -451,9 +482,16 @@ export default function TechniciansPage() {
               </div>
 
               <div className="mt-3 flex items-center justify-between">
-                <span className="inline-flex items-center px-2 py-0.5 rounded-full border text-xs font-medium font-sans bg-slate-50 text-slate-600 border-slate-200 capitalize">
-                  {tech.role}
-                </span>
+                <div className="flex items-center gap-1.5">
+                  <span className="inline-flex items-center px-2 py-0.5 rounded-full border text-xs font-medium font-sans bg-slate-50 text-slate-600 border-slate-200">
+                    {tech.role === 'admin' ? 'Administrador' : 'Técnico'}
+                  </span>
+                  {!tech.is_active && (
+                    <span className="inline-flex items-center px-2 py-0.5 rounded-full border text-xs font-medium font-sans bg-gray-100 text-gray-500 border-gray-300">
+                      Inactivo
+                    </span>
+                  )}
+                </div>
                 {/* Action buttons */}
                 <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                   <button
@@ -463,13 +501,13 @@ export default function TechniciansPage() {
                   >
                     <Pencil size={14} />
                   </button>
-                  <button
+                  {tech.is_active && <button
                     onClick={(e) => { e.stopPropagation(); setDeleteTech(tech) }}
                     className="p-1.5 rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-50 transition-colors"
                     title="Desactivar"
                   >
                     <Trash2 size={14} />
-                  </button>
+                  </button>}
                 </div>
               </div>
             </div>
