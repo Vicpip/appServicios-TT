@@ -77,6 +77,7 @@ class PrinterListItem(BaseModel):
     code: str | None
     serial_number: str
     qr_uuid: str | None
+    is_active: bool = True
     model_id: str | None
     client_id: str | None
     plant_id: str | None

@@ -99,20 +99,10 @@ export default function PrinterDetailPage() {
     },
     onError: (err: unknown) => {
       const msg = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail
-      setDeleteError(msg ?? 'Error al eliminar')
+      setDeleteError(msg ?? 'No se pudo desactivar la impresora')
+      setShowDeleteConfirm(false)
     },
   })
-
-  async function handleDelete() {
-    setDeleteError(null)
-    // Check if printer has reports — block deletion if yes
-    if (reportsData && reportsData.total > 0) {
-      setDeleteError('No se puede eliminar una impresora con reportes existentes')
-      setShowDeleteConfirm(false)
-      return
-    }
-    deleteMutation.mutate()
-  }
 
   async function handleDownloadPdf(reportId: string) {
     const res = await apiClient.get(API.reports.files(reportId))
@@ -150,13 +140,15 @@ export default function PrinterDetailPage() {
           <ArrowLeft size={16} />
           Volver a Impresoras
         </button>
-        <button
-          onClick={() => { setShowDeleteConfirm(true); setDeleteError(null) }}
-          className="flex items-center gap-2 px-3 py-2 text-sm font-semibold text-red-600 border border-red-200 rounded-lg hover:bg-red-50 transition-colors font-sans"
-        >
-          <Trash2 size={14} />
-          Eliminar
-        </button>
+        {printer.is_active && (
+          <button
+            onClick={() => { setShowDeleteConfirm(true); setDeleteError(null) }}
+            className="flex items-center gap-2 px-3 py-2 text-sm font-semibold text-red-600 border border-red-200 rounded-lg hover:bg-red-50 transition-colors font-sans"
+          >
+            <Trash2 size={14} />
+            Desactivar
+          </button>
+        )}
       </div>
 
       {deleteError && (
@@ -364,20 +356,20 @@ export default function PrinterDetailPage() {
           <div className="fixed inset-0 bg-black/40 z-40" onClick={() => setShowDeleteConfirm(false)} />
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
             <div className="bg-white rounded-xl shadow-2xl w-full max-w-sm p-6 space-y-4">
-              <h3 className="font-bold text-[#1A1A2E] font-heading">¿Eliminar impresora?</h3>
+              <h3 className="font-bold text-[#1A1A2E] font-heading">¿Desactivar impresora?</h3>
               <p className="text-sm text-gray-600 font-sans">
-                Esta acción desactivará la impresora <strong>{printer.serial_number}</strong>. Solo es posible si no tiene reportes asociados.
+                La impresora <strong>{printer.serial_number}</strong> quedará inactiva. No es posible si pertenece a una póliza vigente.
               </p>
               <div className="flex gap-3 justify-end">
                 <button onClick={() => setShowDeleteConfirm(false)} className="px-4 py-2 text-sm font-semibold text-gray-600 border border-border rounded-lg hover:bg-gray-50 transition-colors font-sans">
                   Cancelar
                 </button>
                 <button
-                  onClick={handleDelete}
+                  onClick={() => { setDeleteError(null); deleteMutation.mutate() }}
                   disabled={deleteMutation.isPending}
                   className="px-4 py-2 text-sm font-semibold text-white bg-red-600 hover:bg-red-700 disabled:opacity-50 rounded-lg transition-colors font-sans"
                 >
-                  {deleteMutation.isPending ? 'Eliminando…' : 'Eliminar'}
+                  {deleteMutation.isPending ? 'Desactivando…' : 'Desactivar'}
                 </button>
               </div>
             </div>

@@ -256,7 +256,7 @@ Convenciones:
 - **Arreglo propuesto:** decidir una regla única (recomendado: desactivar siempre permitido si no está en una póliza vigente; "eliminar" no existe). Backend: validar en `delete_printer` (409 si pertenece a una póliza no vencida) y no mentir en el texto. `list_printers`: añadir `is_active` a `PrinterListItem` y `include_inactive` (por defecto ocultar inactivas); `PrintersPage.tsx`: badge "Inactiva" y chip para verlas. Unificar el texto de ambos diálogos ("Desactivar"). No tocar `bulk-upload`.
 - **Cómo verificar:** `curl -X DELETE …/api/admin/printers/<id>` de una impresora en póliza vigente → 409. La lista no muestra inactivas por defecto; con el filtro, las muestra con badge.
 - **Afecta al manual:** Sí. Impresoras: terminología (Desactivar), listado de inactivas y restricciones.
-- **Estado:** Pendiente
+- **Estado:** Corregido en rama `fix/operacion-admin` (sin desplegar). Regla única: desactivar siempre se permite salvo que la impresora esté en una póliza vigente (no Deleted, no vencida) → 409 con el folio. `GET /printers` oculta inactivas por defecto (`include_inactive=true` las muestra) y devuelve `is_active`; el conteo de impresoras por cliente también excluye inactivas, y el filtro "En Atención" del dashboard hereda el ocultamiento. Front: se quitó la validación/texto "sin reportes", ambos diálogos dicen "Desactivar" y muestran el error del servidor; `PrintersPage.tsx` tiene chip "Ver inactivas" y badge "Inactiva". `bulk-upload` sin cambios. Pruebas en `test_admin_printers.py`.
 
 ## H-16 — Perfil de técnico: URL de firma con `hostname:8000` fijo y estados sin traducir
 

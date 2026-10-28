@@ -319,6 +319,7 @@ def list_clients(
     )
     printer_count_sq = (
         db.query(Printer.client_id, func.count(Printer.id).label("cnt"))
+        .filter(Printer.is_active.is_(True))
         .group_by(Printer.client_id)
         .subquery()
     )
@@ -686,11 +687,15 @@ def list_printers(
     client_id: str | None = Query(None),
     printer_status: str | None = Query(None),
     search: str | None = Query(None),
+    include_inactive: bool = Query(False),
     offset: int = Query(0, ge=0),
     limit: int = Query(20, ge=1, le=200),
     db: Session = Depends(get_db),
 ) -> dict:
-    """List printers with their last service status, model info, and optional search."""
+    """List printers with their last service status, model info, and optional search.
+
+    Las impresoras inactivas se ocultan salvo ``include_inactive=true``.
+    """
     # Subquery: latest report per printer
     latest_report_sq = (
         db.query(
@@ -729,6 +734,8 @@ def list_printers(
         .outerjoin(latest_full_sq, Printer.id == latest_full_sq.c.printer_id)
     )
 
+    if not include_inactive:
+        q = q.filter(Printer.is_active.is_(True))
     if client_id:
         q = q.filter(Printer.client_id == client_id)
     if search:
@@ -760,6 +767,7 @@ def list_printers(
                 code=printer.code,
                 serial_number=printer.serial_number,
                 qr_uuid=printer.qr_uuid,
+                is_active=bool(printer.is_active),
                 model_id=printer.model_id,
                 client_id=printer.client_id,
                 plant_id=printer.plant_id,
@@ -2101,7 +2109,7 @@ def update_client(
     db.refresh(client)
 
     plant_count = db.query(func.count(Plant.id)).filter(Plant.client_id == client_id).scalar() or 0
-    printer_count = db.query(func.count(Printer.id)).filter(Printer.client_id == client_id).scalar() or 0
+    printer_count = db.query(func.count(Printer.id)).filter(Printer.client_id == client_id, Printer.is_active.is_(True)).scalar() or 0
     active_policy_count = (
         db.query(func.count(Policy.id))
         .filter(Policy.client_id == client_id, _policy_vigente())
@@ -2426,6 +2434,7 @@ def update_printer(
         code=printer.code,
         serial_number=printer.serial_number,
         qr_uuid=printer.qr_uuid,
+        is_active=bool(printer.is_active),
         model_id=printer.model_id,
         client_id=printer.client_id,
         plant_id=printer.plant_id,
@@ -2443,12 +2452,30 @@ def update_printer(
 
 @router.delete("/printers/{printer_id}", status_code=200, dependencies=[Depends(require_admin)])
 def delete_printer(printer_id: str, db: Session = Depends(get_db)) -> dict:
-    """Soft-delete a printer (set is_active=False)."""
+    """Desactiva una impresora (baja lógica). 409 si está en una póliza vigente."""
     printer = db.get(Printer, printer_id)
     if not printer:
         raise HTTPException(status_code=404, detail="Printer not found")
     if not printer.is_active:
         raise HTTPException(status_code=409, detail="Printer is already inactive")
+
+    folios = [
+        f for (f,) in (
+            db.query(Policy.folio)
+            .join(PolicyPrinter, PolicyPrinter.policy_id == Policy.id)
+            .filter(PolicyPrinter.printer_id == printer_id, _policy_vigente())
+            .order_by(Policy.folio)
+            .all()
+        )
+    ]
+    if folios:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "No se puede desactivar: la impresora pertenece a una póliza vigente "
+                f"({', '.join(folios)}). Quítala de la póliza primero."
+            ),
+        )
 
     printer.is_active = False
     db.commit()

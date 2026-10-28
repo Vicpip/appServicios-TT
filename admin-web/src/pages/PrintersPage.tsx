@@ -18,6 +18,7 @@ interface PrinterListItem {
   code: string | null
   serial_number: string
   qr_uuid: string | null
+  is_active: boolean
   model_id: string | null
   client_id: string | null
   plant_id: string | null
@@ -676,9 +677,14 @@ function PrinterModal({ printer, onClose }: PrinterModalProps) {
 
 function DeletePrinterModal({ printer, onClose }: { printer: PrinterListItem; onClose: () => void }) {
   const qc = useQueryClient()
+  const [error, setError] = useState<string | null>(null)
   const deleteMutation = useMutation({
     mutationFn: async () => apiClient.delete(API.printers.detail(printer.id)),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['printers'] }); onClose() },
+    onError: (err: unknown) => {
+      const msg = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail
+      setError(msg ?? 'No se pudo desactivar la impresora.')
+    },
   })
 
   return (
@@ -698,9 +704,10 @@ function DeletePrinterModal({ printer, onClose }: { printer: PrinterListItem; on
           <p className="text-sm text-gray-600 font-sans mb-5">
             ¿Desactivar la impresora <span className="font-mono font-semibold">{printer.serial_number}</span>?
           </p>
+          {error && <p className="text-sm text-red-600 font-sans mb-4">{error}</p>}
           <div className="flex gap-2 justify-end">
             <button onClick={onClose} className="px-4 py-2 text-sm font-semibold text-gray-600 font-sans rounded-lg hover:bg-gray-100 transition-colors">Cancelar</button>
-            <button onClick={() => deleteMutation.mutate()} disabled={deleteMutation.isPending} className="px-4 py-2 text-sm font-semibold text-white bg-red-500 hover:bg-red-600 disabled:opacity-50 rounded-lg transition-colors font-sans">
+            <button onClick={() => { setError(null); deleteMutation.mutate() }} disabled={deleteMutation.isPending} className="px-4 py-2 text-sm font-semibold text-white bg-red-500 hover:bg-red-600 disabled:opacity-50 rounded-lg transition-colors font-sans">
               {deleteMutation.isPending ? 'Desactivando…' : 'Desactivar'}
             </button>
           </div>
@@ -721,6 +728,7 @@ export default function PrintersPage() {
   const [debouncedSearch, setDebouncedSearch] = useState('')
   const [clientFilter, setClientFilter] = useState('')
   const [statusFilter, setStatusFilter] = useState('')
+  const [showInactive, setShowInactive] = useState(false)
   const [page, setPage] = useState(0)
   const [showCreate, setShowCreate] = useState(false)
   const [editPrinter, setEditPrinter] = useState<PrinterListItem | null>(null)
@@ -749,6 +757,7 @@ export default function PrintersPage() {
     offset: page * PAGE_SIZE,
     ...(clientFilter && { client_id: clientFilter }),
     ...(statusFilter && { printer_status: statusFilter }),
+    ...(showInactive && { include_inactive: true }),
     ...(debouncedSearch && { search: debouncedSearch }),
   }
 
@@ -765,13 +774,14 @@ export default function PrintersPage() {
   const total = data?.total ?? 0
   const items = data?.items ?? []
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE))
-  const hasFilters = clientFilter || statusFilter || debouncedSearch
+  const hasFilters = clientFilter || statusFilter || debouncedSearch || showInactive
 
   function resetFilters() {
     setSearch('')
     setDebouncedSearch('')
     setClientFilter('')
     setStatusFilter('')
+    setShowInactive(false)
     setPage(0)
   }
 
@@ -824,6 +834,16 @@ export default function PrintersPage() {
             <StatusChip status={s} />
           </button>
         ))}
+        <button
+          onClick={() => { setShowInactive(!showInactive); setPage(0) }}
+          className={`px-2.5 py-0.5 rounded-full border text-xs font-medium font-sans transition-all ${
+            showInactive
+              ? 'bg-gray-700 text-white border-gray-700 ring-2 ring-primary/40 ring-offset-1'
+              : 'bg-gray-100 text-gray-500 border-gray-200 opacity-70 hover:opacity-100'
+          }`}
+        >
+          Ver inactivas
+        </button>
         {hasFilters && (
           <button onClick={resetFilters} className="text-xs text-gray-400 hover:text-primary font-sans ml-1 transition-colors">
             Limpiar todo
@@ -903,6 +923,11 @@ export default function PrintersPage() {
                         <div>
                           {row.code && <p className="font-mono text-xs text-primary font-semibold">{row.code}</p>}
                           <p className="font-mono text-xs text-gray-500">{row.serial_number}</p>
+                          {!row.is_active && (
+                            <span className="inline-flex items-center px-1.5 py-0.5 mt-0.5 rounded-full border text-[10px] font-medium font-sans bg-gray-100 text-gray-500 border-gray-300">
+                              Inactiva
+                            </span>
+                          )}
                         </div>
                       </div>
                     </td>
@@ -924,9 +949,11 @@ export default function PrintersPage() {
                         <button onClick={(e) => { e.stopPropagation(); setEditPrinter(row) }} className="p-1.5 rounded-lg text-gray-400 hover:text-primary hover:bg-primary/10 transition-colors" title="Editar">
                           <Pencil size={14} />
                         </button>
-                        <button onClick={(e) => { e.stopPropagation(); setDeletePrinter(row) }} className="p-1.5 rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-50 transition-colors" title="Desactivar">
-                          <Trash2 size={14} />
-                        </button>
+                        {row.is_active && (
+                          <button onClick={(e) => { e.stopPropagation(); setDeletePrinter(row) }} className="p-1.5 rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-50 transition-colors" title="Desactivar">
+                            <Trash2 size={14} />
+                          </button>
+                        )}
                       </div>
                     </td>
                   </tr>
