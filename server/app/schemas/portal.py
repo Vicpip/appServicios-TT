@@ -206,6 +206,25 @@ class PortalReportListResponse(BaseModel):
     items: list[PortalReportListItem]
 
 
+class PortalDashboardMonth(BaseModel):
+    year: int
+    month: int  # 1-12
+    total: int
+
+
+class PortalDashboardType(BaseModel):
+    service_type: str
+    total: int
+
+
+class PortalDashboard(BaseModel):
+    reports_year: int
+    reports_by_month: list[PortalDashboardMonth]  # 12 months, oldest first
+    reports_by_type: list[PortalDashboardType]
+    printers_count: int
+    active_policies: int
+
+
 # ---------------------------------------------------------------------------
 # Portal data — policies
 # ---------------------------------------------------------------------------

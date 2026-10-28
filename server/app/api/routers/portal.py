@@ -26,7 +26,7 @@ from pathlib import Path
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import FileResponse
 from passlib.context import CryptContext
-from sqlalchemy import func
+from sqlalchemy import extract, func
 from sqlalchemy.orm import Session
 
 
@@ -38,7 +38,11 @@ from app.models.client import Client
 from app.models.client_contact_email import ClientContactEmail
 from app.models.file import EntityFile, File
 from app.models.plant import Plant
-from app.services.policy_status import not_deleted as _policy_not_deleted, policy_status as _policy_status
+from app.services.policy_status import (
+    not_deleted as _policy_not_deleted,
+    policy_status as _policy_status,
+    vigente as _policy_vigente,
+)
 from app.models.policy import Policy, PolicyDelivery, PolicyDeliveryReport, PolicyPrinter
 from app.models.portal import PortalInvitation, PortalPasswordReset, PortalUser
 from app.models.printer import Printer
@@ -58,6 +62,9 @@ from app.schemas.portal import (
     InviteInfoResponse,
     InviteRequest,
     InviteResponse,
+    PortalDashboard,
+    PortalDashboardMonth,
+    PortalDashboardType,
     PortalDeliveryReportItem,
     PortalLoginRequest,
     PortalLoginResponse,
@@ -523,6 +530,87 @@ def get_me(
         plant_name=plant.name if plant else None,
         is_active=portal_user.is_active,
         last_login_at=portal_user.last_login_at,
+    )
+
+
+# ---------------------------------------------------------------------------
+# GET /api/portal/dashboard
+# ---------------------------------------------------------------------------
+
+
+@router.get("/dashboard", response_model=PortalDashboard)
+def get_dashboard(
+    db: Session = Depends(get_db),
+    payload: dict = Depends(get_current_portal_user),
+) -> PortalDashboard:
+    """Dashboard figures aggregated in SQL over every report in scope (no 100-row cap)."""
+    portal_user = _resolve_portal_user(payload, db)
+    now = _now_utc()
+
+    printer_ids = _get_printer_ids_in_scope(portal_user, db)
+
+    # 12-month window: first day of the month 11 months back .. now
+    months: list[tuple[int, int]] = []
+    y, m = now.year, now.month
+    for _ in range(12):
+        months.append((y, m))
+        m -= 1
+        if m == 0:
+            y, m = y - 1, 12
+    months.reverse()
+    window_start = datetime(months[0][0], months[0][1], 1)
+
+    by_month = {k: 0 for k in months}
+    by_type: list[PortalDashboardType] = []
+    reports_year = 0
+
+    if printer_ids:
+        scoped = Report.printer_id.in_(printer_ids)
+
+        reports_year = (
+            db.query(func.count(Report.id))
+            .filter(scoped, Report.service_date >= datetime(now.year, 1, 1))
+            .scalar()
+        ) or 0
+
+        year_col = extract("year", Report.service_date)
+        month_col = extract("month", Report.service_date)
+        for yr, mo, total in (
+            db.query(year_col, month_col, func.count(Report.id))
+            .filter(scoped, Report.service_date >= window_start)
+            .group_by(year_col, month_col)
+            .all()
+        ):
+            key = (int(yr), int(mo))
+            if key in by_month:
+                by_month[key] = total
+
+        by_type = [
+            PortalDashboardType(service_type=st or "Sin tipo", total=total)
+            for st, total in (
+                db.query(Report.service_type, func.count(Report.id))
+                .filter(scoped)
+                .group_by(Report.service_type)
+                .order_by(func.count(Report.id).desc(), Report.service_type)
+                .all()
+            )
+        ]
+
+    # Expired policies do not count as active (end_date < now)
+    active_policies = (
+        db.query(func.count(Policy.id))
+        .filter(Policy.client_id == portal_user.client_id, _policy_vigente(now))
+        .scalar()
+    ) or 0
+
+    return PortalDashboard(
+        reports_year=reports_year,
+        reports_by_month=[
+            PortalDashboardMonth(year=k[0], month=k[1], total=by_month[k]) for k in months
+        ],
+        reports_by_type=by_type,
+        printers_count=len(printer_ids),
+        active_policies=active_policies,
     )
 
 

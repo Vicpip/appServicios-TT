@@ -31,28 +31,12 @@ function fmtDate(iso) {
   return new Date(iso).toLocaleDateString('es-MX', { day: 'numeric', month: 'short', year: 'numeric' })
 }
 
-function buildMonthlyData(reports) {
-  const now = new Date()
-  const months = []
-  for (let i = 11; i >= 0; i--) {
-    const d = new Date(now.getFullYear(), now.getMonth() - i, 1)
-    months.push({ year: d.getFullYear(), month: d.getMonth(), label: MONTH_LABELS[d.getMonth()], total: 0 })
-  }
-  for (const r of reports) {
-    const d = new Date(r.service_date)
-    const m = months.find(x => x.year === d.getFullYear() && x.month === d.getMonth())
-    if (m) m.total++
-  }
-  return months
+function buildMonthlyData(byMonth = []) {
+  return byMonth.map(m => ({ label: MONTH_LABELS[m.month - 1], total: m.total }))
 }
 
-function buildPieData(reports) {
-  const counts = {}
-  for (const r of reports) {
-    const key = r.service_type ?? 'Sin tipo'
-    counts[key] = (counts[key] ?? 0) + 1
-  }
-  return Object.entries(counts).map(([name, value]) => ({ name, value }))
+function buildPieData(byType = []) {
+  return byType.map(t => ({ name: t.service_type, value: t.total }))
 }
 
 function KpiCard({ label, value, icon: Icon, loading, accent, iconColor, borderColor, to }) {
@@ -82,7 +66,7 @@ export default function Dashboard() {
   const { user } = useAuth()
   const [selectedReportId, setSelectedReportId] = useState(null)
 
-  const { data: printers = [], isLoading: loadingPrinters } = useQuery({
+  const { data: printers = [] } = useQuery({
     queryKey: ['portal', 'printers'],
     queryFn: async () => {
       const res = await apiClient.get('/api/portal/printers')
@@ -90,19 +74,11 @@ export default function Dashboard() {
     },
   })
 
-  const { data: policies = [], isLoading: loadingPolicies } = useQuery({
-    queryKey: ['portal', 'policies'],
+  const { data: dashboard, isLoading: loadingDashboard } = useQuery({
+    queryKey: ['portal', 'dashboard'],
     queryFn: async () => {
-      const res = await apiClient.get('/api/portal/policies')
+      const res = await apiClient.get('/api/portal/dashboard')
       return res.data
-    },
-  })
-
-  const { data: allReports = [], isLoading: loadingReports } = useQuery({
-    queryKey: ['portal', 'reports-all'],
-    queryFn: async () => {
-      const res = await apiClient.get('/api/portal/reports', { params: { limit: 100, offset: 0 } })
-      return res.data.items ?? []
     },
   })
 
@@ -121,16 +97,15 @@ export default function Dashboard() {
   const printerAreaMap = Object.fromEntries(printers.map(p => [p.id, p.area_name ?? '']))
 
   const currentYear = new Date().getFullYear()
-  const reportsThisYear = allReports.filter(r => new Date(r.service_date).getFullYear() === currentYear).length
 
-  const monthlyData = buildMonthlyData(allReports)
-  const pieData = buildPieData(allReports)
+  const monthlyData = buildMonthlyData(dashboard?.reports_by_month)
+  const pieData = buildPieData(dashboard?.reports_by_type)
 
   const kpis = [
     {
       label: 'Mis impresoras',
-      value: printers.length,
-      loading: loadingPrinters,
+      value: dashboard?.printers_count,
+      loading: loadingDashboard,
       icon: Printer,
       accent: 'bg-primary/10',
       iconColor: 'text-primary',
@@ -139,8 +114,8 @@ export default function Dashboard() {
     },
     {
       label: 'Pólizas activas',
-      value: policies.filter(p => p.status !== 'Expired').length,
-      loading: loadingPolicies,
+      value: dashboard?.active_policies,
+      loading: loadingDashboard,
       icon: ShieldCheck,
       accent: 'bg-emerald-50',
       iconColor: 'text-emerald-600',
@@ -149,8 +124,8 @@ export default function Dashboard() {
     },
     {
       label: `Reportes ${currentYear}`,
-      value: reportsThisYear,
-      loading: loadingReports,
+      value: dashboard?.reports_year,
+      loading: loadingDashboard,
       icon: FileText,
       accent: 'bg-amber-50',
       iconColor: 'text-amber-500',
@@ -186,7 +161,7 @@ export default function Dashboard() {
           <h3 className="text-sm font-semibold text-[#1A1A2E] font-heading mb-4">
             Reportes por mes — últimos 12 meses
           </h3>
-          {loadingReports ? (
+          {loadingDashboard ? (
             <div className="h-[200px] flex items-center justify-center">
               <div className="h-4 w-40 rounded bg-gray-100 animate-pulse" />
             </div>
@@ -229,7 +204,7 @@ export default function Dashboard() {
           <h3 className="text-sm font-semibold text-[#1A1A2E] font-heading mb-4">
             Por tipo de servicio
           </h3>
-          {loadingReports ? (
+          {loadingDashboard ? (
             <div className="h-[200px] flex items-center justify-center">
               <div className="h-4 w-32 rounded bg-gray-100 animate-pulse" />
             </div>

@@ -124,7 +124,7 @@ Convenciones:
 - **Arreglo propuesto:** nuevo endpoint `GET /api/portal/dashboard` en `portal.py` (con `get_current_portal_user`, mismo alcance que `_get_printer_ids_in_scope`) que devuelva `{reports_year, reports_by_month[12], reports_by_type, printers_count, active_policies}` calculado con `GROUP BY`. `Dashboard.jsx`: usar ese endpoint para tarjetas y gráficas; conservar la query `limit:5` para "Reportes recientes". No subir el `le=100` de `/reports`.
 - **Cómo verificar:** cliente con >100 reportes: la suma de la gráfica de 12 meses coincide con `SELECT count(*) …` por rango. `curl -H "Authorization: Bearer $PORTAL_TOKEN" $API/api/portal/dashboard`.
 - **Afecta al manual:** Sí. Sección Dashboard del portal: quitar cualquier advertencia de "solo los últimos 100" (si se documentó) o no incluirla.
-- **Estado:** Pendiente
+- **Estado:** Corregido en rama `fix/portal-clientes` (sin desplegar). Nuevo `GET /api/portal/dashboard` (GROUP BY por año/mes y tipo sobre todo el alcance; vencidas no cuentan como activas). `Dashboard.jsx` lo usa para tarjetas y gráficas; "Reportes recientes" sigue con `limit:5`; `/reports` conserva `le=100`. "Por tipo de servicio" abarca todos los reportes.
 
 ## H-06 — Portal, Reportes: filtros de texto y fechas solo sobre la página cargada
 
