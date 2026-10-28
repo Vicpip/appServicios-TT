@@ -21,12 +21,12 @@ from __future__ import annotations
 import json
 import secrets
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import FileResponse
 from passlib.context import CryptContext
-from sqlalchemy import extract, func
+from sqlalchemy import extract, func, or_
 from sqlalchemy.orm import Session
 
 
@@ -836,12 +836,20 @@ def get_printer(
 @router.get("/reports", response_model=PortalReportListResponse)
 def list_reports(
     printer_id: str | None = Query(default=None),
+    date_from: date | None = Query(default=None),
+    date_to: date | None = Query(default=None),
+    q: str | None = Query(default=None, max_length=100),
     limit: int = Query(default=20, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
     db: Session = Depends(get_db),
     payload: dict = Depends(get_current_portal_user),
 ) -> PortalReportListResponse:
-    """Return reports for all printers in scope, ordered by service_date desc."""
+    """Return reports for all printers in scope, ordered by service_date desc.
+
+    Filters (all applied in SQL, so ``total`` reflects them): ``date_from`` /
+    ``date_to`` (inclusive, by service_date), and ``q`` — case-insensitive text
+    match on printer serial, report code, service type or model.
+    """
     portal_user = _resolve_portal_user(payload, db)
 
     printer_ids = _get_printer_ids_in_scope(portal_user, db)
@@ -849,17 +857,44 @@ def list_reports(
     if not printer_ids:
         return PortalReportListResponse(total=0, offset=offset, limit=limit, items=[])
 
-    q = db.query(Report).filter(Report.printer_id.in_(printer_ids))
+    query = (
+        db.query(Report)
+        .join(Printer, Printer.id == Report.printer_id)
+        .outerjoin(CatalogModel, CatalogModel.id == Printer.model_id)
+        .filter(Report.printer_id.in_(printer_ids))
+    )
 
     if printer_id:
         if printer_id not in printer_ids:
             raise HTTPException(
                 status_code=403, detail="Acceso denegado a esta impresora"
             )
-        q = q.filter(Report.printer_id == printer_id)
+        query = query.filter(Report.printer_id == printer_id)
 
-    total = q.count()
-    reports = q.order_by(Report.service_date.desc()).offset(offset).limit(limit).all()
+    if date_from:
+        query = query.filter(Report.service_date >= datetime.combine(date_from, datetime.min.time()))
+    if date_to:
+        query = query.filter(
+            Report.service_date < datetime.combine(date_to + timedelta(days=1), datetime.min.time())
+        )
+
+    text = (q or "").strip()
+    if text:
+        escaped = text.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        like = f"%{escaped}%"
+        query = query.filter(
+            or_(
+                Printer.serial_number.ilike(like, escape="\\"),
+                Report.code.ilike(like, escape="\\"),
+                Report.service_type.ilike(like, escape="\\"),
+                CatalogModel.model_name.ilike(like, escape="\\"),
+                CatalogModel.brand.ilike(like, escape="\\"),
+                (CatalogModel.brand + " " + CatalogModel.model_name).ilike(like, escape="\\"),
+            )
+        )
+
+    total = query.count()
+    reports = query.order_by(Report.service_date.desc()).offset(offset).limit(limit).all()
 
     items: list[PortalReportListItem] = []
     for r in reports:

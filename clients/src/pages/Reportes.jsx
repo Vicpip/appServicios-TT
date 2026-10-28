@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { FileText, ChevronLeft, ChevronRight } from 'lucide-react'
 import apiClient from '@/api/axios'
@@ -20,6 +20,7 @@ export default function Reportes() {
   const [dateFrom, setDateFrom] = useState('')
   const [dateTo, setDateTo] = useState('')
   const [searchText, setSearchText] = useState('')
+  const [debouncedSearch, setDebouncedSearch] = useState('')
   const [selectedId, setSelectedId] = useState(null)
 
   const { data: printers = [] } = useQuery({
@@ -31,11 +32,23 @@ export default function Reportes() {
     staleTime: 60_000,
   })
 
+  // El texto se envía al servidor con debounce; cualquier filtro regresa a la primera página
+  useEffect(() => {
+    const t = setTimeout(() => {
+      setDebouncedSearch(searchText.trim())
+      setOffset(0)
+    }, 350)
+    return () => clearTimeout(t)
+  }, [searchText])
+
   const params = { limit: LIMIT, offset }
   if (selectedPrinter) params.printer_id = selectedPrinter
+  if (dateFrom) params.date_from = dateFrom
+  if (dateTo) params.date_to = dateTo
+  if (debouncedSearch) params.q = debouncedSearch
 
   const { data: reportsData, isLoading, error } = useQuery({
-    queryKey: ['portal', 'reports', offset, selectedPrinter],
+    queryKey: ['portal', 'reports', offset, selectedPrinter, dateFrom, dateTo, debouncedSearch],
     queryFn: async () => {
       const res = await apiClient.get('/api/portal/reports', { params })
       return res.data
@@ -43,7 +56,7 @@ export default function Reportes() {
     staleTime: 60_000,
   })
 
-  const allItems = reportsData?.items ?? []
+  const items = reportsData?.items ?? []
   const total = reportsData?.total ?? 0
   const totalPages = Math.ceil(total / LIMIT)
   const currentPage = Math.floor(offset / LIMIT) + 1
@@ -54,26 +67,7 @@ export default function Reportes() {
   const printerPlantMap = Object.fromEntries(printers.map(p => [p.id, p.plant_name ?? '']))
   const printerAreaMap = Object.fromEntries(printers.map(p => [p.id, p.area_name ?? '']))
 
-  // Client-side filters: date + search
-  const filtered = allItems.filter(r => {
-    if (dateFrom && new Date(r.service_date) < new Date(dateFrom)) return false
-    if (dateTo && new Date(r.service_date) > new Date(dateTo + 'T23:59:59')) return false
-    if (searchText) {
-      const q = searchText.toLowerCase()
-      const model = (printerModelMap[r.printer_id] ?? '').toLowerCase()
-      if (
-        !(r.printer_serial ?? '').toLowerCase().includes(q) &&
-        !model.includes(q) &&
-        !(r.code ?? '').toLowerCase().includes(q) &&
-        !(r.service_type ?? '').toLowerCase().includes(q)
-      ) return false
-    }
-    return true
-  })
-
-  const handleFilterChange = () => {
-    setOffset(0)
-  }
+  const hasFilters = Boolean(selectedPrinter || dateFrom || dateTo || debouncedSearch)
 
   return (
     <div className="space-y-5">
@@ -81,7 +75,7 @@ export default function Reportes() {
         <h2 className="text-xl font-bold text-[#1A1A2E] font-heading">Reportes de servicio</h2>
         {!isLoading && (
           <p className="text-sm text-gray-400 font-sans mt-0.5">
-            {total} reporte{total !== 1 ? 's' : ''} en total
+            {total} reporte{total !== 1 ? 's' : ''}{hasFilters ? ' con los filtros seleccionados' : ' en total'}
           </p>
         )}
       </div>
@@ -98,7 +92,7 @@ export default function Reportes() {
 
         <select
           value={selectedPrinter}
-          onChange={(e) => { setSelectedPrinter(e.target.value); handleFilterChange() }}
+          onChange={(e) => { setSelectedPrinter(e.target.value); setOffset(0) }}
           className="px-3 py-2 rounded-lg border border-border text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary"
         >
           <option value="">Todas las impresoras</option>
@@ -111,21 +105,21 @@ export default function Reportes() {
           <input
             type="date"
             value={dateFrom}
-            onChange={(e) => setDateFrom(e.target.value)}
+            onChange={(e) => { setDateFrom(e.target.value); setOffset(0) }}
             className="px-3 py-2 rounded-lg border border-border text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary"
           />
           <span className="text-xs text-gray-400">—</span>
           <input
             type="date"
             value={dateTo}
-            onChange={(e) => setDateTo(e.target.value)}
+            onChange={(e) => { setDateTo(e.target.value); setOffset(0) }}
             className="px-3 py-2 rounded-lg border border-border text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary"
           />
         </div>
 
         {(selectedPrinter || dateFrom || dateTo || searchText) && (
           <button
-            onClick={() => { setSelectedPrinter(''); setDateFrom(''); setDateTo(''); setSearchText(''); setOffset(0) }}
+            onClick={() => { setSelectedPrinter(''); setDateFrom(''); setDateTo(''); setSearchText(''); setDebouncedSearch(''); setOffset(0) }}
             className="px-3 py-2 rounded-lg border border-border text-sm text-gray-500 hover:bg-gray-50 bg-white transition-colors"
           >
             Limpiar filtros
@@ -140,7 +134,7 @@ export default function Reportes() {
       <div className="bg-white rounded-xl border border-border shadow-sm overflow-hidden">
         {isLoading ? (
           <SkeletonTable rows={8} cols={8} />
-        ) : filtered.length === 0 ? (
+        ) : items.length === 0 ? (
           <EmptyState message="Sin reportes para los filtros seleccionados" icon={FileText} />
         ) : (
           <>
@@ -156,7 +150,7 @@ export default function Reportes() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-50">
-                  {filtered.map(r => (
+                  {items.map(r => (
                     <tr
                       key={r.id}
                       onClick={() => setSelectedId(r.id)}

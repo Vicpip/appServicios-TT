@@ -136,7 +136,7 @@ Convenciones:
 - **Arreglo propuesto:** añadir a `list_reports` los parámetros `date_from`, `date_to`, `q` (serie, código, tipo, modelo; con `ilike` y join a `Printer`/`CatalogModel`). `Reportes.jsx`: enviarlos en `params` (con debounce de 350 ms para `q`), poner `setOffset(0)` al cambiarlos y eliminar el filtrado local. No tocar `Dashboard.jsx`.
 - **Cómo verificar:** buscar un código que está en la página 3: aparece. `curl "$API/api/portal/reports?q=R-0012&date_from=2026-01-01"` filtra en servidor y `total` refleja el filtro.
 - **Afecta al manual:** Sí. Sección Reportes del portal: los filtros aplican a todo el historial.
-- **Estado:** Pendiente
+- **Estado:** Corregido en rama `fix/portal-clientes` (sin desplegar). `GET /api/portal/reports` acepta `date_from`, `date_to` (inclusivos) y `q` (serie, código, tipo, marca/modelo; ilike con join a Printer/CatalogModel y comodines escapados); `total` refleja el filtro. `Reportes.jsx` los envía (debounce 350 ms en `q`, `setOffset(0)` al cambiar) y ya no filtra localmente.
 
 ## H-07 — Admin: filtros de Estado en Impresoras y Pólizas se aplican después de paginar; KPI con `limit=200`
 
