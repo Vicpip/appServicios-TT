@@ -7,8 +7,15 @@ const PASSWORD_CRITERIA = [
   { label: 'Mínimo 8 caracteres', test: (p) => p.length >= 8 },
   { label: 'Una mayúscula', test: (p) => /[A-Z]/.test(p) },
   { label: 'Un número', test: (p) => /[0-9]/.test(p) },
-  { label: 'Un carácter especial', test: (p) => /[!@#$%^&*-]/.test(p) },
+  { label: 'Un carácter especial (ej. ! @ # $ . _ -)', test: (p) => /[^A-Za-z0-9\s]/.test(p) },
 ]
+
+// FastAPI devuelve 422 con detail como lista; muestra el primer mensaje legible
+function apiErrorMessage(detail, fallback) {
+  if (typeof detail === 'string') return detail
+  if (Array.isArray(detail) && detail[0]?.msg) return String(detail[0].msg).replace(/^Value error, /, '')
+  return fallback
+}
 
 export default function Registro() {
   const [searchParams] = useSearchParams()
@@ -77,9 +84,9 @@ export default function Registro() {
       )
       navigate('/login', { replace: true, state: { registered: true } })
     } catch (err) {
-      const msg =
-        err.response?.data?.detail ?? 'Error al registrar. Verifica tu enlace de invitación.'
-      setSubmitError(typeof msg === 'string' ? msg : 'Error al registrar. Intenta de nuevo.')
+      setSubmitError(
+        apiErrorMessage(err.response?.data?.detail, 'Error al registrar. Verifica tu enlace de invitación.')
+      )
     } finally {
       setLoading(false)
     }

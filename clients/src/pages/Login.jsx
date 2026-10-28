@@ -1,5 +1,5 @@
 import { useState, useRef } from 'react'
-import { Navigate, useNavigate, Link } from 'react-router-dom'
+import { Navigate, useNavigate, useLocation, Link } from 'react-router-dom'
 import { Loader2, Lock } from 'lucide-react'
 import axios from 'axios'
 import { useAuth } from '@/hooks/useAuth'
@@ -12,6 +12,12 @@ const LOCKOUT_SECONDS = 30
 export default function Login() {
   const { isAuthenticated, login } = useAuth()
   const navigate = useNavigate()
+  const location = useLocation()
+  const notice = location.state?.reset
+    ? 'Contraseña actualizada. Inicia sesión.'
+    : location.state?.registered
+      ? 'Cuenta creada. Inicia sesión.'
+      : ''
 
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -104,6 +110,15 @@ export default function Login() {
           <h1 className="text-xl font-bold text-navy font-heading">Servicios Main PC</h1>
           <p className="text-sm text-gray-500 mt-1">Portal de Clientes</p>
         </div>
+
+        {notice && (
+          <p
+            className="mb-4 text-sm text-green-700 bg-green-50 border border-green-200 rounded-lg px-4 py-3 text-center"
+            role="status"
+          >
+            {notice}
+          </p>
+        )}
 
         <form onSubmit={handleSubmit} className="space-y-4" autoComplete="off" noValidate>
           <div>

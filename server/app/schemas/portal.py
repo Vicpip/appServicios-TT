@@ -3,7 +3,32 @@
 from datetime import datetime
 from typing import Optional
 
-from pydantic import BaseModel, ConfigDict, EmailStr
+import re
+
+from pydantic import BaseModel, ConfigDict, EmailStr, field_validator
+
+
+# ---------------------------------------------------------------------------
+# Password policy (same rules as clients/src/pages/Registro.jsx and ResetPassword.jsx)
+# ---------------------------------------------------------------------------
+
+PASSWORD_RULES_MESSAGE = (
+    "La contraseña debe tener al menos 8 caracteres, una mayúscula, "
+    "un número y un carácter especial"
+)
+
+
+def validate_portal_password(value: str) -> str:
+    """8+ chars, one uppercase letter, one digit and one special character
+    (anything that is not a letter, digit or whitespace)."""
+    if (
+        len(value) < 8
+        or not re.search(r"[A-Z]", value)
+        or not re.search(r"[0-9]", value)
+        or not re.search(r"[^A-Za-z0-9\s]", value)
+    ):
+        raise ValueError(PASSWORD_RULES_MESSAGE)
+    return value
 
 
 # ---------------------------------------------------------------------------
@@ -39,6 +64,11 @@ class RegisterRequest(BaseModel):
     token: str
     name: str
     password: str
+
+    @field_validator("password")
+    @classmethod
+    def _check_password(cls, v: str) -> str:
+        return validate_portal_password(v)
 
 
 class RegisterResponse(BaseModel):
@@ -80,6 +110,11 @@ class ForgotPasswordResponse(BaseModel):
 class ResetPasswordRequest(BaseModel):
     token: str
     new_password: str
+
+    @field_validator("new_password")
+    @classmethod
+    def _check_password(cls, v: str) -> str:
+        return validate_portal_password(v)
 
 
 class ResetPasswordResponse(BaseModel):

@@ -204,7 +204,7 @@ Convenciones:
 - **Arreglo propuesto:** `Login.jsx`: `useLocation()` y mostrar banner "Cuenta creada. Inicia sesión." / "Contraseña actualizada. Inicia sesión." (pasar `state: { reset: true }` desde `ResetPassword.jsx:53`). `schemas/portal.py`: `field_validator` para ambas contraseñas con las mismas reglas (mensaje en español, 422). Alinear el conjunto de caracteres especiales de front y back. Considerar que `Login.jsx` exige `password.length < 8` (línea ~54) coherente con la regla.
 - **Cómo verificar:** registrar usuario → el login muestra el banner. `curl -X POST $API/api/portal/register -d '{"token":"…","name":"x","password":"abc"}'` → 422. Prueba pytest para ambos endpoints.
 - **Afecta al manual:** Sí. Flujos de registro y recuperación: añadir el mensaje de confirmación y las reglas validadas por el servidor.
-- **Estado:** Pendiente
+- **Estado:** Corregido en rama `fix/portal-clientes` (sin desplegar). `Login.jsx` muestra "Cuenta creada. Inicia sesión." / "Contraseña actualizada. Inicia sesión." (`ResetPassword.jsx` pasa `state:{reset:true}`). `RegisterRequest.password` y `ResetPasswordRequest.new_password` validan 8+ caracteres, mayúscula, número y carácter especial (422 en español); el especial pasó a ser cualquier carácter que no sea letra, número ni espacio, igual en front y back (antes el front solo aceptaba `!@#$%^&*-`). El login no valida la contraseña, así que usuarios existentes no se ven afectados.
 
 ## H-12 — Portal, detalle de póliza: no filtra por planta cuando el usuario está restringido
 

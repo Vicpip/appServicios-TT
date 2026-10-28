@@ -11,11 +11,12 @@ PORTAL_PASSWORD = "Portal#2026"
 
 
 def make_portal_user(db, client_id: str, plant_id: str | None = None,
-                     email: str | None = None, active: bool = True) -> PortalUser:
+                     email: str | None = None, active: bool = True,
+                     password: str = PORTAL_PASSWORD) -> PortalUser:
     user = PortalUser(
         id=str(uuid.uuid4()), client_id=client_id, plant_id=plant_id,
-        email=email or f"{uuid.uuid4().hex[:6]}@cliente.test",
-        password_hash=_hash_password(PORTAL_PASSWORD), name="Cliente Portal",
+        email=email or f"{uuid.uuid4().hex[:6]}@cliente.example.com",
+        password_hash=_hash_password(password), name="Cliente Portal",
         is_active=active,
     )
     db.add(user)
