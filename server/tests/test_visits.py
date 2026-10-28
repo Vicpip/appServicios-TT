@@ -343,3 +343,73 @@ def test_cerrar_sin_motivo_si_faltan_equipos_sigue_siendo_422(client, world, tec
     res = _close(client, admin_headers, world, reason="")
     assert res.status_code == 422 and "motivo" in res.json()["detail"].lower()
     assert _close(client, admin_headers, world, reason="Cliente canceló").status_code == 200
+
+
+# -- H-14: borrar visitas protegido --------------------------------------------
+
+
+def _visit_url(world, visit=None):
+    v = visit or world.visit2
+    return f"/api/admin/policies/{world.policy.id}/visits/{v.id}"
+
+
+def _all_visits_url(world):
+    return f"/api/admin/policies/{world.policy.id}/visits"
+
+
+def test_borrar_visita_programada_sin_entregas(client, world, db, admin_headers):
+    assert client.delete(_visit_url(world), headers=admin_headers).status_code == 204
+    assert _visit(db, world.visit2.id) is None
+
+
+def test_borrar_visita_en_curso_da_409(client, world, db, admin_headers):
+    res = client.delete(_visit_url(world, world.visit1), headers=admin_headers)
+    assert res.status_code == 409
+    assert "en curso" in res.json()["detail"]
+    assert _visit(db, world.visit1.id) is not None
+
+
+def test_borrar_visita_completada_da_409(client, world, db, admin_headers):
+    world.visit2.status = "completed"
+    db.commit()
+    res = client.delete(_visit_url(world), headers=admin_headers)
+    assert res.status_code == 409
+    assert "completada" in res.json()["detail"]
+
+
+def test_borrar_visita_con_entregas_da_409(client, world, db, admin_headers, tech_headers):
+    # entrega ligada a la visita 1; la visita queda "programada" para aislar la regla
+    r1 = world.add_report(world.printers[0])
+    assert _post_delivery(client, tech_headers, world, [r1]).status_code == 201
+    world.visit1.status = "scheduled"
+    db.commit()
+    res = client.delete(_visit_url(world, world.visit1), headers=admin_headers)
+    assert res.status_code == 409
+    assert "entregas" in res.json()["detail"]
+    assert _visit(db, world.visit1.id) is not None
+
+
+def test_borrar_todas_con_visita_en_curso_no_borra_nada(client, world, db, admin_headers):
+    res = client.delete(_all_visits_url(world), headers=admin_headers)
+    assert res.status_code == 409
+    assert db.query(PolicyVisit).filter_by(policy_id=world.policy.id).count() == 2
+
+
+def test_borrar_todas_sin_visitas_protegidas(client, world, db, admin_headers):
+    world.visit1.status = "scheduled"
+    world.visit1.started_at = None
+    db.commit()
+    res = client.delete(_all_visits_url(world), headers=admin_headers)
+    assert res.status_code == 200
+    assert res.json() == {"deleted": 2}
+
+
+def test_generar_con_visitas_existentes_da_409_sin_borrar(client, world, db, admin_headers):
+    res = client.post(f"{_all_visits_url(world)}/generate", json={}, headers=admin_headers)
+    assert res.status_code == 409
+    assert db.query(PolicyVisit).filter_by(policy_id=world.policy.id).count() == 2
+
+
+def test_borrar_visitas_solo_admin(client, world, tech_headers):
+    assert client.delete(_visit_url(world), headers=tech_headers).status_code in (401, 403)
+    assert client.delete(_all_visits_url(world), headers=tech_headers).status_code in (401, 403)

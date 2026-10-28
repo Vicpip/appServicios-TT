@@ -341,6 +341,10 @@ export default function PolicyDetailPage() {
   const [regeneratingId, setRegeneratingId] = useState<string | null>(null)
   const [sendingEmailId, setSendingEmailId] = useState<string | null>(null)
   const [closingVisit, setClosingVisit] = useState<PolicyVisitItem | null>(null)
+  const [visitAction, setVisitAction] = useState<
+    { kind: 'regenerate' } | { kind: 'delete'; visit: PolicyVisitItem } | null
+  >(null)
+  const [visitActionError, setVisitActionError] = useState<string | null>(null)
   const [deliveryNotif, setDeliveryNotif] = useState<{ type: 'success' | 'error' | 'warning'; msg: string } | null>(null)
 
   // Policy detail
@@ -493,7 +497,11 @@ export default function PolicyDetailPage() {
     mutationFn: async (visitId: string) => {
       await apiClient.delete(API.policies.deleteVisit(id!, visitId))
     },
-    onSuccess: () => refetchVisits(),
+    onSuccess: () => {
+      setVisitAction(null)
+      refetchVisits()
+    },
+    onError: (err: unknown) => setVisitActionError(errDetail(err, 'No se pudo eliminar la visita')),
   })
 
   const regenerateVisitsMutation = useMutation({
@@ -502,7 +510,14 @@ export default function PolicyDetailPage() {
       const res = await apiClient.post<PolicyVisitItem[]>(API.policies.generateVisits(id!), {})
       return res.data
     },
-    onSuccess: () => refetchVisits(),
+    onSuccess: () => {
+      setVisitAction(null)
+      refetchVisits()
+    },
+    onError: (err: unknown) => {
+      refetchVisits()
+      setVisitActionError(errDetail(err, 'No se pudieron regenerar las visitas'))
+    },
   })
 
   const assignMutation = useMutation({
@@ -947,7 +962,7 @@ export default function PolicyDetailPage() {
                 </button>
               ) : canRegenerate ? (
                 <button
-                  onClick={() => regenerateVisitsMutation.mutate()}
+                  onClick={() => { setVisitActionError(null); setVisitAction({ kind: 'regenerate' }) }}
                   disabled={regenerateVisitsMutation.isPending}
                   className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold font-sans rounded-lg bg-amber-500 text-white hover:bg-amber-600 disabled:opacity-50 transition-colors"
                   title="Elimina todas las visitas programadas y las regenera"
@@ -1045,10 +1060,14 @@ export default function PolicyDetailPage() {
                             </button>
                           )}
                           <button
-                            onClick={() => deleteVisitMutation.mutate(v.id)}
-                            disabled={deleteVisitMutation.isPending}
-                            className="p-1 rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-50 transition-colors"
-                            title="Eliminar visita"
+                            onClick={() => { setVisitActionError(null); setVisitAction({ kind: 'delete', visit: v }) }}
+                            disabled={deleteVisitMutation.isPending || isActive || isCompleted}
+                            className="p-1 rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-50 transition-colors disabled:opacity-30 disabled:hover:text-gray-400 disabled:hover:bg-transparent disabled:cursor-not-allowed"
+                            title={
+                              isActive || isCompleted
+                                ? 'No se puede eliminar una visita en curso o completada'
+                                : 'Eliminar visita'
+                            }
                           >
                             <X size={14} />
                           </button>
@@ -1129,6 +1148,47 @@ export default function PolicyDetailPage() {
             qc.invalidateQueries({ queryKey: ['policy-detail', id] })
           }}
         />
+      )}
+      {visitAction && (
+        <>
+          <div className="fixed inset-0 bg-black/50 z-40" onClick={() => setVisitAction(null)} />
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <div className="bg-white rounded-xl shadow-2xl w-full max-w-md p-6 space-y-4">
+              <h3 className="font-semibold text-[#1A1A2E] font-heading">
+                {visitAction.kind === 'regenerate' ? 'Regenerar visitas' : `Eliminar visita ${visitAction.visit.visit_number}`}
+              </h3>
+              <p className="text-sm text-gray-600 font-sans">
+                {visitAction.kind === 'regenerate'
+                  ? 'Esto eliminará todas las visitas programadas y las generará de nuevo. ¿Continuar?'
+                  : `Esto eliminará la visita ${visitAction.visit.visit_number}. ¿Continuar?`}
+              </p>
+              {visitActionError && (
+                <p className="text-sm text-red-600 font-sans">{visitActionError}</p>
+              )}
+              <div className="flex justify-end gap-2">
+                <button
+                  onClick={() => setVisitAction(null)}
+                  className="px-4 py-2 text-sm font-sans rounded-lg border border-border text-gray-600 hover:bg-gray-50"
+                >
+                  Cancelar
+                </button>
+                <button
+                  onClick={() => {
+                    setVisitActionError(null)
+                    if (visitAction.kind === 'regenerate') regenerateVisitsMutation.mutate()
+                    else deleteVisitMutation.mutate(visitAction.visit.id)
+                  }}
+                  disabled={regenerateVisitsMutation.isPending || deleteVisitMutation.isPending}
+                  className="px-4 py-2 text-sm font-semibold font-sans rounded-lg bg-red-600 text-white hover:bg-red-700 disabled:opacity-50"
+                >
+                  {regenerateVisitsMutation.isPending || deleteVisitMutation.isPending
+                    ? 'Procesando…'
+                    : visitAction.kind === 'regenerate' ? 'Regenerar' : 'Eliminar'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </>
       )}
       {closingVisit && (
         <CloseVisitModal

@@ -244,7 +244,7 @@ Convenciones:
 - **Arreglo propuesto:** (a) backend: rechazar con 409 el borrado de visitas `in_progress` o `completed`, o que tengan entregas con `visit_id`; (b) `PolicyDetailPage.tsx`: modal de confirmación para "Regenerar" y para eliminar ("Esto eliminará la visita N. ¿Continuar?"), deshabilitar la X en visitas En curso/Completadas; (c) quitar los `print(...)`. No tocar la lógica de cierre (`visit_service.py`).
 - **Cómo verificar:** `curl -X DELETE -H "Authorization: Bearer $ADMIN_TOKEN" $API/api/admin/policies/<pid>/visits/<vid>` sobre visita `in_progress` → 409. En pantalla aparece el diálogo de confirmación. Pytest en `server/tests/test_visits.py`.
 - **Afecta al manual:** Sí. Sección Visitas: confirmación al regenerar/eliminar y restricciones por estado.
-- **Estado:** Pendiente
+- **Estado:** Corregido en rama `fix/operacion-admin` (sin desplegar). Backend: `DELETE` de una visita o de todas responde 409 (mensaje en español) si hay visitas en curso, completadas o con entregas por `visit_id` (todo o nada); `generate` con visitas existentes sigue en 409. Se quitaron los `print`. `PolicyDetailPage.tsx`: modal de confirmación para Regenerar y Eliminar, X deshabilitada en En curso/Completadas. Pruebas en `test_visits.py`.
 
 ## H-15 — Impresoras: "Desactivar" no valida reportes; la inactiva sigue en el listado; "Eliminar" valida solo en el front
 

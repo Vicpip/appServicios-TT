@@ -2499,17 +2499,15 @@ def generate_policy_visits(
         db.query(PolicyVisit).filter(PolicyVisit.policy_id == policy_id).count()
     )
     if existing > 0:
+        _ensure_visits_deletable(db, policy_id)
         raise HTTPException(
             status_code=409,
-            detail="Policy already has visits. Delete them before regenerating.",
+            detail="La póliza ya tiene visitas. Elimínalas antes de volver a generarlas.",
         )
 
     # frequency_maintenance may be stored as "Trimestral (4 visitas)" — extract the keyword before "("
     raw_freq = (policy.frequency_maintenance or "Anual").split("(")[0].strip().title()
     n_visits = _FREQUENCY_VISIT_COUNT.get(raw_freq, 1)
-    print(f"[Visits] policy.frequency_maintenance raw: '{policy.frequency_maintenance}'")
-    print(f"[Visits] freq normalizado: '{raw_freq}'")
-    print(f"[Visits] n_visits calculado: {n_visits}")
 
     start: date = policy.start_date.date() if hasattr(policy.start_date, "date") else policy.start_date
     end: date = policy.end_date.date() if hasattr(policy.end_date, "date") else policy.end_date
@@ -2660,13 +2658,38 @@ def close_policy_visit(
     return _build_visit_item(visit, db).model_dump()
 
 
+def _visit_delete_block_reason(db: Session, visit: PolicyVisit) -> str | None:
+    """Motivo (en español) por el que una visita no puede borrarse, o None si puede."""
+    if visit.status == "in_progress":
+        return f"La visita {visit.visit_number} está en curso y no se puede eliminar."
+    if visit.status == "completed":
+        return f"La visita {visit.visit_number} está completada y no se puede eliminar."
+    has_deliveries = (
+        db.query(PolicyDelivery.id).filter(PolicyDelivery.visit_id == visit.id).first()
+        is not None
+    )
+    if has_deliveries:
+        return f"La visita {visit.visit_number} tiene entregas ligadas y no se puede eliminar."
+    return None
+
+
+def _ensure_visits_deletable(db: Session, policy_id: str) -> None:
+    """409 si alguna visita de la póliza está protegida (todo o nada)."""
+    visits = db.query(PolicyVisit).filter(PolicyVisit.policy_id == policy_id).all()
+    for v in sorted(visits, key=lambda x: x.visit_number):
+        reason = _visit_delete_block_reason(db, v)
+        if reason:
+            raise HTTPException(status_code=409, detail=reason)
+
+
 @router.delete("/policies/{policy_id}/visits", status_code=200, dependencies=[Depends(require_admin)])
 def delete_all_policy_visits(
     policy_id: str,
     db: Session = Depends(get_db),
 ) -> dict:
-    """Delete ALL visits for a policy at once. Returns count of deleted visits."""
+    """Delete ALL visits for a policy at once. 409 if any is in progress, completed or has deliveries."""
     policy = _get_active_policy(db, policy_id)
+    _ensure_visits_deletable(db, policy_id)
 
     deleted = (
         db.query(PolicyVisit)
@@ -2674,7 +2697,6 @@ def delete_all_policy_visits(
         .delete(synchronize_session=False)
     )
     db.commit()
-    print(f"[DELETE all visits] policy_id={policy_id} deleted={deleted}")
     return {"deleted": deleted}
 
 
@@ -2684,16 +2706,17 @@ def delete_policy_visit(
     visit_id: str,
     db: Session = Depends(get_db),
 ) -> None:
-    """Delete a visit regardless of status. Admin has full control."""
+    """Delete a visit. 409 if it is in progress, completed or has deliveries."""
     _get_active_policy(db, policy_id)
-    print(f"[DELETE visit] policy_id={policy_id} visit_id={visit_id}")
     visit = db.query(PolicyVisit).filter(
         PolicyVisit.id == visit_id,
         PolicyVisit.policy_id == policy_id,
     ).first()
-    print(f"[DELETE visit] encontrada: {visit is not None}")
     if not visit:
         raise HTTPException(status_code=404, detail="Visit not found")
+    reason = _visit_delete_block_reason(db, visit)
+    if reason:
+        raise HTTPException(status_code=409, detail=reason)
     db.delete(visit)
     db.commit()
 
