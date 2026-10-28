@@ -158,6 +158,32 @@ def _get_printer_ids_in_scope(portal_user: PortalUser, db: Session) -> list[str]
     return [row[0] for row in _scoped_printers_query(portal_user, db, Printer.id).all()]
 
 
+def _scoped_policies_query(portal_user: PortalUser, db: Session, printer_ids: list[str] | None = None):
+    """Non-deleted policies of the user's client. Plant-restricted users only get
+    policies that have at least one printer in their plant (``printer_ids`` is
+    the precomputed in-scope list)."""
+    q = db.query(Policy).filter(
+        Policy.client_id == portal_user.client_id,
+        _policy_not_deleted(),
+    )
+    if portal_user.plant_id is not None:
+        if printer_ids is None:
+            printer_ids = _get_printer_ids_in_scope(portal_user, db)
+        q = q.filter(
+            Policy.id.in_(
+                db.query(PolicyPrinter.policy_id).filter(PolicyPrinter.printer_id.in_(printer_ids))
+            )
+        )
+    return q
+
+
+def _get_scoped_policy(policy_id: str, portal_user: PortalUser, db: Session) -> Policy:
+    policy = _scoped_policies_query(portal_user, db).filter(Policy.id == policy_id).first()
+    if not policy:
+        raise HTTPException(status_code=404, detail="Póliza no encontrada")
+    return policy
+
+
 def _resolve_portal_user(payload: dict, db: Session) -> PortalUser:
     """Load and validate a PortalUser from a decoded JWT payload."""
     portal_user: PortalUser | None = db.get(PortalUser, payload["sub"])
@@ -598,10 +624,10 @@ def get_dashboard(
 
     # Expired policies do not count as active (end_date < now)
     active_policies = (
-        db.query(func.count(Policy.id))
-        .filter(Policy.client_id == portal_user.client_id, _policy_vigente(now))
-        .scalar()
-    ) or 0
+        _scoped_policies_query(portal_user, db, printer_ids)
+        .filter(_policy_vigente(now))
+        .count()
+    )
 
     return PortalDashboard(
         reports_year=reports_year,
@@ -1041,23 +1067,21 @@ def list_policies(
     """Policies of the portal user's client (not deleted); expired ones are labelled "Expired"."""
     portal_user = _resolve_portal_user(payload, db)
 
+    printer_ids = _get_printer_ids_in_scope(portal_user, db)
+    restricted = portal_user.plant_id is not None
+
     policies = (
-        db.query(Policy)
-        .filter(
-            Policy.client_id == portal_user.client_id,
-            _policy_not_deleted(),
-        )
+        _scoped_policies_query(portal_user, db, printer_ids)
         .order_by(Policy.end_date.desc())
         .all()
     )
 
     items: list[PortalPolicyItem] = []
     for p in policies:
-        printer_count = (
-            db.query(func.count(PolicyPrinter.id))
-            .filter(PolicyPrinter.policy_id == p.id)
-            .scalar()
-        ) or 0
+        pc_query = db.query(func.count(PolicyPrinter.id)).filter(PolicyPrinter.policy_id == p.id)
+        if restricted:
+            pc_query = pc_query.filter(PolicyPrinter.printer_id.in_(printer_ids))
+        printer_count = pc_query.scalar() or 0
         items.append(
             PortalPolicyItem(
                 id=p.id,
@@ -1088,9 +1112,10 @@ def get_policy(
     """Return full detail for a single policy — must belong to the portal user's client."""
     portal_user = _resolve_portal_user(payload, db)
 
-    policy: Policy | None = db.get(Policy, policy_id)
-    if not policy or policy.status == "Deleted" or policy.client_id != portal_user.client_id:
-        raise HTTPException(status_code=404, detail="Póliza no encontrada")
+    policy = _get_scoped_policy(policy_id, portal_user, db)
+    scope_ids = (
+        set(_get_printer_ids_in_scope(portal_user, db)) if portal_user.plant_id is not None else None
+    )
 
     client: Client | None = db.get(Client, policy.client_id)
 
@@ -1102,6 +1127,8 @@ def get_policy(
     )
     printers: list[PortalPolicyDetailPrinter] = []
     for pp in policy_printers:
+        if scope_ids is not None and pp.printer_id not in scope_ids:
+            continue
         printer: Printer | None = db.get(Printer, pp.printer_id)
         if not printer:
             continue
@@ -1137,6 +1164,24 @@ def get_policy(
             .filter(PolicyDeliveryReport.delivery_id == d.id)
             .scalar()
         ) or 0
+        pdf_visible = True
+        if scope_ids is not None:
+            # Only reports of printers in the user's plant; hide deliveries with none.
+            in_scope = (
+                db.query(func.count(PolicyDeliveryReport.id))
+                .join(Report, Report.id == PolicyDeliveryReport.report_id)
+                .filter(
+                    PolicyDeliveryReport.delivery_id == d.id,
+                    Report.printer_id.in_(scope_ids),
+                )
+                .scalar()
+            ) or 0
+            if in_scope == 0:
+                continue
+            # The delivery PDF bundles every report of the delivery: expose it only
+            # when none of them belongs to another plant.
+            pdf_visible = in_scope == report_count
+            report_count = in_scope
         deliveries.append(
             PortalPolicyDeliveryItem(
                 id=d.id,
@@ -1145,8 +1190,8 @@ def get_policy(
                 signature_role=d.signature_role,
                 tech_name=tech.name if tech else None,
                 report_count=report_count,
-                pdf_path=d.pdf_path,
-                pdf_url=signed_upload_url(d.pdf_path),
+                pdf_path=d.pdf_path if pdf_visible else None,
+                pdf_url=signed_upload_url(d.pdf_path) if pdf_visible else None,
             )
         )
 
@@ -1184,9 +1229,10 @@ def get_policy_delivery(
     """Return detail for a single policy delivery including per-report rows."""
     portal_user = _resolve_portal_user(payload, db)
 
-    policy: Policy | None = db.get(Policy, policy_id)
-    if not policy or policy.status == "Deleted" or policy.client_id != portal_user.client_id:
-        raise HTTPException(status_code=404, detail="Póliza no encontrada")
+    _get_scoped_policy(policy_id, portal_user, db)
+    scope_ids = (
+        set(_get_printer_ids_in_scope(portal_user, db)) if portal_user.plant_id is not None else None
+    )
 
     delivery: PolicyDelivery | None = db.get(PolicyDelivery, delivery_id)
     if not delivery or delivery.policy_id != policy_id:
@@ -1203,6 +1249,8 @@ def get_policy_delivery(
     for dr in delivery_reports_db:
         report: Report | None = db.get(Report, dr.report_id)
         if not report:
+            continue
+        if scope_ids is not None and report.printer_id not in scope_ids:
             continue
         printer: Printer | None = db.get(Printer, report.printer_id)
         catalog_model = (
@@ -1223,6 +1271,9 @@ def get_policy_delivery(
                 status=report.status,
             )
         )
+
+    if scope_ids is not None and not reports:
+        raise HTTPException(status_code=404, detail="Entrega no encontrada")
 
     return PortalPolicyDeliveryDetail(
         id=delivery.id,

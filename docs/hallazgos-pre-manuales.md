@@ -216,7 +216,7 @@ Convenciones:
 - **Arreglo propuesto:** en `get_policy`, si `portal_user.plant_id`, filtrar `printers` a las de su planta (`_get_printer_ids_in_scope`); en entregas, mostrar solo reportes cuya impresora esté en alcance y ocultar entregas sin ninguno; `report_count` y `printer_count` recalculados. Confirmar con negocio si la póliza completa debe ser visible (decisión de producto) antes de implementar. `list_policies` puede quedar por cliente.
 - **Cómo verificar:** usuario con `plant_id=A`, póliza con impresoras en A y B: `GET /api/portal/policies/{id}` solo devuelve las de A; `GET …/deliveries/{d}` no lista reportes de B.
 - **Afecta al manual:** Sí. Portal, Detalle de póliza y la sección de alcance por planta.
-- **Estado:** Pendiente
+- **Estado:** Corregido en rama `fix/portal-clientes` (sin desplegar). Con `plant_id`, `get_policy` solo devuelve equipos de su planta; las entregas sin reportes en alcance se ocultan (lista y detalle devuelven 404), `report_count`/`printer_count` se recalculan y el PDF de una entrega solo se expone si todos sus reportes están en alcance (el PDF agrupa toda la entrega). `list_policies` y `active_policies` del dashboard solo incluyen pólizas con al menos un equipo en su planta; una póliza sin equipos en su planta da 404. Usuarios sin planta: sin cambios.
 
 ## H-13 — Admin, Detalle de cliente: invitación "enviada" aunque falle el SMTP; correo desactivado desaparece al recargar
 
