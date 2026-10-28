@@ -82,7 +82,13 @@ export default function Login() {
       setToken(access_token)
       login(access_token, user)
       navigate('/dashboard', { replace: true })
-    } catch {
+    } catch (err) {
+      if (err.response?.status === 403) {
+        // Cuenta desactivada: no es un error de credenciales, no cuenta para el bloqueo
+        setError('Tu cuenta está desactivada. Contacta a tu proveedor.')
+        setPassword('')
+        return
+      }
       const next = attempts + 1
       setAttempts(next)
       setError('Credenciales inválidas. Verifica tu correo y contraseña.')

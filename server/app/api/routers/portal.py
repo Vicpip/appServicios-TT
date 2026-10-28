@@ -275,6 +275,13 @@ def invite_client(
                 status_code=400, detail="Planta no pertenece al cliente"
             )
 
+    # A registered portal account cannot be invited again (login is by unique e-mail)
+    if db.query(PortalUser).filter(PortalUser.email == body.email).first():
+        raise HTTPException(
+            status_code=409,
+            detail="Ya existe un usuario del portal con este correo electrónico",
+        )
+
     # Check inviter exists
     inviter: User | None = db.get(User, current_user["sub"])
     if not inviter:

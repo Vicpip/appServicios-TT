@@ -216,6 +216,25 @@ export default function ClientDetailPage() {
       .finally(() => setPlantsModalLoading(false))
   }
 
+  async function handleSendRecovery(userId: string, email: string) {
+    setTogglingIds((prev) => new Set(prev).add(userId))
+    setToggleError(null)
+    try {
+      await apiClient.post(API.portal.forgotPassword, { email })
+      setSuccessMsg(`Enlace de recuperación enviado a ${email}`)
+      setTimeout(() => setSuccessMsg(null), 5000)
+    } catch (err: unknown) {
+      const msg = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail
+      setToggleError(typeof msg === 'string' ? msg : 'Error al enviar el enlace de recuperación.')
+    } finally {
+      setTogglingIds((prev) => {
+        const next = new Set(prev)
+        next.delete(userId)
+        return next
+      })
+    }
+  }
+
   async function handleToggleUser(userId: string, currentActive: boolean) {
     setTogglingIds((prev) => new Set(prev).add(userId))
     setToggleError(null)
@@ -640,12 +659,15 @@ export default function ClientDetailPage() {
                         >
                           {togglingIds.has(u.id) ? '...' : u.is_active ? 'Desactivar' : 'Activar'}
                         </button>
-                        <button
-                          onClick={() => openPortalModal(u.email)}
-                          className="px-3 py-1 text-xs font-semibold font-sans text-gray-600 bg-gray-100 border border-gray-200 hover:bg-gray-200 rounded-lg transition-colors"
-                        >
-                          Reenviar
-                        </button>
+                        {u.is_active && (
+                          <button
+                            onClick={() => handleSendRecovery(u.id, u.email)}
+                            disabled={togglingIds.has(u.id)}
+                            className="px-3 py-1 text-xs font-semibold font-sans text-gray-600 bg-gray-100 border border-gray-200 hover:bg-gray-200 rounded-lg transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+                          >
+                            Enviar enlace de recuperación
+                          </button>
+                        )}
                       </div>
                     </td>
                   </tr>

@@ -405,7 +405,7 @@ exp` y se compara con `hmac.compare_digest`; la ruta se resuelve con `Path.resol
 - **Arreglo propuesto:** `Login.jsx`: si `err.response?.status === 403`, mostrar "Tu cuenta está desactivada. Contacta a tu proveedor." (sin revelar más). `ClientDetailPage.tsx`: quitar "Reenviar" de usuarios registrados (o cambiarlo por "Enviar enlace de recuperación" que llame a `/api/portal/forgot-password`); `invite_client` devolver 409 si el correo ya existe como `PortalUser`.
 - **Cómo verificar:** desactivar usuario del portal y entrar → mensaje de cuenta desactivada. `POST /api/portal/invite` con un correo registrado → 409.
 - **Afecta al manual:** Sí. Login del portal (mensajes) y gestión de usuarios (acción "Reenviar").
-- **Estado:** Pendiente
+- **Estado:** Corregido en rama `fix/portal-clientes` (sin desplegar). `Login.jsx` muestra "Tu cuenta está desactivada. Contacta a tu proveedor." ante 403 (sin contar para el bloqueo por intentos) y "Credenciales inválidas" solo en otros errores (401). `invite_client` devuelve 409 si el correo ya es `PortalUser`. En `ClientDetailPage.tsx` el botón "Reenviar" de usuarios registrados pasó a "Enviar enlace de recuperación" (solo usuarios activos; llama a `/api/portal/forgot-password`).
 
 ## H-26 — Admin: "Clientes activos" cuenta también inactivos; clientes inactivos sin reactivar
 

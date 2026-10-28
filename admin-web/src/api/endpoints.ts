@@ -90,6 +90,7 @@ export const API = {
   portal: {
     invite: '/api/portal/invite',
     adminUsers: (clientId: string) => `/api/portal/admin/clients/${clientId}/users`,
+    forgotPassword: '/api/portal/forgot-password',
     adminToggleUser: (userId: string) => `/api/portal/admin/users/${userId}/toggle-active`,
   },
   health: '/api/health',
