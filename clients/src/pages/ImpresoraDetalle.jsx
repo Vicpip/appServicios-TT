@@ -57,21 +57,6 @@ export default function ImpresoraDetalle() {
   const totalPages = Math.ceil(total / LIMIT)
   const currentPage = Math.floor(offset / LIMIT) + 1
 
-  // Client-side stats from loaded reports filtered to last 30 days
-  const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)
-  const recent = reports.filter(r => r.service_date && new Date(r.service_date) >= thirtyDaysAgo)
-  const totalRecent = recent.length
-  const completados = recent.filter(r => r.status?.toLowerCase() === 'completado').length
-  const pendientes = recent.filter(r => r.status?.toLowerCase() === 'pendiente').length
-  const typeFreq = {}
-  recent.forEach(r => { if (r.service_type) typeFreq[r.service_type] = (typeFreq[r.service_type] ?? 0) + 1 })
-  const tipoFrecuente = Object.keys(typeFreq).sort((a, b) => typeFreq[b] - typeFreq[a])[0] ?? '—'
-  const estadoGeneral = recent.length === 0
-    ? { label: 'Sin reportes', cls: 'bg-gray-100 text-gray-500 border-gray-200' }
-    : pendientes > 0
-      ? { label: 'Con pendientes', cls: 'bg-amber-50 text-amber-700 border-amber-200' }
-      : { label: 'Al día', cls: 'bg-green-50 text-green-700 border-green-200' }
-
   return (
     <div className="p-6 max-w-5xl mx-auto space-y-6">
       {/* Header */}
@@ -160,13 +145,12 @@ export default function ImpresoraDetalle() {
             <span className="text-xs text-gray-400 font-sans">(últimos 30 días)</span>
           </div>
 
-          {/* Row 1 — 4 KPIs from reports */}
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          {/* Row 1 — KPIs calculados en el servidor */}
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
             {[
-              { label: 'Total reportes', value: String(totalRecent) },
-              { label: 'Tipo frecuente', value: tipoFrecuente },
-              { label: 'Completados', value: String(completados) },
-              { label: 'Pendientes', value: String(pendientes) },
+              { label: 'Total reportes', value: String(printer?.reports_last_30d ?? 0) },
+              { label: 'Tipo frecuente', value: printer?.most_frequent_service_type ?? '—' },
+              { label: 'Pendientes de entrega', value: String(printer?.pending_delivery_count ?? 0) },
             ].map((kpi) => (
               <div key={kpi.label} className="bg-gray-50 rounded-lg px-3 py-2.5">
                 <p className="text-[9px] font-semibold text-gray-400 uppercase tracking-wide font-sans leading-none">{kpi.label}</p>
@@ -198,7 +182,7 @@ export default function ImpresoraDetalle() {
             ))}
           </div>
 
-          {/* Row 3 — última observación + estado general + advertencias */}
+          {/* Row 3 — última observación + estado del equipo + advertencias */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
             <div className="bg-gray-50 rounded-lg px-3 py-2.5">
               <p className="text-[9px] font-semibold text-gray-400 uppercase tracking-wide font-sans mb-1">Última observación</p>
@@ -207,10 +191,8 @@ export default function ImpresoraDetalle() {
               </p>
             </div>
             <div className="bg-gray-50 rounded-lg px-3 py-2.5">
-              <p className="text-[9px] font-semibold text-gray-400 uppercase tracking-wide font-sans mb-1.5">Estado general</p>
-              <span className={`inline-flex items-center px-2 py-0.5 border text-xs font-medium rounded-full font-sans ${estadoGeneral.cls}`}>
-                {estadoGeneral.label}
-              </span>
+              <p className="text-[9px] font-semibold text-gray-400 uppercase tracking-wide font-sans mb-1.5">Estado del equipo</p>
+              <ServiceStatusBadge status={printer?.printer_status} />
             </div>
             <div className="bg-gray-50 rounded-lg px-3 py-2.5">
               <p className="text-[9px] font-semibold text-gray-400 uppercase tracking-wide font-sans mb-1">Advertencias activas</p>

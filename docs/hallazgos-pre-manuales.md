@@ -112,7 +112,7 @@ Convenciones:
 - **Arreglo propuesto:** mover el cálculo al backend. En `portal.py:579` (`get_printer`) añadir al `PortalPrinterDetail` (`server/app/schemas/portal.py`) `reports_last_30d: int`, `most_frequent_service_type: str | None`, `pending_delivery_count: int`. En `ImpresoraDetalle.jsx` mostrar esos campos y **eliminar** "Completados", "Pendientes" y "Estado general" (o reemplazar "Estado general" por `printer.printer_status`, que ya viene del servidor). No tocar `admin.py` ni `PrinterDetailPage.tsx`.
 - **Cómo verificar:** impresora con 15 reportes en 30 días y página de 10: "Total reportes" debe decir 15. `curl -H "Authorization: Bearer $PORTAL_TOKEN" $API/api/portal/printers/<id>` incluye los campos nuevos. Ya no aparecen "Completados"/"Pendientes".
 - **Afecta al manual:** Sí. Sección Detalle de impresora del portal: quitar las tres tarjetas y describir las que quedan.
-- **Estado:** Pendiente
+- **Estado:** Corregido en rama `fix/portal-clientes` (sin desplegar). El detalle (`GET /api/portal/printers/{id}`) devuelve `reports_last_30d`, `most_frequent_service_type` y `pending_delivery_count` calculados con GROUP BY; `ImpresoraDetalle.jsx` los muestra, quita "Completados"/"Pendientes" y reemplaza "Estado general" por `printer_status`. Se quitaron `completado`/`pendiente`/`cancelado` de `StatusBadge`.
 
 ## H-05 — Portal, dashboard: cifras y gráficas sobre los 100 reportes más recientes
 
@@ -192,7 +192,7 @@ Convenciones:
 - **Arreglo propuesto:** añadir en `STATUS_MAP`: `pending_delivery` → "Pendiente de entrega", `reviewed-approved` → "Aprobado", `reviewed-rejected` → "Rechazado". Eliminar claves que el sistema no genera (`completado`, `pendiente`, `cancelado`) cuando se corrija H-04. No tocar `PolizaDetalle.jsx` (tiene su propio mapa).
 - **Cómo verificar:** reporte con `status='pending_delivery'` en BD → badge "Pendiente de entrega" en Dashboard, Reportes e Historial.
 - **Afecta al manual:** Sí. Tabla de estados del portal.
-- **Estado:** Pendiente
+- **Estado:** Corregido en rama `fix/portal-clientes` (sin desplegar). Añadidos `pending_delivery`, `reviewed-approved` y `reviewed-rejected` a `StatusBadge`; claves inexistentes retiradas junto con H-04.
 
 ## H-11 — Portal: Registro y Reset sin mensaje de éxito; reglas de contraseña solo en el front
 

@@ -1,8 +1,5 @@
 const STATUS_MAP = {
-  completado: { label: 'Completado', classes: 'bg-green-50 text-green-700 border-green-200' },
-  pendiente:  { label: 'Pendiente',  classes: 'bg-amber-50 text-amber-700 border-amber-200' },
   en_proceso: { label: 'En proceso', classes: 'bg-blue-50 text-blue-700 border-blue-200' },
-  cancelado:  { label: 'Cancelado',  classes: 'bg-red-50 text-red-600 border-red-200' },
   activa:     { label: 'Activa',     classes: 'bg-green-50 text-green-700 border-green-200' },
   active:     { label: 'Activa',     classes: 'bg-green-50 text-green-700 border-green-200' },
   expiring:   { label: 'Por vencer', classes: 'bg-amber-50 text-amber-700 border-amber-200' },

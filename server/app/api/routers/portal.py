@@ -697,6 +697,24 @@ def get_printer(
         except (json.JSONDecodeError, TypeError):
             printer_status_detail = "Sin Historial"
 
+    # reports_last_30d / most_frequent_service_type — whole 30-day window, not one page
+    type_rows = (
+        db.query(Report.service_type, func.count(Report.id))
+        .filter(Report.printer_id == printer_id, Report.service_date >= thirty_days_ago)
+        .group_by(Report.service_type)
+        .all()
+    )
+    reports_last_30d = sum(n for _, n in type_rows)
+    most_frequent_service_type: str | None = None
+    if type_rows:
+        most_frequent_service_type = sorted(type_rows, key=lambda r: (-r[1], r[0] or ""))[0][0]
+
+    pending_delivery_count = (
+        db.query(func.count(Report.id))
+        .filter(Report.printer_id == printer_id, Report.status == "pending_delivery")
+        .scalar()
+    ) or 0
+
     return PortalPrinterDetail(
         id=printer.id,
         serial_number=printer.serial_number,
@@ -716,6 +734,9 @@ def get_printer(
         avg_darkness_level=avg_darkness_level,
         last_observation=last_observation,
         active_warnings=active_warnings,
+        reports_last_30d=reports_last_30d,
+        most_frequent_service_type=most_frequent_service_type,
+        pending_delivery_count=pending_delivery_count,
     )
 
 

@@ -144,6 +144,9 @@ class PortalPrinterDetail(BaseModel):
     avg_darkness_level: Optional[float] = None
     last_observation: Optional[str] = None
     active_warnings: list[str] = []
+    reports_last_30d: int = 0
+    most_frequent_service_type: Optional[str] = None
+    pending_delivery_count: int = 0
 
 
 # ---------------------------------------------------------------------------
