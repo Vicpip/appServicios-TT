@@ -149,6 +149,57 @@ def imprimir_paridad(res: dict, hasta) -> None:
             print(f"  {causa}: {n}")
 
 
+def validar_notas(db, historico, desde, hasta) -> dict:
+    """Validacion de la inferencia por notas contra las banderas del Excel, SIN trampa:
+    - se evalua `notas.inferir_dano` SOLA (sin el checkbox), para que el acuerdo no venga del checklist;
+    - la tabla "checklist=0" aisla los casos donde las notas son lo unico que puede acertar;
+    - se alinea CSV-app por serie + fecha (+-1 dia, uno a uno) y solo se usan visitas >= `desde` (las del CSV que
+      salieron de esta base); nada de esto se usa para ajustar la regla (ver 'en muestra' en el resultado)."""
+    import pandas as pd
+    from sqlalchemy import select
+    from app.models.printer import Printer
+    from app.models.report import Report
+    from app.risk import notas as N
+    rep = db.execute(select(Printer.serial_number, Report.service_date, Report.notes, Report.technical_checkboxes)
+                     .join(Printer, Printer.id == Report.printer_id)
+                     .where(Report.status.in_(queries.ESTADOS_ELEGIBLES))
+                     .order_by(Report.service_date, Report.created_at, Report.id)).all()   # orden fijo: el emparejamiento no depende del azar
+    H = historico.copy()
+    H["k"] = H.numero_serie.map(queries._clave_serie)
+    H = H[(H.fecha >= pd.Timestamp(desde)) & (H.fecha <= pd.Timestamp(hasta))]
+    por_serie = {}
+    for r in rep:
+        por_serie.setdefault(queries._clave_serie(r.serial_number), []).append(r)
+    claves = {"cabezal": "Cabezal dañado", "rodillo": "Rodillo dañado"}
+    out = {pz: {"todas": Counter(), "checklist0": Counter()} for pz in N.PIEZAS}
+    usados = set()
+    for _, h in H.iterrows():
+        cand = [(abs((queries._fecha(r.service_date) - h.fecha.date()).days), i, r)
+                for i, r in enumerate(por_serie.get(h.k, [])) if (h.k, i) not in usados
+                and abs((queries._fecha(r.service_date) - h.fecha.date()).days) <= 1]
+        if not cand:
+            continue
+        _, i, r = min(cand, key=lambda t: t[:2])
+        usados.add((h.k, i))
+        cb = queries._checklist(r.technical_checkboxes)
+        for pz in N.PIEZAS:
+            par = (int(h[pz]), int(N.inferir_dano(r.notes, pz)))          # (Excel, notas)
+            out[pz]["todas"][par] += 1
+            if cb.get(claves[pz]) is not True:
+                out[pz]["checklist0"][par] += 1
+    return out
+
+
+def imprimir_validacion_notas(res: dict) -> None:
+    print("\n=== Validacion de la inferencia por notas (solo notas, sin checkbox) vs Excel ===")
+    print("Nota: la regla se escribio mirando las notas de esta misma base (en muestra); es una prueba de coherencia, "
+          "no una medida de generalizacion.")
+    for pz, tablas in res.items():
+        for nombre, t in tablas.items():
+            tp, fp, fn, tn = t[(1, 1)], t[(0, 1)], t[(1, 0)], t[(0, 0)]
+            print(f"  {pz:8s} {nombre:10s} Excel1/notas1={tp} Excel0/notas1={fp} Excel1/notas0={fn} Excel0/notas0={tn}")
+
+
 def verificar_base(esperada: str) -> bool:
     """Imprime host y nombre de la base; False si el nombre no es el esperado (la corrida debe abortar)."""
     from app.database import engine
@@ -165,13 +216,15 @@ def main(argv=None) -> int:
     ap.add_argument("--ventana-dias", type=int, default=3, help="ventana para marcar posibles duplicados (default 3)")
     ap.add_argument("--paridad-hasta", metavar="YYYY-MM-DD",
                     help="compara visitas combinadas (app + CSV) contra el CSV solo, recortados a esa fecha")
+    ap.add_argument("--validar-notas", action="store_true",
+                    help="valida la inferencia por notas contra las banderas del Excel (visitas desde 2026-04-28)")
     ap.add_argument("--base-esperada", default="servicios_copia", help="nombre de la base exigido con --paridad-hasta")
     args = ap.parse_args(argv)
     logging.basicConfig(level=logging.WARNING)
     hasta = None
-    if args.paridad_hasta:
+    if args.paridad_hasta or args.validar_notas:
         from datetime import date
-        hasta = date.fromisoformat(args.paridad_hasta)
+        hasta = date.fromisoformat(args.paridad_hasta) if args.paridad_hasta else None
         if not verificar_base(args.base_esperada):
             return 2
     from app.database import SessionLocal
@@ -219,6 +272,8 @@ def main(argv=None) -> int:
                 print(f"  {serie} {pz}: Aurora {ref} ({i_ref}) -> ahora {hoy} ({i_hoy})")
         else:
             print(f"\nNo se encontro {ruta}: se omite la comparacion")
+        if args.validar_notas:
+            imprimir_validacion_notas(validar_notas(db, hist, "2026-04-28", hasta or "2100-01-01"))
         if hasta is not None:
             imprimir_paridad(comparar_paridad(service.cargar_artefacto(), visitas.df, hist, hasta), hasta)
         return 0

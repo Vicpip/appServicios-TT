@@ -29,7 +29,7 @@ def _hay_motor() -> bool:
     return service.RUTA_MODELO_DEFECTO.exists()
 
 
-necesita_motor = pytest.mark.skipif(not _hay_motor(), reason="faltan numpy/pandas/scikit-learn o el .joblib")
+necesita_motor = pytest.mark.skipif(not _hay_motor(), reason="faltan numpy/pandas/scikit-learn o server/ml_models/modelo_riesgo.joblib (no se versiona: copialo a mano o con scp)")
 
 
 @pytest.mark.parametrize("ruta", RUTAS)

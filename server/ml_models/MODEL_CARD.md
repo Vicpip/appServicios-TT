@@ -8,7 +8,7 @@
 | Algoritmo | Random Forest (300 árboles, profundidad 4), 5 semillas por pieza, uno por pieza (cabezal, rodillo) |
 | Objetivo | Pieza aparece dañada en alguna visita dentro de los 90 días posteriores a la última visita |
 | Datos | 59 equipos / 426 visitas en la base; 54 equipos / 159 filas con etiqueta a 90 días |
-| Artefacto | Se versiona en git. No se reentrena ni se regenera como parte de la integración |
+| Artefacto | **No se versiona** (`server/ml_models/*.joblib` está en `.gitignore`): vive en disco y se copia a la VPS con `scp`. Las pruebas que lo cargan se omiten con un mensaje claro si falta. No se reentrena ni se regenera como parte de la integración |
 
 ## Métricas de referencia (README del módulo, validación agrupada por equipo)
 
@@ -32,9 +32,16 @@ Evidencia (copia local, 152 visitas posteriores a 2026-04-28): en 16 visitas el 
 checklist de la app no (9 cabezal, 7 rodillo); en todas las notas mencionan el cambio o el daño. Nunca ocurre lo
 contrario. `ReportPart` está vacío en la base, así que no interviene.
 
-**Estado:** la derivación actual de la app (`server/app/risk/queries.py`) lee solo el checklist
-(`technical_checkboxes`), por lo que subestima respecto de este criterio hasta que se alinee. Los demás campos
+**Implementación:** `server/app/risk/notas.py` (`inferir_dano`) y `queries._fila_app`: la bandera es checklist **o**
+notas. Se apaga con `RISK_INFERIR_DANO_EN_NOTAS=false`. Las visitas del CSV histórico no se tocan. Los demás campos
 (mantenimiento, calibración, sensores, contador) no muestran diferencias de definición.
+
+**Validación** (`python -m app.risk.diagnostico --validar-notas --paridad-hasta 2026-10-06`, copia local): con la regla
+sola (sin checkbox), en las visitas donde el checklist no marcaba la pieza, recupera 9 de 9 cabezales y 7 de 8 rodillos del
+Excel, sin falsos positivos en esa tabla (sobre todas las visitas tampoco: el único caso que aparecía era un emparejamiento al azar de dos reportes del mismo día; con orden fijo desaparece). Con checklist o notas, cabezal, rodillo y falla quedan sin diferencias en las 152 visitas
+posteriores a 2026-04-28. Es una validación **en muestra**: la regla se escribió viendo esas notas; no mide
+generalización. Las diferencias que quedan son contadores del Excel (errores de captura, se conserva el valor del
+Excel en el histórico y el de la base en la app) y 20 visitas que están en la app y no en el Excel (se conservan).
 
 ## Niveles
 

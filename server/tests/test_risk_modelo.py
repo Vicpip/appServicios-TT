@@ -20,7 +20,7 @@ RAIZ = Path(__file__).resolve().parents[2]
 CSV = RAIZ / "modulo_riesgo" / "datos_ejemplo" / "base_visitas_min.csv"
 JOBLIB = Path(__file__).resolve().parents[1] / "ml_models" / "modelo_riesgo.joblib"
 
-pytestmark = pytest.mark.skipif(not (CSV.exists() and JOBLIB.exists()), reason="faltan el CSV de ejemplo o el .joblib")
+pytestmark = pytest.mark.skipif(not (CSV.exists() and JOBLIB.exists()), reason="faltan el CSV de ejemplo o server/ml_models/modelo_riesgo.joblib (el .joblib no se versiona: copialo a mano o con scp)")
 
 
 @pytest.fixture(scope="module")

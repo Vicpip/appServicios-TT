@@ -57,6 +57,12 @@ class Settings(BaseSettings):
     # Equipos de demo/prueba que no deben entrar al cálculo: números de serie separados por coma.
     # Vacío (por defecto) = no se excluye nada. No hace falta definirlo en .env.
     risk_series_excluidas: str = ""
+    # Clientes de prueba que no deben entrar al cálculo: nombres (tal como están en `clients.name`) separados por
+    # coma, sin distinguir mayúsculas ni acentos. Vacío = no se excluye ninguno. Los nombres van SOLO en .env.
+    risk_clientes_excluidos: str = ""
+    # Criterio de Aurora: cabezal/rodillo valen 1 también si las notas del reporte indican cambio o daño de esa pieza
+    # (app/risk/notas.py). false = solo el checklist.
+    risk_inferir_dano_en_notas: bool = True
 
     @model_validator(mode="after")
     def _check_file_signing_secret(self) -> "Settings":

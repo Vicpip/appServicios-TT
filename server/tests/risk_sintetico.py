@@ -49,6 +49,6 @@ def escribir_csv(V, ruta) -> None:
 def settings_falsos(**cambios) -> SimpleNamespace:
     """Reemplazo de get_settings() para las pruebas del modulo de riesgo."""
     base = dict(risk_enabled=True, risk_model_path="", risk_historico_path="", risk_permitir_sin_historico=False,
-                risk_series_excluidas="")
+                risk_series_excluidas="", risk_clientes_excluidos="", risk_inferir_dano_en_notas=True)
     base.update(cambios)
     return SimpleNamespace(**base)

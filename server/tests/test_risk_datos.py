@@ -70,12 +70,12 @@ class Sembrador:
         return p
 
     def reporte(self, p: Printer, fecha, status="signed", tipo="Preventivo", contador=1000, cb=None,
-                supersedes=None) -> Report:
+                supersedes=None, notes=None) -> Report:
         self.n += 1
         r = Report(id=str(uuid.uuid4()), code=f"R-{self.n}", printer_id=p.id, tech_id="t", service_type=tipo,
                    status=status, service_date=datetime.combine(fecha, datetime.min.time()),
                    linear_inches_counter=contador, technical_checkboxes=json.dumps(cb) if cb is not None else "{}",
-                   supersedes_report_id=supersedes, created_at=datetime(2026, 1, 1) + timedelta(seconds=self.n))
+                   supersedes_report_id=supersedes, notes=notes, created_at=datetime(2026, 1, 1) + timedelta(seconds=self.n))
         self.db.add(r)
         self.db.flush()
         return r
@@ -132,7 +132,7 @@ def art():
     from app.risk import modelo as M
     from app.risk import service
     if not service.RUTA_MODELO_DEFECTO.exists():
-        pytest.skip("falta el .joblib")
+        pytest.skip("falta server/ml_models/modelo_riesgo.joblib (no se versiona: copialo a mano o con scp)")
     return M.cargar(service.RUTA_MODELO_DEFECTO)
 
 
@@ -532,3 +532,56 @@ def test_loader_lee_la_ruta_configurada(tmp_path, monkeypatch):
     monkeypatch.setattr(Q, "get_settings", lambda: settings_falsos(risk_historico_path=str(csv)))
     n = len(historial_sintetico())
     assert len(Q.cargar_historico()) == n and Q.estado_historico() == (True, n)
+
+
+# --------------------------------------------------------------------------- criterio de Aurora: dano en notas
+
+def _flags(db, notes, cb=None, activar=True, monkeypatch=None):
+    s = Sembrador(db)
+    p = s.impresora("NOTAS-1")
+    s.reporte(p, date(2026, 6, 1), cb=cb, notes=notes)
+    db.commit()
+    monkeypatch.setattr(Q, "get_settings", lambda: settings_falsos(risk_inferir_dano_en_notas=activar))
+    f = Q.construir_visitas(db, historico=VACIO).df.iloc[0]
+    return int(f.cabezal), int(f.rodillo), int(f.falla)
+
+
+def test_notas_de_cambio_marcan_la_pieza_aunque_el_checkbox_no(db, monkeypatch):
+    cb = {"Cabezal dañado": False, "Rodillo dañado": False}
+    assert _flags(db, "-Se realiza cambio de cabezal de impresión -Impresora Ok", cb, monkeypatch=monkeypatch) == (1, 0, 1)
+
+
+def test_notas_de_otra_pieza_o_limpieza_no_marcan(db, monkeypatch):
+    assert _flags(db, "Limpieza de cabezal. Spindle de ribbon dañado", {}, monkeypatch=monkeypatch) == (0, 0, 0)
+
+
+def test_inferencia_apagada_solo_usa_el_checklist(db, monkeypatch):
+    assert _flags(db, "Se realiza cambio de cabezal", {}, activar=False, monkeypatch=monkeypatch) == (0, 0, 0)
+
+
+def test_el_checkbox_sigue_mandando_si_las_notas_no_dicen_nada(db, monkeypatch):
+    assert _flags(db, "Impresora Ok", {"Rodillo dañado": True}, monkeypatch=monkeypatch) == (0, 1, 1)
+
+
+def test_clientes_excluidos_por_configuracion(db, monkeypatch, caplog):
+    s = Sembrador(db)
+    s.reporte(s.impresora("CLI-A"), date(2026, 6, 1))
+    db.commit()
+    s.client.name = "Cliente de Prueba Ñandú"
+    db.commit()
+    monkeypatch.setattr(Q, "get_settings", lambda: settings_falsos(risk_clientes_excluidos=" otro , cliente de prueba nandu "))
+    with caplog.at_level(logging.INFO, logger="app.risk.queries"):
+        v = Q.construir_visitas(db, historico=VACIO)
+    assert v.info == {} and v.excluidas == []
+    assert "RISK_CLIENTES_EXCLUIDOS" in caplog.text and "nandu" not in caplog.text.lower()   # el nombre no se escribe en el log
+
+
+def test_clientes_excluidos_por_defecto_no_excluye_nada(db, monkeypatch):
+    s = Sembrador(db)
+    s.reporte(s.impresora("CLI-B"), date(2026, 6, 1))
+    db.commit()
+    monkeypatch.setattr(Q, "get_settings", lambda: settings_falsos())
+    assert list(Q.construir_visitas(db, historico=VACIO).info) == ["CLI-B"]
+    from app.config import Settings
+    assert Settings.model_fields["risk_clientes_excluidos"].default == ""
+    assert Settings.model_fields["risk_inferir_dano_en_notas"].default is True

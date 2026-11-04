@@ -27,14 +27,19 @@
 - Pruebas con historial **sintético** (`SN-TEST-001…`, `tests/risk_sintetico.py`, datos inventados con semilla fija); las pruebas contra el CSV real de Aurora se omiten si el archivo no existe. Ningún serial real en archivos versionables.
 - Token de portal en `/api/admin/risk/*`: `require_admin` lo rechaza con 401 (igual que todo `/api/admin`), no 403; el de técnico sí da 403.
 
+### Mapeo por notas y decisiones (2026-11-04)
+- Criterio de Aurora para cabezal/rodillo implementado en `server/app/risk/notas.py` (checklist O notas; `RISK_INFERIR_DANO_EN_NOTAS`, default true). Validación y paridad: ver `MODEL_CARD.md`.
+- Las 20 visitas de la app que el Excel no trae **se conservan**. Contadores sin limpieza: Excel para el histórico, base para la app.
+- `RISK_CLIENTES_EXCLUIDOS` (nombres separados por coma, solo en `.env`) saca del cálculo a los clientes de prueba; el log solo cuenta, no escribe nombres.
+
 ### Puntos abiertos
 - **`modulo_riesgo/` (con el CSV real y `ejemplo_respuesta.json`) ya está en el commit local `00c1a62`.** `.gitignore` no destrackea: antes de cualquier push hay que `git rm -r --cached modulo_riesgo` y reescribir ese commit (o la rama) para que los seriales no queden en el historial. La rama aún no está en el remoto.
-- El `.joblib` (versionado, ~5 MB) no contiene seriales; confirmar que está bien publicarlo en un repo público.
+- **El `.joblib` NO se versiona** (decisión de Victor): queda en `server/ml_models/modelo_riesgo.joblib` (ya en `.gitignore`) y se copia a la VPS con `scp`. Las pruebas que lo cargan se omiten con mensaje claro si no existe.
 - El `.joblib` conserva `metricas_referencia` viejas ("59 equipos", PR-AUC 0.607/0.436); la guardada de la corrida es 0.609 / 0.459. Decidir cuáles cita el TT.
 - La VPS necesita el CSV histórico copiado a mano (no viene en git) o `RISK_HISTORICO_PATH` apuntando a él.
 - Marca (`catalog_models.brand`) solo se usa vía `MODELOS_EXCLUIDOS`; no se verificó cómo está capturada en producción.
 - 2 filas del CSV real tienen contador 0 (se dejan tal cual, como en el entrenamiento).
 - `server/venv313` local es Python 3.13 sin scikit-learn; en la VPS es Python 3.12.3. Para las pruebas de riesgo completas hay que instalar `requirements-ml.txt` o usar un venv aparte.
-- Preguntas del addendum §5: repo privado (**resuelta: es público**), `.joblib` en git, confirmación de Aurora sobre el Excel.
+- Preguntas del addendum §5: repo privado (**resuelta: es público**), `.joblib` en git (**resuelta: no se versiona**), confirmación de Aurora sobre el Excel (**resuelta**: criterio de notas, ver MODEL_CARD).
 
 **Fase siguiente:** C (snapshots, migración 016 idempotente, botón/refresh por impresora y por póliza, job systemd). Prompt en `docs/plan_modulo_riesgo_addendum.md`, §4 "Prompt — Fase C". Requiere A y B; el refresh debe devolver 503 sin historial salvo `risk_permitir_sin_historico=true`.

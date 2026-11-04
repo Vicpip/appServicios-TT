@@ -9,8 +9,8 @@ Reglas (addendum D-11 a D-16):
   notas del reporte indican reemplazo, cambio, sustitucion, dano, desgaste, quemado o rotura de ESA pieza, aunque el
   checkbox "dañado" no este marcado. No cuentan limpieza, revision sin hallazgos ni otras piezas (ribbon, spindle,
   sensores). `falla` = 1 si alguna pieza de dano vale 1.
-  PENDIENTE: `_fila_app` aun deriva las banderas solo del checklist (`CLAVES_CHECKLIST`), asi que subestima frente a
-  ese criterio (en la copia: 9 cabezal y 7 rodillo de 152 visitas). El mapeo no se ha cambiado.
+  Implementado en `notas.inferir_dano` y aplicado en `_fila_app` como checklist O notas (se apaga con
+  RISK_INFERIR_DANO_EN_NOTAS=false). Las visitas del CSV historico no se tocan: ya traen ese criterio.
 - Contador 0 = dato faltante (NaN). Modelo = f"{model_name.strip().upper()}-{dpi}dpi".
 - Lo que no es Zebra no se puntua (MODELOS_EXCLUIDOS).
 
@@ -29,7 +29,9 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, aliased
 
 from app.config import get_settings
+from app.risk import notas as N
 from app.models.catalog import CatalogModel
+from app.models.client import Client
 from app.models.printer import Printer
 from app.models.report import Report
 
@@ -107,6 +109,20 @@ class Visitas:
         return next((i for i in self.info.values() if i.printer_id == printer_id), None)
 
 
+def _normalizar_texto(valor: Any) -> str:
+    return N._normalizar(str(valor or "")).strip()
+
+
+def clientes_excluidos_config() -> frozenset[str]:
+    """Nombres normalizados (minusculas, sin acentos) de RISK_CLIENTES_EXCLUIDOS: clientes de prueba fuera del calculo."""
+    texto = getattr(get_settings(), "risk_clientes_excluidos", "") or ""
+    return frozenset(_normalizar_texto(n) for n in texto.split(",") if n.strip())
+
+
+def inferir_dano_en_notas() -> bool:
+    return bool(getattr(get_settings(), "risk_inferir_dano_en_notas", True))
+
+
 def series_excluidas_config() -> frozenset[str]:
     """Claves de serie (mayusculas, sin espacios) de RISK_SERIES_EXCLUIDAS: equipos de demo/prueba fuera del calculo."""
     texto = getattr(get_settings(), "risk_series_excluidas", "") or ""
@@ -118,18 +134,22 @@ def impresoras_candidatas(db: Session, printer_ids: list[str] | None = None, cli
     """Impresoras activas. Devuelve (candidatas, excluidas): las no Zebra se separan y se registran en el log.
     Las series de RISK_SERIES_EXCLUIDAS (demo/prueba) tambien quedan fuera y se registran en el log, sin entrar a `excluidas`."""
     manuales = series_excluidas_config()
+    clientes = clientes_excluidos_config()
     q = (select(Printer.id, Printer.serial_number, Printer.client_id, CatalogModel.brand,
-                CatalogModel.model_name, CatalogModel.dpi)
+                CatalogModel.model_name, CatalogModel.dpi, Client.name.label("client_name"))
          .join(CatalogModel, CatalogModel.id == Printer.model_id)
+         .outerjoin(Client, Client.id == Printer.client_id)
          .where(Printer.is_active.is_(True))
          .order_by(Printer.serial_number))
     if printer_ids is not None:
         q = q.where(Printer.id.in_(printer_ids))
     if client_id is not None:
         q = q.where(Printer.client_id == client_id)
-    candidatas, excluidas, por_config = [], [], []
+    candidatas, excluidas, por_config, por_cliente = [], [], [], 0
     for fila in db.execute(q).all():
-        if _clave_serie(fila.serial_number) in manuales:
+        if clientes and _normalizar_texto(fila.client_name) in clientes:
+            por_cliente += 1
+        elif _clave_serie(fila.serial_number) in manuales:
             por_config.append(fila.serial_number)
         elif es_modelo_excluido(fila.brand, fila.model_name, excluidos):
             excluidas.append((fila.serial_number, nombre_modelo(fila.model_name, fila.dpi)))
@@ -138,6 +158,8 @@ def impresoras_candidatas(db: Session, printer_ids: list[str] | None = None, cli
     if excluidas:
         logger.info("Riesgo: %d impresora(s) no Zebra excluidas del calculo: %s", len(excluidas),
                     ", ".join(f"{s} ({m})" for s, m in excluidas))
+    if por_cliente:      # solo la cuenta: los nombres de los clientes de prueba no se escriben en el log
+        logger.info("Riesgo: %d impresora(s) excluidas por RISK_CLIENTES_EXCLUIDOS", por_cliente)
     if por_config:
         logger.info("Riesgo: %d impresora(s) excluidas por RISK_SERIES_EXCLUIDAS: %s", len(por_config), ", ".join(por_config))
     return candidatas, excluidas
@@ -150,7 +172,8 @@ def reportes_elegibles(db: Session, printer_ids: list[str]):
     sup = aliased(Report)   # un reporte que reemplaza a otro: el reemplazado queda fuera
     reemplazados = select(sup.supersedes_report_id).where(sup.supersedes_report_id.is_not(None))
     q = (select(Printer.id.label("printer_id"), Printer.serial_number, Report.id.label("report_id"),
-                Report.service_date, Report.service_type, Report.linear_inches_counter, Report.technical_checkboxes)
+                Report.service_date, Report.service_type, Report.linear_inches_counter, Report.technical_checkboxes,
+                Report.notes)
          .join(Printer, Printer.id == Report.printer_id)
          .where(Printer.id.in_(printer_ids), Report.status.in_(ESTADOS_ELEGIBLES), Report.id.not_in(reemplazados))
          .order_by(Printer.serial_number, Report.service_date, Report.created_at, Report.id))
@@ -202,6 +225,10 @@ def estado_historico() -> tuple[bool, int]:
 def _fila_app(r, fila_origen: int, modelo: str, tipo: str) -> dict:
     cb = _checklist(r.technical_checkboxes)
     flags = {col: 1 if cb.get(clave) is True else 0 for col, clave in CLAVES_CHECKLIST.items()}
+    if inferir_dano_en_notas():            # criterio de Aurora: checklist O notas (solo cabezal y rodillo)
+        for pieza in N.PIEZAS:
+            if not flags[pieza] and N.inferir_dano(getattr(r, "notes", None), pieza):
+                flags[pieza] = 1
     contador = r.linear_inches_counter
     return dict(numero_serie=r.serial_number, fila_origen=fila_origen, fecha=_fecha(r.service_date), modelo=modelo,
                 tipo_servicio=tipo, contador_1=None if not contador else contador,    # 0 = dato faltante
