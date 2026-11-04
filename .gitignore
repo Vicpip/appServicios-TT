@@ -50,3 +50,5 @@ modulo_riesgo/
 
 # Modelo entrenado (se copia a la VPS con scp, no se versiona)
 server/ml_models/*.joblib
+
+docs/capturas/
