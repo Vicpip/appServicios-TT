@@ -63,6 +63,11 @@ app.include_router(admin_router)
 app.include_router(portal_router)
 app.include_router(public_router)
 app.include_router(files_router)
+try:
+    from app.api.routers.risk_admin import router as risk_admin_router
+    app.include_router(risk_admin_router)
+except ImportError:  # el modulo de riesgo es opcional: la app arranca sin sus dependencias
+    logger.warning("Modulo de riesgo no disponible; sus endpoints no se registran")
 
 # /uploads ya NO se monta (H-19): las fotos/firmas/PDFs se sirven solo con URL firmada
 # (GET /api/files/signed) y los logos con GET /api/portal/client-logo.

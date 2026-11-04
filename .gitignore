@@ -35,3 +35,18 @@ cbm-ui/
 cbm-ui-extract/
 cbm-ui.zip
 install.ps1
+# Manuales: herramientas de capturas (entorno demo)
+tools/manual-capturas/node_modules/
+tools/manual-capturas/auth/
+tools/manual-capturas/out/
+tools/manual-capturas/bin/
+tools/manual-capturas/.venv/
+tools/manual-capturas/.env.demo
+_demo/
+
+# Modulo de riesgo: datos de clientes (el repo es publico)
+server/app/risk/data/historico_visitas.csv
+modulo_riesgo/
+
+# Modelo entrenado (se copia a la VPS con scp, no se versiona)
+server/ml_models/*.joblib

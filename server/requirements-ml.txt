@@ -1,0 +1,6 @@
+# Dependencias del modulo de riesgo (app/risk). Opcionales: la app arranca sin ellas.
+# VPS: Python 3.12.3 (venv313). Local: 3.13. El .joblib exige esta version exacta de scikit-learn.
+numpy
+pandas
+scikit-learn==1.9.1
+joblib
