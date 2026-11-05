@@ -30,6 +30,7 @@ from app.models.portal import (  # noqa: F401
     PortalInvitation,
     PortalPasswordReset,
 )
+from app.models.risk import PrinterRiskSnapshot  # noqa: F401
 
 __all__ = [
     "User",
@@ -57,4 +58,5 @@ __all__ = [
     "PortalUser",
     "PortalInvitation",
     "PortalPasswordReset",
+    "PrinterRiskSnapshot",
 ]

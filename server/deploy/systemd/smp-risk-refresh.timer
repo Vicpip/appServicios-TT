@@ -1,0 +1,11 @@
+# Plantilla (no se instala sola). Corre smp-risk-refresh.service todos los dias a las 03:00 (hora del servidor).
+[Unit]
+Description=Servicios Main PC - riesgo de piezas, diario 03:00
+
+[Timer]
+OnCalendar=*-*-* 03:00:00
+Persistent=true
+Unit=smp-risk-refresh.service
+
+[Install]
+WantedBy=timers.target

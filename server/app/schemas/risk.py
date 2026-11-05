@@ -1,4 +1,5 @@
 """Schemas del modulo de riesgo (admin). Pydantic v2."""
+from datetime import datetime
 from typing import Any, Literal
 
 from pydantic import BaseModel
@@ -57,3 +58,50 @@ class ModeloInfo(BaseModel):
     n_filas_historico: int
     permitir_sin_historico: bool
     aviso: str
+
+
+# --------------------------------------------------------------------------- snapshots (Fase C)
+
+class PiezaSnapshot(PiezaRiesgo):
+    dano_detectado_en_notas: bool = False  # la bandera de esta pieza se activo solo por las notas del reporte (no por el checklist)
+
+
+class EquipoSnapshot(BaseModel):
+    """Riesgo guardado de una impresora (lectura de printer_risk_snapshots; no se calcula al leer)."""
+    printer_id: str
+    client_id: str
+    numero_serie: str
+    modelo_impresora: str
+    fecha_ultima_visita: str
+    vigente_hasta: str
+    vigente: bool                         # derivado al leer: valid_until >= hoy
+    stale: bool                           # hay reportes mas nuevos que este calculo
+    modelo_desactualizado: bool           # calculado con una version de modelo distinta a la cargada
+    visitas_registradas: int
+    visitas_app: int
+    visitas_historicas: int
+    historial_corto: bool
+    cabezal: PiezaSnapshot
+    rodillo: PiezaSnapshot
+    version_modelo: str
+    computed_at: datetime                 # UTC
+    computed_by: str | None = None        # users.id; None = job diario
+    aviso: str
+
+
+class RiesgoSnapshots(BaseModel):
+    total: int                            # antes de aplicar `limit`
+    version_modelo: str | None            # del modelo cargado; None si no esta disponible
+    horizonte_dias: int
+    aviso: str
+    equipos: list[EquipoSnapshot]
+    sin_calcular: int = 0                 # impresoras que entran al calculo y no tienen snapshot (incluye las sin visitas)
+
+
+class RefreshRespuesta(BaseModel):
+    computed_at: datetime
+    computed_by: str | None
+    version_modelo: str
+    equipos: list[EquipoSnapshot]
+    sin_datos: int = 0                    # impresoras sin visitas ni historial: no se calcularon
+    excluidas_no_zebra: int = 0

@@ -95,9 +95,11 @@ def _a_fecha(hoy):
         return dt.date.today()
     return pd.Timestamp(hoy).date()
 
-def predecir(art, V, hoy=None):
+def predecir(art, V, hoy=None, con_entradas=False):
     """Riesgo a 90 dias de la ULTIMA visita de cada equipo. V = visitas (columnas de datos.COLS).
-    `hoy` (fecha, opcional) fija la fecha de referencia de `vigente`; por defecto la fecha actual."""
+    `hoy` (fecha, opcional) fija la fecha de referencia de `vigente`; por defecto la fecha actual.
+    `con_entradas=True` agrega a cada equipo `entradas`: las variables NUMERICAS que vio el modelo en la ultima visita
+    (nunca texto: ni notas ni serie); sirve para auditar el calculo guardado."""
     V = D.preparar_visitas(V)
     if V.empty:
         return []
@@ -112,6 +114,8 @@ def predecir(art, V, hoy=None):
         d = dict(numero_serie=r.numero_serie, modelo_impresora=r.modelo, fecha_ultima_visita=str(r.fecha_visita.date()),
                  vigente_hasta=str(hasta), vigente=bool(hoy <= hasta),
                  visitas_registradas=int(r.n_visita), historial_corto=bool(r.n_visita < 3))
+        if con_entradas:
+            d['entradas'] = {c: (None if pd.isna(v) else float(v)) for c, v in X.iloc[i].items()}
         for pz, p in art['piezas'].items():
             s = float(sc[pz][i])
             pct = float(np.searchsorted(p['oof_ordenado'], s, side='right') / len(p['oof_ordenado']) * 100)

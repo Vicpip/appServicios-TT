@@ -1,0 +1,18 @@
+# Plantilla (no se instala sola). Recalcula los snapshots de riesgo de piezas de todas las impresoras.
+# Copiar a /etc/systemd/system/ y ver server/README.md ("Módulo de riesgo").
+# No toca servicios-backend.service: es una unidad independiente que usa el mismo venv y el mismo .env.
+# El .env se carga por ruta relativa, por eso WorkingDirectory debe ser el directorio del servidor.
+[Unit]
+Description=Servicios Main PC - actualizar riesgo de piezas (snapshots)
+After=servicios-backend.service postgresql.service
+
+[Service]
+Type=oneshot
+User=root
+WorkingDirectory=/opt/app/server
+ExecStart=/opt/app/server/venv313/bin/python -m app.risk.refresh --all
+Nice=10
+# Salidas: 0 = listo, 1 = fallo (revisar journalctl -u smp-risk-refresh), 75 = otro refresh en curso.
+# 75 no cuenta como fallo de la unidad: no se hizo nada y el timer lo reintenta.
+SuccessExitStatus=75
+TimeoutStartSec=900

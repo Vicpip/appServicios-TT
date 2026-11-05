@@ -76,19 +76,23 @@ class Resultado:
 
 
 def calcular(db: Session, printer_ids: list[str] | None = None, client_id: str | None = None,
-             hoy: date | None = None, historico=None) -> Resultado:
+             hoy: date | None = None, historico=None, con_entradas: bool = False) -> Resultado:
     """Riesgo de las impresoras indicadas (todas las activas si printer_ids es None).
-    Cada equipo trae lo de `modelo.predecir` mas printer_id, client_id y el desglose de visitas (app / historicas)."""
+    Cada equipo trae lo de `modelo.predecir` mas printer_id, client_id y el desglose de visitas (app / historicas).
+    `con_entradas=True` agrega ademas `entradas` (variables numericas de la ultima visita), `ultimo_report_id` y
+    `dano_solo_notas`: lo que necesitan los snapshots."""
     art = cargar_artefacto()              # primero el modelo: si falla, no se toca la base
     modelo = _importar_motor()
     if historico is None:
         historico = queries.cargar_historico()    # 503 (HistorialNoDisponible) si falta y no esta permitido
     visitas = queries.construir_visitas(db, printer_ids, client_id, historico=historico)
     equipos = []
-    for fila in modelo.predecir(art, visitas.df, hoy=hoy):
+    for fila in modelo.predecir(art, visitas.df, hoy=hoy, con_entradas=con_entradas):
         i = visitas.info[queries._clave_serie(fila["numero_serie"])]
         fila.update(printer_id=i.printer_id, client_id=i.client_id,
                     visitas_app=i.visitas_app, visitas_historicas=i.visitas_historicas)
+        if con_entradas:
+            fila.update(ultimo_report_id=i.ultimo_report_id, dano_solo_notas=dict(i.dano_solo_notas))
         equipos.append(fila)
     return Resultado(version_modelo=art["version"], horizonte_dias=art["horizonte_dias"], aviso=art["aviso"],
                      equipos=equipos, excluidas=visitas.excluidas, sin_datos=visitas.sin_datos)

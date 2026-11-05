@@ -315,7 +315,8 @@ def test_no_zebra_no_se_puntua_y_se_registra(db, caplog):
         v = Q.construir_visitas(db, historico=VACIO)
     assert set(v.df.numero_serie) == {"ZEB-1"} and list(v.info) == ["ZEB-1"]
     assert sorted(x[0] for x in v.excluidas) == ["DVR-1", "HP-1"]
-    assert "HP-1" in caplog.text and "DVR-1" in caplog.text
+    assert "2 impresora(s) no Zebra excluidas" in caplog.text      # solo la cuenta: ni seriales ni modelos en el log
+    assert "HP-1" not in caplog.text and "DVR-1" not in caplog.text and "LaserJet" not in caplog.text
 
 
 def test_exclusion_configurable(db):
@@ -435,7 +436,8 @@ def test_series_excluidas_por_configuracion(db, monkeypatch, caplog):
         v = Q.construir_visitas(db, historico=VACIO)
     assert list(v.info) == ["REAL-1"] and set(v.df.numero_serie) == {"REAL-1"}
     assert v.excluidas == []                                  # no son "no Zebra": solo se registran en el log
-    assert "RISK_SERIES_EXCLUIDAS" in caplog.text and "DEMO-A" in caplog.text and "DEMO-B" in caplog.text
+    assert "2 impresora(s) excluidas por RISK_SERIES_EXCLUIDAS" in caplog.text
+    assert "DEMO-A" not in caplog.text and "DEMO-B" not in caplog.text
     assert "REAL-1" not in caplog.text
 
 

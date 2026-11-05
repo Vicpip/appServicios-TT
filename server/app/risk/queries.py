@@ -96,6 +96,8 @@ class ImpresoraInfo:
     visitas_app: int = 0
     visitas_historicas: int = 0
     corte: date | None = None      # fecha del primer reporte elegible de la app
+    ultimo_report_id: str | None = None                  # ultimo reporte elegible de la app (None: solo historial CSV)
+    dano_solo_notas: dict = field(default_factory=dict)  # {'cabezal': bool, 'rodillo': bool} de ese ultimo reporte
 
 
 @dataclass
@@ -156,28 +158,39 @@ def impresoras_candidatas(db: Session, printer_ids: list[str] | None = None, cli
         else:
             candidatas.append(fila)
     if excluidas:
-        logger.info("Riesgo: %d impresora(s) no Zebra excluidas del calculo: %s", len(excluidas),
-                    ", ".join(f"{s} ({m})" for s, m in excluidas))
+        logger.info("Riesgo: %d impresora(s) no Zebra excluidas del calculo", len(excluidas))
     if por_cliente:      # solo la cuenta: los nombres de los clientes de prueba no se escriben en el log
         logger.info("Riesgo: %d impresora(s) excluidas por RISK_CLIENTES_EXCLUIDOS", por_cliente)
     if por_config:
-        logger.info("Riesgo: %d impresora(s) excluidas por RISK_SERIES_EXCLUIDAS: %s", len(por_config), ", ".join(por_config))
+        logger.info("Riesgo: %d impresora(s) excluidas por RISK_SERIES_EXCLUIDAS", len(por_config))
     return candidatas, excluidas
 
 
-def reportes_elegibles(db: Session, printer_ids: list[str]):
-    """Reportes elegibles de esas impresoras, en orden determinista (serie, service_date, created_at, id)."""
+def reportes_elegibles(db: Session, printer_ids: list[str], solo_ids: bool = False):
+    """Reportes elegibles de esas impresoras, en orden determinista (serie, service_date, created_at, id).
+    `solo_ids=True` trae solo printer_id y report_id (sin notas ni checklist): para detectar snapshots desactualizados."""
     if not printer_ids:
         return []
     sup = aliased(Report)   # un reporte que reemplaza a otro: el reemplazado queda fuera
     reemplazados = select(sup.supersedes_report_id).where(sup.supersedes_report_id.is_not(None))
-    q = (select(Printer.id.label("printer_id"), Printer.serial_number, Report.id.label("report_id"),
-                Report.service_date, Report.service_type, Report.linear_inches_counter, Report.technical_checkboxes,
-                Report.notes)
+    columnas = ((Printer.id.label("printer_id"), Report.id.label("report_id")) if solo_ids else
+                (Printer.id.label("printer_id"), Printer.serial_number, Report.id.label("report_id"),
+                 Report.service_date, Report.service_type, Report.linear_inches_counter, Report.technical_checkboxes,
+                 Report.notes))
+    q = (select(*columnas)
          .join(Printer, Printer.id == Report.printer_id)
          .where(Printer.id.in_(printer_ids), Report.status.in_(ESTADOS_ELEGIBLES), Report.id.not_in(reemplazados))
          .order_by(Printer.serial_number, Report.service_date, Report.created_at, Report.id))
     return db.execute(q).all()
+
+
+def ultimos_reportes_elegibles(db: Session, printer_ids: list[str]) -> dict[str, str]:
+    """{printer_id: id del ultimo reporte elegible}, con el mismo orden y los mismos filtros que `reportes_elegibles`.
+    Impresoras sin reportes elegibles no aparecen. Es la base de `stale` en los snapshots."""
+    ultimos: dict[str, str] = {}
+    for r in reportes_elegibles(db, printer_ids, solo_ids=True):
+        ultimos[r.printer_id] = r.report_id           # orden ascendente: el ultimo en llegar es el mas reciente
+    return ultimos
 
 
 @lru_cache(maxsize=4)
@@ -222,17 +235,21 @@ def estado_historico() -> tuple[bool, int]:
     return True, int(len(_leer_historico(str(ruta), ruta.stat().st_mtime)))
 
 
-def _fila_app(r, fila_origen: int, modelo: str, tipo: str) -> dict:
+def _fila_app(r, fila_origen: int, modelo: str, tipo: str) -> tuple[dict, dict]:
+    """(fila para el modelo, {'cabezal': bool, 'rodillo': bool}: la pieza se activo SOLO por las notas)."""
     cb = _checklist(r.technical_checkboxes)
     flags = {col: 1 if cb.get(clave) is True else 0 for col, clave in CLAVES_CHECKLIST.items()}
+    solo_notas = {pieza: False for pieza in N.PIEZAS}
     if inferir_dano_en_notas():            # criterio de Aurora: checklist O notas (solo cabezal y rodillo)
         for pieza in N.PIEZAS:
             if not flags[pieza] and N.inferir_dano(getattr(r, "notes", None), pieza):
                 flags[pieza] = 1
+                solo_notas[pieza] = True
     contador = r.linear_inches_counter
-    return dict(numero_serie=r.serial_number, fila_origen=fila_origen, fecha=_fecha(r.service_date), modelo=modelo,
+    fila = dict(numero_serie=r.serial_number, fila_origen=fila_origen, fecha=_fecha(r.service_date), modelo=modelo,
                 tipo_servicio=tipo, contador_1=None if not contador else contador,    # 0 = dato faltante
                 **flags, falla=1 if any(flags[c] for c in _DANOS) else 0)
+    return fila, solo_notas
 
 
 def construir_visitas(db: Session, printer_ids: list[str] | None = None, client_id: str | None = None,
@@ -255,7 +272,9 @@ def construir_visitas(db: Session, printer_ids: list[str] | None = None, client_
         fecha = _fecha(r.service_date)
         i.corte = fecha if i.corte is None else min(i.corte, fecha)
         i.visitas_app = n + 1
-        filas.append(_fila_app(r, OFFSET_APP + n, i.modelo, D.normalizar_tipo_servicio(r.service_type)))
+        fila, solo_notas = _fila_app(r, OFFSET_APP + n, i.modelo, D.normalizar_tipo_servicio(r.service_type))
+        filas.append(fila)
+        i.ultimo_report_id, i.dano_solo_notas = r.report_id, solo_notas    # los reportes llegan en orden: el ultimo gana
     app_df = pd.DataFrame(filas, columns=D.COLS)
 
     hist = cargar_historico() if historico is None else historico

@@ -53,27 +53,38 @@ def test_portal_rechazado(client, db, world, ruta):
     assert client.get(ruta, headers=h).status_code == esperado
 
 
-def test_503_sin_archivo_de_modelo(client, admin_headers, monkeypatch, tmp_path):
+def _rutas_que_calculan(world):
+    """Lo que necesita el modelo: model/info y los dos POST de refresh. Los GET de lectura NO lo necesitan."""
+    return [("get", "/api/admin/risk/model/info"),
+            ("post", f"/api/admin/risk/printers/{world.printers[0].id}/refresh"),
+            ("post", f"/api/admin/policies/{world.policy.id}/risk/refresh")]
+
+
+def test_503_sin_archivo_de_modelo(client, world, admin_headers, monkeypatch, tmp_path):
     monkeypatch.setattr(service, "get_settings",
                         lambda: SimpleNamespace(risk_enabled=True, risk_model_path=str(tmp_path / "no_existe.joblib")))
-    for ruta in RUTAS:
-        res = client.get(ruta, headers=admin_headers)
+    for metodo, ruta in _rutas_que_calculan(world):
+        res = getattr(client, metodo)(ruta, headers=admin_headers)
         assert res.status_code == 503, ruta
         assert "no disponible" in res.json()["detail"]
         assert str(tmp_path) not in res.json()["detail"]            # la causa va al log, no al cliente
+    # Leer snapshots no necesita el modelo: la lista responde (vacia) aunque no exista
+    lst = client.get("/api/admin/risk/printers", headers=admin_headers)
+    assert lst.status_code == 200 and lst.json()["version_modelo"] is None
 
 
-def test_503_con_risk_enabled_false(client, admin_headers, monkeypatch):
+def test_503_con_risk_enabled_false(client, world, admin_headers, monkeypatch):
     monkeypatch.setattr(service, "get_settings", lambda: SimpleNamespace(risk_enabled=False, risk_model_path=""))
-    for ruta in RUTAS:
-        assert client.get(ruta, headers=admin_headers).status_code == 503
+    for metodo, ruta in _rutas_que_calculan(world):
+        assert getattr(client, metodo)(ruta, headers=admin_headers).status_code == 503, ruta
 
 
-def test_503_si_faltan_dependencias(client, admin_headers, monkeypatch):
+def test_503_si_faltan_dependencias(client, world, admin_headers, monkeypatch):
     def sin_motor():
         raise ModeloNoDisponible("Faltan dependencias del modulo de riesgo")
     monkeypatch.setattr(service, "_importar_motor", sin_motor)
-    assert client.get("/api/admin/risk/printers", headers=admin_headers).status_code == 503
+    assert client.post(f"/api/admin/risk/printers/{world.printers[0].id}/refresh", headers=admin_headers).status_code == 503
+    assert client.get("/api/admin/risk/printers", headers=admin_headers).status_code == 200
 
 
 def test_importar_motor_convierte_importerror(monkeypatch):
@@ -149,10 +160,16 @@ def test_endpoints_con_modelo(client, db, world, admin_headers, historial_csv):
     assert info.status_code == 200 and info.json()["version"]
     assert info.json()["historico_cargado"] is True and info.json()["n_filas_historico"] == len(historial_sintetico())
 
+    # Antes del refresh no hay snapshots: la lista esta vacia y lo avisa (leer no calcula)
+    vacia = client.get("/api/admin/risk/printers", headers=admin_headers).json()
+    assert vacia["total"] == 0 and vacia["sin_calcular"] == 3 and vacia["equipos"] == []
+    assert client.get(f"/api/admin/risk/printers/{world.printers[0].id}", headers=admin_headers).status_code == 404
+    assert client.post(f"/api/admin/policies/{world.policy.id}/risk/refresh", headers=admin_headers).status_code == 200
+
     lst = client.get("/api/admin/risk/printers", headers=admin_headers)
     assert lst.status_code == 200
     body = lst.json()
-    assert body["total"] == 2 and body["sin_visitas"] == 1 and len(body["equipos"]) == 2
+    assert body["total"] == 2 and body["sin_calcular"] == 1 and len(body["equipos"]) == 2
     e = body["equipos"][0]
     assert e["rodillo"]["en_monitoreo"] is True and e["cabezal"]["en_monitoreo"] is False
     assert e["visitas_app"] == 3 and e["visitas_historicas"] == 0 and e["vigente"] is True
@@ -167,6 +184,7 @@ def test_endpoints_con_modelo(client, db, world, admin_headers, historial_csv):
 
     uno = client.get(f"/api/admin/risk/printers/{world.printers[0].id}", headers=admin_headers)
     assert uno.status_code == 200 and uno.json()["printer_id"] == world.printers[0].id
+    assert uno.json()["stale"] is False and uno.json()["modelo_desactualizado"] is False
     assert client.get(f"/api/admin/risk/printers/{world.printers[2].id}", headers=admin_headers).status_code == 404
     assert client.get("/api/admin/risk/printers/no-existe", headers=admin_headers).status_code == 404
 
@@ -180,8 +198,8 @@ def test_503_sin_historial_y_info_lo_reporta(client, db, world, admin_headers, m
     assert info.status_code == 200
     assert (info.json()["historico_cargado"], info.json()["n_filas_historico"]) == (False, 0)
     assert info.json()["permitir_sin_historico"] is False
-    for ruta in ("/api/admin/risk/printers", f"/api/admin/risk/printers/{world.printers[0].id}"):
-        res = client.get(ruta, headers=admin_headers)
+    for ruta in (f"/api/admin/risk/printers/{world.printers[0].id}/refresh", f"/api/admin/policies/{world.policy.id}/risk/refresh"):
+        res = client.post(ruta, headers=admin_headers)
         assert res.status_code == 503, ruta
         assert "historial de visitas" in res.json()["detail"] and str(tmp_path) not in res.json()["detail"]
 
@@ -194,6 +212,6 @@ def test_permitir_sin_historico_calcula_con_aviso(client, db, world, admin_heade
     info = client.get("/api/admin/risk/model/info", headers=admin_headers).json()
     assert (info["historico_cargado"], info["n_filas_historico"], info["permitir_sin_historico"]) == (False, 0, True)
     with caplog.at_level("WARNING"):
-        res = client.get("/api/admin/risk/printers", headers=admin_headers)
-    assert res.status_code == 200 and res.json()["total"] == 1 and res.json()["equipos"][0]["visitas_historicas"] == 0
+        res = client.post(f"/api/admin/risk/printers/{world.printers[0].id}/refresh", headers=admin_headers)
+    assert res.status_code == 200 and len(res.json()["equipos"]) == 1 and res.json()["equipos"][0]["visitas_historicas"] == 0
     assert "SIN historial" in caplog.text
