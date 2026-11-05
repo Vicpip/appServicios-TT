@@ -13,6 +13,7 @@ const SECTION_LABELS: Record<string, string> = {
   '/printers': 'Impresoras',
   '/policies': 'Pólizas',
   '/sync': 'Sincronización',
+  '/risk': 'Riesgo de piezas',
 }
 
 const getSectionTitle = (pathname: string): string => {

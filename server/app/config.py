@@ -45,6 +45,25 @@ class Settings(BaseSettings):
     file_signing_secret: str = ""
     file_url_ttl_seconds: int = 3600
 
+    # Módulo de riesgo de piezas. Ambos opcionales: no se exige nada en .env.
+    # risk_model_path vacío = server/ml_models/modelo_riesgo.joblib.
+    risk_model_path: str = ""
+    risk_enabled: bool = True
+    # Historial de visitas anterior a la app (CSV con datos de clientes; NO se versiona). Vacío =
+    # server/app/risk/data/historico_visitas.csv. Si falta, el cálculo responde 503 salvo que
+    # risk_permitir_sin_historico=true (el riesgo se subestima sin historial).
+    risk_historico_path: str = ""
+    risk_permitir_sin_historico: bool = False
+    # Equipos de demo/prueba que no deben entrar al cálculo: números de serie separados por coma.
+    # Vacío (por defecto) = no se excluye nada. No hace falta definirlo en .env.
+    risk_series_excluidas: str = ""
+    # Clientes de prueba que no deben entrar al cálculo: nombres (tal como están en `clients.name`) separados por
+    # coma, sin distinguir mayúsculas ni acentos. Vacío = no se excluye ninguno. Los nombres van SOLO en .env.
+    risk_clientes_excluidos: str = ""
+    # Criterio de Aurora: cabezal/rodillo valen 1 también si las notas del reporte indican cambio o daño de esa pieza
+    # (app/risk/notas.py). false = solo el checklist.
+    risk_inferir_dano_en_notas: bool = True
+
     @model_validator(mode="after")
     def _check_file_signing_secret(self) -> "Settings":
         if self.app_env.lower() not in ("production", "prod"):
