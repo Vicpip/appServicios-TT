@@ -7,14 +7,18 @@ import {
   Printer,
   ShieldCheck,
   RefreshCw,
+  Activity,
   ChevronLeft,
   ChevronRight,
 } from 'lucide-react'
+import { useRiskModule } from '@/hooks/useRiskModule'
 
 interface NavItem {
   path: string
   icon: React.ElementType
   label: string
+  /** Solo se muestra si el módulo de riesgo está disponible. */
+  requiresRisk?: boolean
 }
 
 const NAV_ITEMS: NavItem[] = [
@@ -24,6 +28,7 @@ const NAV_ITEMS: NavItem[] = [
   { path: '/technicians', icon: Users, label: 'Técnicos' },
   { path: '/printers', icon: Printer, label: 'Impresoras' },
   { path: '/policies', icon: ShieldCheck, label: 'Pólizas' },
+  { path: '/risk', icon: Activity, label: 'Riesgo de piezas', requiresRisk: true },
   { path: '/sync', icon: RefreshCw, label: 'Sincronización' },
 ]
 
@@ -41,6 +46,8 @@ export default function Sidebar({
   onMobileClose,
 }: SidebarProps) {
   const location = useLocation()
+  const { available: riskAvailable } = useRiskModule()
+  const navItems = NAV_ITEMS.filter((item) => !item.requiresRisk || riskAvailable)
 
   const isActive = (path: string) =>
     path === '/' ? location.pathname === '/' : location.pathname.startsWith(path)
@@ -87,7 +94,7 @@ export default function Sidebar({
           aria-label="Menu principal"
         >
           <ul className="space-y-0.5 px-2">
-            {NAV_ITEMS.map(({ path, icon: Icon, label }) => {
+            {navItems.map(({ path, icon: Icon, label }) => {
               const active = isActive(path)
               return (
                 <li key={path}>

@@ -185,6 +185,38 @@ def test_lista_filtra_y_ordena_desde_snapshots(client, sembrado, admin_headers):
     assert all(e["cabezal"]["nivel"] == nivel for e in filtrado["equipos"])
 
 
+@necesita_motor
+def test_datos_de_la_impresora_en_lista_y_detalle(client, db, db_engine, sembrado, admin_headers):
+    world = sembrado
+    world.printers[0].code = "IMP-TEST-1"
+    db.commit()                                # printers[1] queda sin codigo: llega en null
+    client.post(f"/api/admin/policies/{world.policy.id}/risk/refresh", headers=admin_headers)
+
+    sentencias = []
+    def contar(conn, cursor, statement, *args):
+        sentencias.append(statement)
+    sa.event.listen(db_engine, "before_cursor_execute", contar)
+    try:
+        body = client.get("/api/admin/risk/printers", headers=admin_headers).json()
+    finally:
+        sa.event.remove(db_engine, "before_cursor_execute", contar)
+    # nombres de planta/area: una sola consulta para toda la lista (sin N+1)
+    assert sum(1 for s in sentencias if "plants" in s and "areas" in s) == 1
+
+    por_id = {e["printer_id"]: e for e in body["equipos"]}
+    a, b = por_id[world.printers[0].id], por_id[world.printers[1].id]
+    assert a["code"] == "IMP-TEST-1"
+    assert a["client_name"] == world.client_row.name
+    assert a["plant_name"] == "Planta 1" and a["plant_id"] == world.printers[0].plant_id
+    assert a["area_name"] == "Área 1" and a["area_id"] == world.printers[0].area_id
+    assert b["code"] is None and b["plant_name"] == "Planta 1" and b["client_name"] == world.client_row.name
+
+    det = client.get(f"/api/admin/risk/printers/{world.printers[0].id}", headers=admin_headers).json()
+    assert det["code"] == "IMP-TEST-1" and det["plant_name"] == "Planta 1" and det["client_name"] == world.client_row.name
+    ref = client.post(f"/api/admin/risk/printers/{world.printers[0].id}/refresh", headers=admin_headers).json()
+    assert ref["equipos"][0]["area_name"] == "Área 1"
+
+
 # --------------------------------------------------------------------------- inelegibles
 
 def _total(client, headers):

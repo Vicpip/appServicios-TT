@@ -6,6 +6,7 @@ import apiClient from '@/api/client'
 import { API } from '@/api/endpoints'
 import { DetailModal } from '@/pages/ReportsPage'
 import { reportStatusConfig } from '@/lib/reportStatus'
+import PrinterRiskCard from '@/components/risk/PrinterRiskCard'
 
 const API_BASE = (import.meta.env.VITE_API_URL as string ?? '').replace(/\/$/, '')
 
@@ -213,6 +214,9 @@ export default function PrinterDetailPage() {
           </div>
         </div>
       </div>
+
+      {/* Riesgo de piezas (se oculta solo si el módulo no está disponible) */}
+      {printer.is_active && <PrinterRiskCard printerId={printer.id} />}
 
       {/* Technical Stats */}
       {statsData && (

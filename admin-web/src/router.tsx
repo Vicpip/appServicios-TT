@@ -13,6 +13,8 @@ import SyncPage from '@/pages/SyncPage'
 import ClientDetailPage from '@/pages/ClientDetailPage'
 import PrinterDetailPage from '@/pages/PrinterDetailPage'
 import TechnicianProfilePage from '@/pages/TechnicianProfilePage'
+import RiskPage from '@/pages/RiskPage'
+import RiskModuleGuard from '@/components/risk/RiskModuleGuard'
 
 export const router = createBrowserRouter([
   {
@@ -37,6 +39,7 @@ export const router = createBrowserRouter([
       { path: 'printers/:id', element: <PrinterDetailPage /> },
       { path: 'policies', element: <PoliciesPage /> },
       { path: 'policies/:id', element: <PolicyDetailPage /> },
+      { path: 'risk', element: <RiskModuleGuard><RiskPage /></RiskModuleGuard> },
       { path: 'sync', element: <SyncPage /> },
     ],
   },

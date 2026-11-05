@@ -9,6 +9,7 @@ import apiClient from '@/api/client'
 import { API } from '@/api/endpoints'
 import { PolicyModal, PolicyDetail } from './PoliciesPage'
 import { DetailModal } from './ReportsPage'
+import PolicyRiskRefreshButton from '@/components/risk/PolicyRiskRefreshButton'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -600,6 +601,7 @@ export default function PolicyDetailPage() {
           <Pencil size={14} />
           Editar
         </button>
+        <PolicyRiskRefreshButton policyId={policy.id} />
       </div>
 
       {/* ── Tabs ── */}

@@ -93,5 +93,12 @@ export const API = {
     forgotPassword: '/api/portal/forgot-password',
     adminToggleUser: (userId: string) => `/api/portal/admin/users/${userId}/toggle-active`,
   },
+  risk: {
+    modelInfo: '/api/admin/risk/model/info',
+    printers: '/api/admin/risk/printers',
+    printer: (id: string) => `/api/admin/risk/printers/${id}`,
+    refreshPrinter: (id: string) => `/api/admin/risk/printers/${id}/refresh`,
+    refreshPolicy: (policyId: string) => `/api/admin/policies/${policyId}/risk/refresh`,
+  },
   health: '/api/health',
 } as const

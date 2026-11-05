@@ -72,6 +72,13 @@ class EquipoSnapshot(BaseModel):
     client_id: str
     numero_serie: str
     modelo_impresora: str
+    # Datos de la impresora, con los mismos nombres y fuente que PrinterListItem (GET /api/admin/printers)
+    code: str | None = None               # printers.code
+    client_name: str | None = None        # clients.name
+    plant_id: str | None = None
+    plant_name: str | None = None
+    area_id: str | None = None
+    area_name: str | None = None
     fecha_ultima_visita: str
     vigente_hasta: str
     vigente: bool                         # derivado al leer: valid_until >= hoy

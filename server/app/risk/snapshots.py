@@ -19,6 +19,9 @@ from datetime import date, datetime, timezone
 from sqlalchemy import delete, select, text
 from sqlalchemy.orm import Session
 
+from app.models.area import Area
+from app.models.plant import Plant
+from app.models.printer import Printer
 from app.models.risk import PrinterRiskSnapshot
 from app.risk import ModeloNoDisponible, queries, service
 
@@ -146,6 +149,12 @@ class VistaSnapshot:
     vigente: bool
     stale: bool
     modelo_desactualizado: bool
+    code: str | None = None
+    client_name: str | None = None
+    plant_id: str | None = None
+    plant_name: str | None = None
+    area_id: str | None = None
+    area_name: str | None = None
 
     @property
     def ref(self) -> PrinterRiskSnapshot:
@@ -197,13 +206,23 @@ def leer(db: Session, printer_ids: list[str] | None = None, client_id: str | Non
         filas.setdefault(s.printer_id, {})[s.piece] = s
     completos = {pid: p for pid, p in filas.items() if all(z in p for z in PIEZAS)}
     ultimos = queries.ultimos_reportes_elegibles(db, list(completos))
+    ubicacion = {r.id: r for r in db.execute(          # una sola consulta para todas: sin N+1
+        select(Printer.id, Printer.code, Printer.plant_id, Printer.area_id,
+               Plant.name.label("plant_name"), Area.name.label("area_name"))
+        .outerjoin(Plant, Plant.id == Printer.plant_id)
+        .outerjoin(Area, Area.id == Printer.area_id)
+        .where(Printer.id.in_(list(completos))))} if completos else {}
     vistas = []
     for pid, piezas in completos.items():
         c = por_id[pid]
         ref = piezas["cabezal"]
         if pid not in ultimos and not _visitas_historicas(ref):
             continue          # fila vieja de un equipo que ya no tiene visitas: el refresh la borrara
+        u = ubicacion.get(pid)
         vistas.append(VistaSnapshot(
+            code=u.code if u else None, client_name=c.client_name,
+            plant_id=u.plant_id if u else None, plant_name=u.plant_name if u else None,
+            area_id=u.area_id if u else None, area_name=u.area_name if u else None,
             printer_id=pid, client_id=c.client_id, numero_serie=c.serial_number,
             modelo_impresora=queries.nombre_modelo(c.model_name, c.dpi), piezas=piezas,
             vigente=ref.valid_until >= hoy,

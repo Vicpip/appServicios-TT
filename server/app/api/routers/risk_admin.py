@@ -42,6 +42,8 @@ def _equipo(v: snapshots.VistaSnapshot, aviso: str) -> EquipoSnapshot:
         for pz, s in v.piezas.items()}
     return EquipoSnapshot(
         printer_id=v.printer_id, client_id=v.client_id, numero_serie=v.numero_serie, modelo_impresora=v.modelo_impresora,
+        code=v.code, client_name=v.client_name, plant_id=v.plant_id, plant_name=v.plant_name,
+        area_id=v.area_id, area_name=v.area_name,
         fecha_ultima_visita=ref.last_visit_date.isoformat(), vigente_hasta=ref.valid_until.isoformat(),
         vigente=v.vigente, stale=v.stale, modelo_desactualizado=v.modelo_desactualizado,
         visitas_registradas=ref.visits_count, visitas_app=int(inputs.get("visitas_app", 0)),

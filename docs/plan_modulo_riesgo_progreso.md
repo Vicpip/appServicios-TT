@@ -65,3 +65,41 @@
 - Preguntas del addendum §5: repo privado (**resuelta: es público**), `.joblib` en git (**resuelta: no se versiona**), confirmación de Aurora sobre el Excel (**resuelta**: criterio de notas, ver MODEL_CARD).
 
 **Fase siguiente:** despliegue de la Fase C (ver `server/README.md`, orden de pasos) y D (pantallas admin: leer `GET /api/admin/risk/printers`, botón con los POST de refresh, mostrar "Historial: N de la app + M históricas", `stale`, `modelo_desactualizado` y "daño detectado en notas").
+
+
+---
+
+## Fase D — Pantallas del admin-web (hecha, local, sin commit)
+
+**Alcance:** solo `admin-web/`. No se tocó `server/`, `clients/` ni Flutter. Sin dependencias nuevas.
+
+**Archivos nuevos:** `src/types/risk.ts` (tipos del contrato, único lugar), `src/lib/risk.ts` (textos obligatorios, formato de fechas, mensajes de error), `src/hooks/useRiskModule.ts`, `src/components/risk/{RiskLevelBadge,PrinterRiskCard,PolicyRiskRefreshButton,RiskModuleGuard}.tsx`, `src/pages/RiskPage.tsx`.
+**Modificados:** `api/endpoints.ts` (bloque `risk`), `router.tsx` (ruta `/risk`), `components/layout/Sidebar.tsx` (entrada «Riesgo de piezas»), `pages/PrinterDetailPage.tsx` (tarjeta), `pages/PolicyDetailPage.tsx` (botón en el encabezado).
+
+**Decisiones**
+- El módulo se oculta (menú, ruta con redirección a `/`, tarjeta y botón de póliza) solo si `model/info` responde 503 o 404. Un fallo de red no lo oculta.
+- Listado: pide `limit=500` (máximo del contrato) y pagina en cliente de 25 en 25; si `total` > 500 avisa. El orden por riesgo viene del servidor; el selector solo lo invierte.
+- Rodillo: etiqueta «En monitoreo» siempre; cabezal como nivel de riesgo. Nivel = texto ALTO/MEDIO/BAJO + icono + color.
+- POST de póliza usa timeout de 120 s (el cliente HTTP tiene 15 s por defecto).
+- Errores del POST: 409, 503, 404 con mensaje propio; además 401/403, 5xx, timeout y sin red.
+
+**Verificación:** `tsc --noEmit` y `npm run build` limpios. El proyecto no tiene ESLint ni infraestructura de pruebas del front: no se agregaron pruebas. No se probó en navegador.
+
+**Pendientes / huecos del contrato**
+- El contrato no trae planta ni nombre de cliente (solo `client_id`): el listado resuelve el cliente con `GET /api/admin/clients` y **no muestra planta**. Añadir `client_name`/`plant_name` a `EquipoSnapshot` lo resolvería.
+
+
+### Fase D.1 — Datos de la impresora en el contrato (local, sin commit)
+- `EquipoSnapshot` ahora trae `code`, `client_name`, `plant_id`, `plant_name`, `area_id`, `area_name` (mismos nombres y fuente que `PrinterListItem` de `/api/admin/printers`). Aplica a listado, detalle y respuesta de los POST de refresh.
+- `snapshots.leer` toma `client_name` de la consulta de candidatas (ya hacía el join) y carga código, planta y área con **una** consulta adicional para todas las impresoras (outer join; sin N+1). `queries.py` no se tocó.
+- Front: el listado muestra código, serie, modelo, cliente, planta/área; filtros de cliente y planta salen de la propia respuesta (nivel y pieza siguen en el servidor); se eliminó la llamada a `GET /api/admin/clients`. El bloque del detalle muestra una línea con código · serie · modelo · cliente · planta / área.
+- Prueba nueva: `test_datos_de_la_impresora_en_lista_y_detalle` (valores, código nulo, una sola consulta de plantas/áreas). Riesgo: 149 pasan, 2 omitidas, 1 falla ya existente (`test_la_app_arranca_sin_numpy_pandas_sklearn`: la prueba usa `r.path` y esta versión de FastAPI devuelve `_IncludedRouter`; falla igual sin estos cambios).
+- Ambigüedad: como cliente y planta se filtran en el cliente sobre `limit=500`, si hay más de 500 impresoras con el nivel/pieza elegido, las opciones y resultados cubren solo las 500 de mayor riesgo (el aviso de truncado se muestra).
+
+
+### Fase D — verificación en navegador y capturas (2026-11-04, local, sin commit)
+**Entorno:** BD demo `smp_manual_demo` (nunca `servicios_copia` ni producción), `tools/manual-capturas/start-demo-riesgo.ps1` (RISK_ENABLED, `RISK_PERMITIR_SIN_HISTORICO=true`, historial CSV apuntando a un archivo inexistente). El refresh real sobre la demo da solo BAJO con historial corto; por eso `tools/manual-capturas/seed/seed_riesgo.py` inserta snapshots **sintéticos** (48 impresoras: ALTO/MEDIO/BAJO variados, historial corto, vencido, desactualizado, versión de modelo vieja, daño en notas) y un cliente ficticio «Plásticos Demo Riesgo» con 30 impresoras DEMO-RSK-### para pasar de 25 filas. `--limpiar` lo revierte.
+**Pruebas:** `riesgo-pruebas.mjs` (fases principal, vacio, apagado, red-info) y `riesgo-regresion.mjs` (compara `<main>` contra la línea base de HEAD, byte a byte). Resultado: 82 OK en la fase principal, 4 en vacío, 5 en apagado (también sin .joblib), 3 en red-info.
+**Bugs corregidos (admin-web/src/pages/RiskPage.tsx):** (1) texto doblemente codificado (mojibake «Ã¡», «â€”») en todo el listado; (2) la columna «Estado» quedaba fuera de vista a 1440 px (tabla de 1242 px en 1150): cabeceras sin `nowrap`, `px-3` y fecha que se parte en dos líneas.
+**Comportamientos a conocer:** 401 en el POST cierra la sesión (interceptor global de la app); el admin no tiene modo oscuro; el detalle del 503 solo se añade al mensaje si no empieza por el texto estándar del servidor.
+**Capturas:** `docs/capturas/riesgo-*.png` con `tools/manual-capturas/riesgo.mjs`. Manual: sección 4.13 en `docs/manual-admin-web.md`.
