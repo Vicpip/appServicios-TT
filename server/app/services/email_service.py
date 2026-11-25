@@ -27,7 +27,7 @@ from app.config import get_settings
 
 logger = logging.getLogger(__name__)
 
-_SENDER = "noreply@mainservicepc.com"
+_SENDER = "no-reply@mainservicepc.com"
 _COMPANY = "Servicios Main PC"
 
 # ---------------------------------------------------------------------------
